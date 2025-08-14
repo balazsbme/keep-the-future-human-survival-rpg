@@ -61,10 +61,9 @@ Follow these steps to get the project running.
 Running the Q\&A pipeline is simple.
 
 1.  **Customize the Script (Optional):**
-    Open the `mini_rag.py` file and modify the following variables at the bottom to point to your desired documentation and question:
+    Open the `rag_pipeline.py` file and modify the following variables at the bottom to point to your desired documentation and question:
 
     ```python
-    # Define the documentation URLs and the question to ask
     DOC_URLS = [
         "https://your-doc-url-1.com",
         "https://your-doc-url-2.com"
@@ -76,10 +75,21 @@ Running the Q\&A pipeline is simple.
     Execute the script from your terminal:
 
     ```bash
-    python mini_rag.py
+    python rag_pipeline.py
     ```
 
-The script will then perform the entire RAG process and print the final question and its generated answer to the console.
+    The script will then perform the entire RAG process and print the final question and its generated answer to the console.
+
+3. **Run the tests (optional):**
+    ```bash
+    pytest
+    ```
+    These tests rely on a dummy embedding model and require no API key.
+
+4. **Manual verification with your API key:**
+    * Ensure a `.env` file with `GOOGLE_API_KEY` exists.
+    * Adjust `DOC_URLS` and `USER_QUERY` if desired.
+    * Run `python rag_pipeline.py` and review the generated answer.
 
 -----
 
