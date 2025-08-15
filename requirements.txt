@@ -1,8 +1,7 @@
-google-generativeai
 python-dotenv
 requests
 beautifulsoup4
 langchain-text-splitters
-langchain-google-genai
 langchain-community
 faiss-cpu
+google-cloud-aiplatform
