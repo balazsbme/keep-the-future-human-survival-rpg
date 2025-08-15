@@ -1,4 +1,4 @@
-"""Minimal RAG pipeline for OpenNebula documentation using Gemini."""
+"""Minimal RAG pipeline for OpenNebula documentation using Vertex AI."""
 from __future__ import annotations
 
 import os
@@ -8,9 +8,30 @@ import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
-import google.generativeai as genai
+from langchain_core.embeddings import Embeddings
+import vertexai
+from vertexai.preview.language_models import TextEmbeddingModel
+from vertexai.preview.generative_models import GenerativeModel
+
+
+def initialize_vertex_ai(project: str, location: str) -> None:
+    """Initialize the Vertex AI SDK."""
+    vertexai.init(project=project, location=location)
+
+
+class VertexAIEmbeddings(Embeddings):
+    """Wrapper around Vertex AI text embedding model for LangChain."""
+
+    def __init__(self, model_name: str = "text-embedding-004") -> None:
+        self._model = TextEmbeddingModel.from_pretrained(model_name)
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        embeddings = self._model.get_embeddings(texts)
+        return [emb.values for emb in embeddings]
+
+    def embed_query(self, text: str) -> List[float]:
+        return self.embed_documents([text])[0]
 
 
 # ----- Core pipeline steps -----
@@ -46,11 +67,11 @@ def build_vector_store(chunks: List[str], embedding_model=None) -> FAISS:
     Parameters
     ----------
     chunks: list of text segments to index.
-    embedding_model: model used to embed text. If ``None`` a Gemini embedding
+    embedding_model: model used to embed text. If ``None`` a Vertex AI embedding
         model is instantiated; tests can supply a mock embedding model.
     """
     if embedding_model is None:
-        embedding_model = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
+        embedding_model = VertexAIEmbeddings()
     return FAISS.from_texts(chunks, embedding=embedding_model)
 
 
@@ -60,10 +81,13 @@ def retrieve_chunks(store: FAISS, query: str, k: int = 3) -> List[str]:
     return [doc.page_content for doc in docs]
 
 
-def generate_answer(question: str, context: str, *, model: str = "gemini-1.5-pro-latest") -> str:
-    """Generate an answer to ``question`` given ``context`` using Gemini."""
-    prompt = f"""Answer the question based ONLY on the provided context.\n\nCONTEXT:\n{context}\n\nQUESTION: {question}"""
-    llm = genai.GenerativeModel(model)
+def generate_answer(question: str, context: str, *, model: str = "gemini-pro") -> str:
+    """Generate an answer to ``question`` given ``context`` using Vertex AI."""
+    prompt = (
+        "Answer the question based ONLY on the provided context.\n\n"
+        f"CONTEXT:\n{context}\n\nQUESTION: {question}\n\nANSWER:"
+    )
+    llm = GenerativeModel(model)
     response = llm.generate_content(prompt)
     return response.text
 
@@ -71,10 +95,11 @@ def generate_answer(question: str, context: str, *, model: str = "gemini-1.5-pro
 def build_rag_and_answer(urls: Iterable[str], query: str) -> str:
     """High-level helper that performs the full RAG pipeline."""
     load_dotenv()
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        raise ValueError("GOOGLE_API_KEY not found in environment")
-    genai.configure(api_key=api_key)
+    project = os.getenv("GCP_PROJECT_ID")
+    location = os.getenv("GCP_REGION")
+    if not project or not location:
+        raise ValueError("GCP_PROJECT_ID and GCP_REGION must be set in environment")
+    initialize_vertex_ai(project, location)
 
     raw_text = scrape_urls(urls)
     chunks = chunk_text(raw_text)
