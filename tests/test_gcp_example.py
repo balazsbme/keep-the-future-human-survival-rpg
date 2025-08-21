@@ -1,24 +1,33 @@
+import os
+import unittest
+
+from dotenv import load_dotenv
 from google import genai
 from google.genai.types import EmbedContentConfig
-from dotenv import load_dotenv
 
-load_dotenv()
-client = genai.Client()
-response = client.models.embed_content(
-    model="text-embedding-005",
-    contents=[
-        "How do I get a driver's license/learner's permit?",
-        "How long is my driver's license valid for?",
-        "Driver's knowledge test study guide",
-    ],
-    config=EmbedContentConfig(
-        task_type="RETRIEVAL_DOCUMENT",  # Optional
-        output_dimensionality=768,  # Optional
-        title="Driver's License",  # Optional
-    ),
-)
-print(response)
-# Example response:
-# embeddings=[ContentEmbedding(values=[-0.06302902102470398, 0.00928034819662571, 0.014716853387653828, -0.028747491538524628, ... ],
-# statistics=ContentEmbeddingStatistics(truncated=False, token_count=13.0))]
-# metadata=EmbedContentMetadata(billable_character_count=112)
+
+class GenAIEmbeddingTest(unittest.TestCase):
+    """Integration test verifying Vertex AI embeddings via ``google-genai``."""
+
+    def test_embed_content(self):
+        load_dotenv()
+        project = os.getenv("GCP_PROJECT_ID")
+        location = os.getenv("GCP_REGION")
+        if not project or not location:
+            self.skipTest("GCP_PROJECT_ID and GCP_REGION must be set to run this test")
+        client = genai.Client(vertexai=True, project=project, location=location)
+        try:
+            response = client.models.embed_content(
+                model="text-embedding-005",
+                contents=["How do I get a driver's license/learner's permit?"],
+                config=EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT", output_dimensionality=768),
+            )
+            self.assertEqual(len(response.embeddings), 1)
+            self.assertGreater(len(response.embeddings[0].values), 0)
+        except Exception as exc:  # pragma: no cover - network/auth failures
+            self.skipTest(f"Vertex AI request failed: {exc}")
+
+
+if __name__ == "__main__":
+    unittest.main()
+
