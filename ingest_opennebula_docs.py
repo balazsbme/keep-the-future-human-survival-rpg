@@ -76,23 +76,6 @@ def init_engine() -> sqlalchemy.Engine:
     return sqlalchemy.create_engine("postgresql+pg8000://", creator=getconn)
 
 
-def ensure_table(engine: sqlalchemy.Engine) -> None:
-    """Create the embeddings table if it doesn't exist."""
-    create_stmt = sqlalchemy.text(
-        """
-        CREATE TABLE IF NOT EXISTS embeddings (
-            id SERIAL PRIMARY KEY,
-            url TEXT NOT NULL,
-            chunk_index INTEGER NOT NULL,
-            content TEXT,
-            embedding JSONB
-        )
-        """
-    )
-    with engine.begin() as conn:
-        conn.execute(create_stmt)
-
-
 def store_chunks(engine: sqlalchemy.Engine, url: str, chunks: Iterable[str], embeddings: Iterable[List[float]]) -> None:
     """Persist ``chunks`` and their ``embeddings`` for ``url``."""
     insert_stmt = sqlalchemy.text(
@@ -121,7 +104,6 @@ def ingest() -> None:
     client = genai.Client()
     embedder = VertexAIEmbeddings(client=client)
     engine = init_engine()
-    ensure_table(engine)
     for url in urls:
         text = scrape_urls([url])
         if not text:
