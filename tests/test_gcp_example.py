@@ -11,8 +11,8 @@ class GenAIEmbeddingTest(unittest.TestCase):
 
     def test_embed_content(self):
         load_dotenv()
-        client = genai.Client()
         try:
+            client = genai.Client()
             response = client.models.embed_content(
                 model="text-embedding-005",
                 contents=["How do I get a driver's license/learner's permit?"],
