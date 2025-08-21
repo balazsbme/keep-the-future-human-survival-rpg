@@ -4,7 +4,8 @@ import unittest
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from langchain_core.embeddings import Embeddings
-from rag_pipeline import chunk_text, build_vector_store, retrieve_chunks
+from rag_pipeline import chunk_text, build_vector_store, retrieve_chunks, scrape_urls
+from unittest.mock import patch
 
 
 class DummyEmbeddings(Embeddings):
@@ -30,6 +31,22 @@ class RAGPipelineTests(unittest.TestCase):
         store = build_vector_store(docs, embedding_model=DummyEmbeddings())
         retrieved = retrieve_chunks(store, "alpha", k=1)
         self.assertEqual(retrieved[0], "alpha")
+
+    @patch("rag_pipeline.requests.get")
+    def test_scrape_urls_fallback_to_body(self, mock_get):
+        class DummyResponse:
+            status_code = 200
+
+            def __init__(self, text):
+                self.text = text
+
+            def raise_for_status(self):
+                pass
+
+        html = "<html><body><p>Hello World!</p></body></html>"
+        mock_get.return_value = DummyResponse(html)
+        text = scrape_urls(["http://example.com"])
+        self.assertIn("Hello World!", text)
 
 
 if __name__ == "__main__":

@@ -38,18 +38,39 @@ def scrape_urls(urls: Iterable[str]) -> str:
     """Return concatenated text content from ``urls``.
 
     Only the main content of each page is extracted. Failures are skipped.
+
+    This function is intentionally defensive: websites structure their HTML
+    differently and may not always expose a ``<div role="main">`` element.
+    We therefore attempt several strategies in order, falling back to the
+    entire ``<body>`` or the whole document text when needed. Script and style
+    tags are stripped from the extracted content.
     """
+
     texts: List[str] = []
     for url in urls:
         try:
             response = requests.get(url, timeout=10)
             response.raise_for_status()
-            soup = BeautifulSoup(response.content, "html.parser")
-            main_content = soup.find("div", role="main")
+            soup = BeautifulSoup(response.text, "html.parser")
+
+            # Try common containers for the main page content
+            main_content = soup.find("main") or soup.find("div", role="main") or soup.body
+
             if main_content:
-                texts.append(main_content.get_text(separator=" ", strip=True))
+                for tag in main_content.find_all(["script", "style", "noscript"]):
+                    tag.decompose()
+                text = main_content.get_text(separator=" ", strip=True)
+            else:
+                # Fallback to entire document text
+                text = soup.get_text(separator=" ", strip=True)
+
+            if text:
+                texts.append(text)
+
         except requests.RequestException:
+            # If we can't fetch the page, skip it silently
             continue
+
     return "\n\n".join(texts)
 
 
