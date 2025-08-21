@@ -11,11 +11,7 @@ class GenAIEmbeddingTest(unittest.TestCase):
 
     def test_embed_content(self):
         load_dotenv()
-        project = os.getenv("GCP_PROJECT_ID")
-        location = os.getenv("GCP_REGION")
-        if not project or not location:
-            self.skipTest("GCP_PROJECT_ID and GCP_REGION must be set to run this test")
-        client = genai.Client(vertexai=True, project=project, location=location)
+        client = genai.Client()
         try:
             response = client.models.embed_content(
                 model="text-embedding-005",
