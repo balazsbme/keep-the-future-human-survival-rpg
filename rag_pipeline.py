@@ -13,18 +13,6 @@ from langchain_core.embeddings import Embeddings
 from google import genai
 from google.genai.types import EmbedContentConfig
 
-
-def initialize_vertex_ai(project: str, location: str) -> genai.Client:
-    """Create a Vertex AI GenAI client.
-
-    Parameters are kept for API compatibility but are not explicitly used by the
-    client constructor. Environment variables should provide the required
-    configuration for authentication.
-    """
-
-    return genai.Client(vertexai=True, project=project, location=location)
-
-
 class VertexAIEmbeddings(Embeddings):
     """Wrapper around Vertex AI text embedding model for LangChain."""
 
@@ -105,11 +93,7 @@ def generate_answer(question: str, context: str, *, client: genai.Client | None 
 def build_rag_and_answer(urls: Iterable[str], query: str) -> str:
     """High-level helper that performs the full RAG pipeline."""
     load_dotenv()
-    project = os.getenv("GCP_PROJECT_ID")
-    location = os.getenv("GCP_REGION")
-    if not project or not location:
-        raise ValueError("GCP_PROJECT_ID and GCP_REGION must be set in environment")
-    client = initialize_vertex_ai(project, location)
+    client = genai.Client()
 
     raw_text = scrape_urls(urls)
     chunks = chunk_text(raw_text)
