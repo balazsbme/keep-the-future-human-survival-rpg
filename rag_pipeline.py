@@ -80,17 +80,14 @@ def chunk_text(text: str, *, chunk_size: int = 1000, chunk_overlap: int = 150) -
     return splitter.split_text(text)
 
 
-def build_vector_store(chunks: List[str], embedding_model=None) -> FAISS:
+def build_vector_store(chunks: List[str], embedding_model) -> FAISS:
     """Create a FAISS vector store from text ``chunks``.
 
     Parameters
     ----------
     chunks: list of text segments to index.
-    embedding_model: model used to embed text. If ``None`` a Vertex AI embedding
-        model is instantiated; tests can supply a mock embedding model.
+    embedding_model: model used to embed text. 
     """
-    if embedding_model is None:
-        embedding_model = VertexAIEmbeddings()
     return FAISS.from_texts(chunks, embedding=embedding_model)
 
 
@@ -100,15 +97,14 @@ def retrieve_chunks(store: FAISS, query: str, k: int = 3) -> List[str]:
     return [doc.page_content for doc in docs]
 
 
-def generate_answer(question: str, context: str, *, client: genai.Client | None = None, model: str = "gemini-1.5-flash") -> str:
+def generate_answer(question: str, context: str, *, client: genai.Client) -> str:
     """Generate an answer to ``question`` given ``context`` using Vertex AI."""
     prompt = (
         "Answer the question based ONLY on the provided context.\n\n"
         f"CONTEXT:\n{context}\n\nQUESTION: {question}\n\nANSWER:"
     )
-    client = client or genai.Client(vertexai=True)
-    response = client.models.generate_content(model=model, contents=[prompt])
-    return getattr(response, "output_text", "")
+    response = client.models.generate_content(contents=[prompt], model="gemini-2.5-flash")
+    return response.text
 
 
 def build_rag_and_answer(urls: Iterable[str], query: str) -> str:
@@ -128,7 +124,7 @@ if __name__ == "__main__":
         "https://docs.opennebula.io/7.0/quick_start/understand_opennebula/opennebula_concepts/opennebula_overview/",
         "https://docs.opennebula.io/7.0/product/virtual_machines_operation/virtual_machine_definitions/vm_instances/",
     ]
-    USER_QUERY = "What are the main states in a VM lifecycle?"
+    USER_QUERY = "What should I pay attention to when planning to hot-plug devices to the VM?"
     answer = build_rag_and_answer(DOC_URLS, USER_QUERY)
     print("Question:", USER_QUERY)
     print("Answer:", answer)
