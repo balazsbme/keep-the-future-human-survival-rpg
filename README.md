@@ -20,6 +20,8 @@ The script performs the following steps:
 4.  **Store Vectors:** These vectors are stored in a local, in-memory `FAISS` index, which acts as our searchable knowledge base.
 5.  **Retrieve & Generate:** When you ask a question, the script searches the `FAISS` index for the most relevant text chunks and passes them—along with your question—to the Gemini model on Vertex AI to generate a context-aware answer.
 
+For larger scale ingestion into Google Cloud SQL, see `ingest_opennebula_docs.py`, which crawls the entire OpenNebula 7.0 documentation, embeds the text with Vertex AI, and stores the results in a Cloud SQL table.
+
 -----
 
 ### \#\# ⚙️ Setup and Installation
@@ -91,6 +93,21 @@ Running the Q\&A pipeline is simple.
     * Ensure a `.env` file with `GCP_PROJECT_ID` and `GCP_REGION` exists.
     * Adjust `DOC_URLS` and `USER_QUERY` if desired.
     * Run `python rag_pipeline.py` and review the generated answer.
+
+5. **Ingest OpenNebula docs into Cloud SQL (optional):**
+    * Provision a Cloud SQL PostgreSQL instance and note the connection name, database, user, and password.
+    * Add these values to your `.env`:
+      ```
+      CLOUD_SQL_CONNECTION_NAME="project:region:instance"
+      DB_USER="username"
+      DB_PASS="password"
+      DB_NAME="database"
+      ```
+    * Run the ingestion script:
+      ```bash
+      python ingest_opennebula_docs.py
+      ```
+      This script crawls all pages under `https://docs.opennebula.io/7.0/`, splits the content into chunks, embeds them with Vertex AI, and stores the embeddings in the `embeddings` table inside your Cloud SQL database.
 
 -----
 
