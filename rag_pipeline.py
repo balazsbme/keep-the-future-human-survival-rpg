@@ -23,7 +23,7 @@ def initialize_vertex_ai(project: str, location: str) -> None:
 class VertexAIEmbeddings(Embeddings):
     """Wrapper around Vertex AI text embedding model for LangChain."""
 
-    def __init__(self, model_name: str = "text-embedding-004") -> None:
+    def __init__(self, model_name: str = "text-embedding-005") -> None:
         self._model = TextEmbeddingModel.from_pretrained(model_name)
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
@@ -110,8 +110,8 @@ def build_rag_and_answer(urls: Iterable[str], query: str) -> str:
 
 if __name__ == "__main__":
     DOC_URLS = [
-        "https://docs.opennebula.io/7.0/intro_and_overview/what_is_opennebula.html",
-        "https://docs.opennebula.io/7.0/management_and_operations/vm_management/vm_guide.html",
+        "https://docs.opennebula.io/7.0/quick_start/understand_opennebula/opennebula_concepts/opennebula_overview/",
+        "https://docs.opennebula.io/7.0/product/virtual_machines_operation/virtual_machine_definitions/vm_instances/",
     ]
     USER_QUERY = "What are the main states in a VM lifecycle?"
     answer = build_rag_and_answer(DOC_URLS, USER_QUERY)
