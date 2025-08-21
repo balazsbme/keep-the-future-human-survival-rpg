@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import logging
 from typing import Iterable, List
 
 import requests
@@ -34,7 +35,7 @@ class VertexAIEmbeddings(Embeddings):
 
 # ----- Core pipeline steps -----
 
-def scrape_urls(urls: Iterable[str]) -> str:
+def scrape_urls(urls: Iterable[str], *, session: requests.Session | None = None) -> str:
     """Return concatenated text content from ``urls``.
 
     Only the main content of each page is extracted. Failures are skipped.
@@ -47,9 +48,12 @@ def scrape_urls(urls: Iterable[str]) -> str:
     """
 
     texts: List[str] = []
+    session = session or requests
+    headers = {"User-Agent": "OpenNebulaDocScraper/1.0"}
     for url in urls:
+        logging.info("Fetching %s", url)
         try:
-            response = requests.get(url, timeout=10)
+            response = session.get(url, timeout=10, headers=headers)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
 
@@ -67,8 +71,9 @@ def scrape_urls(urls: Iterable[str]) -> str:
             if text:
                 texts.append(text)
 
-        except requests.RequestException:
-            # If we can't fetch the page, skip it silently
+        except requests.RequestException as exc:
+            # If we can't fetch the page, skip it but log
+            logging.warning("Failed to fetch %s: %s", url, exc)
             continue
 
     return "\n\n".join(texts)
