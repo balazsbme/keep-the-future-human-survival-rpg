@@ -1,5 +1,5 @@
 import os
-import json
+import logging
 from collections import deque
 from typing import Iterable, List, Set
 from urllib.parse import urljoin, urlparse
@@ -15,6 +15,7 @@ from rag_pipeline import scrape_urls, chunk_text, VertexAIEmbeddings
 
 
 BASE_URL = "https://docs.opennebula.io/7.0/"
+HEADERS = {"User-Agent": "OpenNebulaDocScraper/1.0"}
 
 
 def crawl_site(base_url: str = BASE_URL) -> List[str]:
@@ -34,9 +35,13 @@ def crawl_site(base_url: str = BASE_URL) -> List[str]:
             continue
         visited.add(norm)
         try:
-            resp = requests.get(url, timeout=10)
+            try:
+                resp = requests.get(url, timeout=10, headers=HEADERS)
+            except TypeError:
+                resp = requests.get(url, timeout=10)
             resp.raise_for_status()
-        except requests.RequestException:
+        except requests.RequestException as exc:
+            logging.warning("Failed to crawl %s: %s", url, exc)
             continue
         results.append(url)
         soup = BeautifulSoup(resp.text, "html.parser")
@@ -76,41 +81,46 @@ def init_engine() -> sqlalchemy.Engine:
     return sqlalchemy.create_engine("postgresql+pg8000://", creator=getconn)
 
 
-def store_chunks(engine: sqlalchemy.Engine, url: str, chunks: Iterable[str], embeddings: Iterable[List[float]]) -> None:
-    """Persist ``chunks`` and their ``embeddings`` for ``url``."""
+def store_chunks(engine: sqlalchemy.Engine, chunks: Iterable[str], embeddings: Iterable[List[float]]) -> None:
+    """Persist ``chunks`` and their ``embeddings`` into the ``documents`` table."""
     insert_stmt = sqlalchemy.text(
         """
-        INSERT INTO embeddings (url, chunk_index, content, embedding)
-        VALUES (:url, :chunk_index, :content, :embedding)
+        INSERT INTO documents (content, embedding)
+        VALUES (:content, :embedding::vector)
         """
     )
     with engine.begin() as conn:
-        for idx, (chunk, emb) in enumerate(zip(chunks, embeddings)):
-            conn.execute(
-                insert_stmt,
-                {
-                    "url": url,
-                    "chunk_index": idx,
-                    "content": chunk,
-                    "embedding": json.dumps(emb),
-                },
-            )
+        for chunk, emb in zip(chunks, embeddings):
+            vector = "[" + ",".join(str(v) for v in emb) + "]"
+            conn.execute(insert_stmt, {"content": chunk, "embedding": vector})
 
 
 def ingest() -> None:
     """Scrape OpenNebula docs and store embeddings in Cloud SQL."""
     load_dotenv()
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(message)s")
     urls = crawl_site(BASE_URL)
     client = genai.Client()
     embedder = VertexAIEmbeddings(client=client)
     engine = init_engine()
     for url in urls:
+        logging.info("Fetching %s", url)
         text = scrape_urls([url])
         if not text:
+            logging.warning("No content extracted from %s", url)
             continue
         chunks = chunk_text(text)
-        vectors = embedder.embed_documents(chunks)
-        store_chunks(engine, url, chunks, vectors)
+        logging.info("Embedding %d chunks from %s", len(chunks), url)
+        try:
+            vectors = embedder.embed_documents(chunks)
+        except Exception as exc:
+            logging.error("Embedding failed for %s: %s", url, exc)
+            continue
+        try:
+            store_chunks(engine, chunks, vectors)
+            logging.info("Stored %d chunks for %s", len(chunks), url)
+        except Exception as exc:
+            logging.error("Database insert failed for %s: %s", url, exc)
 
 
 if __name__ == "__main__":
