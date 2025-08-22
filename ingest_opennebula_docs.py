@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from google import genai
 from google.cloud.sql.connector import Connector
 import sqlalchemy
+from pgvector.sqlalchemy import Vector
 
 from rag_pipeline import scrape_urls, chunk_text, VertexAIEmbeddings
 
@@ -85,17 +86,26 @@ def init_engine() -> sqlalchemy.Engine:
 
 
 def store_chunks(engine: sqlalchemy.Engine, chunks: Iterable[str], embeddings: Iterable[List[float]]) -> None:
-    """Persist ``chunks`` and their ``embeddings`` into the ``documents`` table."""
-    insert_stmt = sqlalchemy.text(
-        """
-        INSERT INTO documents (content, embedding)
-        VALUES (:content, :embedding::vector)
-        """
+    """Persist ``chunks`` and their ``embeddings`` into the ``documents`` table.
+
+    Uses the ``pgvector`` SQLAlchemy extension to safely bind Python lists to the
+    ``vector`` column type, avoiding manual string construction and mitigating
+    SQL injection risks.
+    """
+    chunks_list = list(chunks)
+    embeddings_list = list(embeddings)
+
+    documents = sqlalchemy.Table(
+        "documents",
+        sqlalchemy.MetaData(),
+        sqlalchemy.Column("content", sqlalchemy.Text, nullable=False),
+        sqlalchemy.Column("embedding", Vector()),
     )
     with engine.begin() as conn:
-        for chunk, emb in zip(chunks, embeddings):
-            vector = "[" + ",".join(str(v) for v in emb) + "]"
-            conn.execute(insert_stmt, {"content": chunk, "embedding": vector})
+        conn.execute(
+            documents.insert(),
+            [{"content": c, "embedding": e} for c, e in zip(chunks_list, embeddings_list)],
+        )
 
 
 def ingest() -> None:
