@@ -9,3 +9,4 @@ sqlalchemy
 pgvector
 pg8000
 cloud-sql-python-connector
+flask
