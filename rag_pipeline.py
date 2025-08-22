@@ -13,6 +13,9 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.embeddings import Embeddings
 from google import genai
 from google.genai.types import EmbedContentConfig
+from google.cloud.sql.connector import Connector
+import sqlalchemy
+from pgvector.sqlalchemy import Vector
 
 class VertexAIEmbeddings(Embeddings):
     """Wrapper around Vertex AI text embedding model for LangChain."""
@@ -102,6 +105,40 @@ def retrieve_chunks(store: FAISS, query: str, k: int = 3) -> List[str]:
     return [doc.page_content for doc in docs]
 
 
+def init_engine() -> sqlalchemy.engine.Engine:
+    """Create a SQLAlchemy engine for the Cloud SQL database."""
+    connection_name = os.environ["CLOUD_SQL_CONNECTION_NAME"]
+    db_user = os.environ["DB_USER"]
+    db_pass = os.environ["DB_PASS"]
+    db_name = os.environ["DB_NAME"]
+
+    connector = Connector()
+
+    def getconn() -> any:
+        return connector.connect(connection_name, "pg8000", user=db_user, password=db_pass, db=db_name)
+
+    return sqlalchemy.create_engine("postgresql+pg8000://", creator=getconn)
+
+
+def retrieve_chunks_db(
+    engine: sqlalchemy.engine.Engine, query_embedding: List[float], k: int = 3
+) -> List[str]:
+    """Return top ``k`` document texts from Cloud SQL similar to ``query_embedding``."""
+    documents = sqlalchemy.Table(
+        "documents",
+        sqlalchemy.MetaData(),
+        sqlalchemy.Column("content", sqlalchemy.Text, nullable=False),
+        sqlalchemy.Column("embedding", Vector()),
+    )
+    with engine.connect() as conn:
+        stmt = (
+            sqlalchemy.select(documents.c.content)
+            .order_by(documents.c.embedding.cosine_distance(query_embedding))
+            .limit(k)
+        )
+        return [row[0] for row in conn.execute(stmt)]
+
+
 def generate_answer(question: str, context: str, *, client: genai.Client) -> str:
     """Generate an answer to ``question`` given ``context`` using Vertex AI."""
     prompt = (
@@ -112,24 +149,21 @@ def generate_answer(question: str, context: str, *, client: genai.Client) -> str
     return response.text
 
 
-def build_rag_and_answer(urls: Iterable[str], query: str) -> str:
-    """High-level helper that performs the full RAG pipeline."""
+def build_rag_and_answer(query: str, k: int = 3) -> str:
+    """High-level helper that performs the full RAG pipeline using Cloud SQL."""
     load_dotenv()
     client = genai.Client()
+    embedder = VertexAIEmbeddings(client=client)
+    engine = init_engine()
 
-    raw_text = scrape_urls(urls)
-    chunks = chunk_text(raw_text)
-    store = build_vector_store(chunks, embedding_model=VertexAIEmbeddings(client=client))
-    context = "\n\n".join(retrieve_chunks(store, query))
+    query_embedding = embedder.embed_query(query)
+    chunks = retrieve_chunks_db(engine, query_embedding, k=k)
+    context = "\n\n".join(chunks)
     return generate_answer(query, context, client=client)
 
 
 if __name__ == "__main__":
-    DOC_URLS = [
-        "https://docs.opennebula.io/7.0/quick_start/understand_opennebula/opennebula_concepts/opennebula_overview/",
-        "https://docs.opennebula.io/7.0/product/virtual_machines_operation/virtual_machine_definitions/vm_instances/",
-    ]
     USER_QUERY = "What should I pay attention to when planning to hot-plug devices to the VM?"
-    answer = build_rag_and_answer(DOC_URLS, USER_QUERY)
+    answer = build_rag_and_answer(USER_QUERY)
     print("Question:", USER_QUERY)
     print("Answer:", answer)
