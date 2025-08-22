@@ -8,8 +8,6 @@ from typing import Iterable, List
 import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
 from langchain_core.embeddings import Embeddings
 from google import genai
 from google.genai.types import EmbedContentConfig
@@ -80,29 +78,6 @@ def scrape_urls(urls: Iterable[str], *, session: requests.Session | None = None)
             continue
 
     return "\n\n".join(texts)
-
-
-def chunk_text(text: str, *, chunk_size: int = 1000, chunk_overlap: int = 150) -> List[str]:
-    """Split ``text`` into overlapping chunks."""
-    splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-    return splitter.split_text(text)
-
-
-def build_vector_store(chunks: List[str], embedding_model) -> FAISS:
-    """Create a FAISS vector store from text ``chunks``.
-
-    Parameters
-    ----------
-    chunks: list of text segments to index.
-    embedding_model: model used to embed text. 
-    """
-    return FAISS.from_texts(chunks, embedding=embedding_model)
-
-
-def retrieve_chunks(store: FAISS, query: str, k: int = 3) -> List[str]:
-    """Return the top ``k`` document texts similar to ``query``."""
-    docs = store.similarity_search(query, k=k)
-    return [doc.page_content for doc in docs]
 
 
 def init_engine() -> sqlalchemy.engine.Engine:
