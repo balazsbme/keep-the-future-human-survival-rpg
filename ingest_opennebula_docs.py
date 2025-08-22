@@ -24,12 +24,14 @@ def crawl_site(base_url: str = BASE_URL) -> List[str]:
     A breadth-first crawl restricted to the ``base_url`` domain. Fragments and
     query parameters are stripped to avoid duplicates.
     """
+    logging.info("Starting crawl for %s", base_url)
     visited: Set[str] = set()
     to_visit = deque([base_url])
     results: List[str] = []
 
     while to_visit:
         url = to_visit.popleft()
+        logging.debug("Crawling %s", url)
         norm = _normalize(url)
         if norm in visited:
             continue
@@ -56,6 +58,7 @@ def crawl_site(base_url: str = BASE_URL) -> List[str]:
             if candidate_norm in visited:
                 continue
             to_visit.append(joined)
+    logging.info("Completed crawl for %s with %d urls", base_url, len(results))
     return results
 
 
