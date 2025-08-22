@@ -9,15 +9,63 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from google import genai
 from google.cloud.sql.connector import Connector
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 import sqlalchemy
 from pgvector.sqlalchemy import Vector
 
-from rag_pipeline import scrape_urls, chunk_text, VertexAIEmbeddings
+from rag_pipeline import VertexAIEmbeddings
 
 
 BASE_URL = "https://docs.opennebula.io/7.0/"
 HEADERS = {"User-Agent": "OpenNebulaDocScraper/1.0"}
 
+def scrape_urls(urls: Iterable[str], *, session: requests.Session | None = None) -> str:
+    """Return concatenated text content from ``urls``.
+
+    Only the main content of each page is extracted. Failures are skipped.
+
+    This function is intentionally defensive: websites structure their HTML
+    differently and may not always expose a ``<div role="main">`` element.
+    We therefore attempt several strategies in order, falling back to the
+    entire ``<body>`` or the whole document text when needed. Script and style
+    tags are stripped from the extracted content.
+    """
+
+    texts: List[str] = []
+    session = session or requests
+    headers = {"User-Agent": "OpenNebulaDocScraper/1.0"}
+    for url in urls:
+        logging.info("Fetching %s", url)
+        try:
+            response = session.get(url, timeout=10, headers=headers)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, "html.parser")
+
+            # Try common containers for the main page content
+            main_content = soup.find("main") or soup.find("div", role="main") or soup.body
+
+            if main_content:
+                for tag in main_content.find_all(["script", "style", "noscript"]):
+                    tag.decompose()
+                text = main_content.get_text(separator=" ", strip=True)
+            else:
+                # Fallback to entire document text
+                text = soup.get_text(separator=" ", strip=True)
+
+            if text:
+                texts.append(text)
+
+        except requests.RequestException as exc:
+            # If we can't fetch the page, skip it but log
+            logging.warning("Failed to fetch %s: %s", url, exc)
+            continue
+
+    return "\n\n".join(texts)
+
+def chunk_text(text: str, *, chunk_size: int = 1000, chunk_overlap: int = 150) -> List[str]:
+    """Split ``text`` into overlapping chunks."""
+    splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    return splitter.split_text(text)
 
 def crawl_site(base_url: str = BASE_URL) -> List[str]:
     """Return all links within ``base_url``.
@@ -47,6 +95,10 @@ def crawl_site(base_url: str = BASE_URL) -> List[str]:
             logging.warning("Failed to crawl %s: %s", url, exc)
             continue
         results.append(url)
+        if len(results) % 20 == 0:
+            logging.debug(
+                "Collected %d URLs so far; example: %s", len(results), url
+            )
         soup = BeautifulSoup(resp.text, "html.parser")
         for a in soup.find_all("a", href=True):
             href = a["href"]

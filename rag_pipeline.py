@@ -34,52 +34,6 @@ class VertexAIEmbeddings(Embeddings):
         return self.embed_documents([text])[0]
 
 
-# ----- Core pipeline steps -----
-
-def scrape_urls(urls: Iterable[str], *, session: requests.Session | None = None) -> str:
-    """Return concatenated text content from ``urls``.
-
-    Only the main content of each page is extracted. Failures are skipped.
-
-    This function is intentionally defensive: websites structure their HTML
-    differently and may not always expose a ``<div role="main">`` element.
-    We therefore attempt several strategies in order, falling back to the
-    entire ``<body>`` or the whole document text when needed. Script and style
-    tags are stripped from the extracted content.
-    """
-
-    texts: List[str] = []
-    session = session or requests
-    headers = {"User-Agent": "OpenNebulaDocScraper/1.0"}
-    for url in urls:
-        logging.info("Fetching %s", url)
-        try:
-            response = session.get(url, timeout=10, headers=headers)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, "html.parser")
-
-            # Try common containers for the main page content
-            main_content = soup.find("main") or soup.find("div", role="main") or soup.body
-
-            if main_content:
-                for tag in main_content.find_all(["script", "style", "noscript"]):
-                    tag.decompose()
-                text = main_content.get_text(separator=" ", strip=True)
-            else:
-                # Fallback to entire document text
-                text = soup.get_text(separator=" ", strip=True)
-
-            if text:
-                texts.append(text)
-
-        except requests.RequestException as exc:
-            # If we can't fetch the page, skip it but log
-            logging.warning("Failed to fetch %s: %s", url, exc)
-            continue
-
-    return "\n\n".join(texts)
-
-
 def init_engine() -> sqlalchemy.engine.Engine:
     """Create a SQLAlchemy engine for the Cloud SQL database."""
     connection_name = os.environ["CLOUD_SQL_CONNECTION_NAME"]

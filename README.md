@@ -103,6 +103,8 @@ Running the Q\&A pipeline is simple.
       ```
         This script crawls all pages under `https://docs.opennebula.io/7.0/`, splits the content into chunks, embeds them with Vertex AI, and stores the embeddings in the `documents` table inside your Cloud SQL database.
 
+    **Date of ingesting the full 7.0 docs: 22. 08. 2025.**
+
 -----
 
 ### \#\# Technology Stack
