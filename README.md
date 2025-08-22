@@ -4,7 +4,7 @@ Here is a README file for your repository.
 
 # Mini RAG with Vertex AI 📚
 
-This project is a minimal, self-contained implementation of a **Retrieval-Augmented Generation (RAG)** pipeline using Python. It scrapes text from specified web pages, builds a local knowledge base, and uses Google Vertex AI's Gemini models to answer questions based on the scraped content.
+This project is a minimal, self-contained implementation of a **Retrieval-Augmented Generation (RAG)** pipeline using Python. It queries embeddings stored in a Cloud SQL database (populated by a separate ingestion script) and uses Google Vertex AI's Gemini models to answer questions based on those documents.
 
 It's designed to be a straightforward example of how to build a powerful Q\&A bot over your own documentation without needing complex cloud infrastructure.
 
@@ -12,13 +12,11 @@ It's designed to be a straightforward example of how to build a powerful Q\&A bo
 
 ### \#\# How It Works
 
-The script performs the following steps:
+The runtime pipeline performs the following steps:
 
-1.  **Scrape Data:** It fetches the raw HTML content from a list of URLs you provide.
-2.  **Chunk Text:** The extracted text is broken down into smaller, manageable chunks.
-3.  **Embed Chunks:** Each text chunk is converted into a numerical vector using the Vertex AI text embedding model.
-4.  **Store Vectors:** These vectors are stored in a local, in-memory `FAISS` index, which acts as our searchable knowledge base.
-5.  **Retrieve & Generate:** When you ask a question, the script searches the `FAISS` index for the most relevant text chunks and passes them—along with your question—to the Gemini model on Vertex AI to generate a context-aware answer.
+1.  **Embed Query:** Your question is embedded into a vector using the Vertex AI text embedding model.
+2.  **Search Cloud SQL:** The query embedding is compared against vectors stored in the `documents` table of Cloud SQL using `pgvector` to retrieve the most relevant text chunks.
+3.  **Generate:** The retrieved chunks and your question are sent to the Gemini model on Vertex AI to produce a context-aware answer.
 
 For larger scale ingestion into Google Cloud SQL, see `ingest_opennebula_docs.py`, which crawls the entire OpenNebula 7.0 documentation, embeds the text with Vertex AI, and stores the results in a Cloud SQL table.
 
@@ -64,13 +62,9 @@ Follow these steps to get the project running.
 Running the Q\&A pipeline is simple.
 
 1.  **Customize the Script (Optional):**
-    Open the `rag_pipeline.py` file and modify the following variables at the bottom to point to your desired documentation and question:
+    Open the `rag_pipeline.py` file and modify the `USER_QUERY` variable at the bottom to ask your own question:
 
     ```python
-    DOC_URLS = [
-        "https://your-doc-url-1.com",
-        "https://your-doc-url-2.com"
-    ]
     USER_QUERY = "What is the main topic of this documentation?"
     ```
 
@@ -90,8 +84,8 @@ Running the Q\&A pipeline is simple.
     These tests rely on a dummy embedding model and require no cloud access.
 
 4. **Manual verification with your project:**
-    * Ensure a `.env` file with `GCP_PROJECT_ID` and `GCP_REGION` exists.
-    * Adjust `DOC_URLS` and `USER_QUERY` if desired.
+    * Ensure a `.env` file with `GCP_PROJECT_ID`, `GCP_REGION`, and Cloud SQL credentials exists.
+    * Adjust `USER_QUERY` if desired.
     * Run `python rag_pipeline.py` and review the generated answer.
 
 5. **Ingest OpenNebula docs into Cloud SQL (optional):**
@@ -107,7 +101,7 @@ Running the Q\&A pipeline is simple.
       ```bash
       python ingest_opennebula_docs.py
       ```
-      This script crawls all pages under `https://docs.opennebula.io/7.0/`, splits the content into chunks, embeds them with Vertex AI, and stores the embeddings in the `embeddings` table inside your Cloud SQL database.
+        This script crawls all pages under `https://docs.opennebula.io/7.0/`, splits the content into chunks, embeds them with Vertex AI, and stores the embeddings in the `documents` table inside your Cloud SQL database.
 
 -----
 
@@ -115,11 +109,12 @@ Running the Q\&A pipeline is simple.
 
   * **Language:** Python
   * **LLM & Embeddings:** Vertex AI Gemini (`gemini-pro`, `text-embedding-004`)
-  * **Core Libraries:**
-      * `langchain`: For text splitting and vector store integration.
-      * `faiss-cpu`: For efficient, local similarity search.
-      * `beautifulsoup4`: For parsing HTML.
-      * `requests`: For making HTTP requests.
+    * **Core Libraries:**
+        * `langchain`: For text splitting.
+        * `pgvector` + `sqlalchemy`: For similarity search in Cloud SQL.
+        * `faiss-cpu`: Used only in tests for a local vector store example.
+        * `beautifulsoup4`: For parsing HTML.
+        * `requests`: For making HTTP requests.
 
 -----
 
