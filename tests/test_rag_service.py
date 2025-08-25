@@ -9,6 +9,13 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 import rag_service
 
 
+def test_index_page_served():
+    with rag_service.app.test_client() as client:
+        response = client.get('/')
+        assert response.status_code == 200
+        assert b'id="send"' in response.data
+
+
 def test_query_endpoint_returns_answer():
     with patch('rag_service.build_rag_and_answer', return_value='test-answer'):
         with rag_service.app.test_client() as client:

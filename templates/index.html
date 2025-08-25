@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OpenNebula Support</title>
+</head>
+<body>
+    <input type="text" id="query" placeholder="Ask a question" />
+    <button id="send">Send</button>
+    <pre id="response"></pre>
+    <script>
+    document.getElementById('send').addEventListener('click', async () => {
+        const query = document.getElementById('query').value;
+        const resp = await fetch('/query', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query })
+        });
+        const data = await resp.json();
+        document.getElementById('response').textContent = data.answer || data.error;
+    });
+    </script>
+</body>
+</html>
