@@ -12,3 +12,8 @@ curl -X POST "http://localhost:8080/query"      -H "Content-Type: application/js
 
 
 gcloud run services logs opennebula-rag-app --region europe-west4 --project ${GOOGLE_CLOUD_PROJECT} --follow
+
+
+curl -X POST "https://opennebula-rag-service-240342877018.europe-west1.run.app/query"      -H "Content-Type: application/json"      -d '{"query": "How do I deploy Kubernetes on OpenNebula?"}'
+
+gcloud run services logs read  opennebula-rag-service --region europe-west1 --project gold-cocoa-469117-a7 
