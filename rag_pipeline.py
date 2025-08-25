@@ -85,8 +85,8 @@ def generate_answer(question: str, context: str, *, client: genai.Client) -> str
     """Generate an answer to ``question`` given ``context`` using Vertex AI."""
     prompt = (
         f"You are OpenNebula software engineer and solution architect, with a deep understanding of virtualization technologies, Linux networking and administration."
-        "\n\n Answer the question based ONLY on the provided context.\n\n"
-        "CONTEXT:\n{context}\n\nQUESTION: {question}\n\nANSWER:"
+        f"\n\n Answer the question based ONLY on the provided context.\n\n"
+        f"CONTEXT:\n{context}\n\nQUESTION: {question}\n\nANSWER:"
     )
     logging.info("Generating answer with LLM")
     response = client.models.generate_content(contents=[prompt], model="gemini-2.5-flash")
