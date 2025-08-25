@@ -1,7 +1,12 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from rag_pipeline import build_rag_and_answer
 
 app = Flask(__name__)
+
+
+@app.route('/', methods=['GET'])
+def index():
+    return render_template('index.html')
 
 @app.route('/query', methods=['POST'])
 def query():
