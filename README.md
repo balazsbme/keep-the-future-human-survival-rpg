@@ -114,7 +114,6 @@ Running the Q\&A pipeline is simple.
     * **Core Libraries:**
         * `langchain`: For text splitting.
         * `pgvector` + `sqlalchemy`: For similarity search in Cloud SQL.
-        * `faiss-cpu`: Used only in tests for a local vector store example.
         * `beautifulsoup4`: For parsing HTML.
         * `requests`: For making HTTP requests.
 

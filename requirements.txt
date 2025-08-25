@@ -3,7 +3,6 @@ requests
 beautifulsoup4
 langchain-text-splitters
 langchain-community
-faiss-cpu
 google-genai
 sqlalchemy
 pgvector
