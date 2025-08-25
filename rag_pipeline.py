@@ -64,7 +64,7 @@ def retrieve_chunks_db(
     """Return top ``k`` document texts from Cloud SQL similar to ``query_embedding``."""
     logging.info("Retrieving top %d document chunk(s) from database", k)
     documents = sqlalchemy.Table(
-        "documents",
+        "docs_opennebula_io",
         sqlalchemy.MetaData(),
         sqlalchemy.Column("content", sqlalchemy.Text, nullable=False),
         sqlalchemy.Column("embedding", Vector()),
@@ -83,8 +83,9 @@ def retrieve_chunks_db(
 def generate_answer(question: str, context: str, *, client: genai.Client) -> str:
     """Generate an answer to ``question`` given ``context`` using Vertex AI."""
     prompt = (
-        "Answer the question based ONLY on the provided context.\n\n"
-        f"CONTEXT:\n{context}\n\nQUESTION: {question}\n\nANSWER:"
+        f"You are OpenNebula software engineer and solution architect, with a deep understanding of virtualization technologies, Linux networking and administration."
+        "\n\n Answer the question based ONLY on the provided context.\n\n"
+        "CONTEXT:\n{context}\n\nQUESTION: {question}\n\nANSWER:"
     )
     logging.info("Generating answer with LLM")
     response = client.models.generate_content(contents=[prompt], model="gemini-2.5-flash")
