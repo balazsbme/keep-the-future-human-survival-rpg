@@ -60,22 +60,23 @@ def init_engine() -> sqlalchemy.engine.Engine:
 
 def retrieve_chunks_db(
     engine: sqlalchemy.engine.Engine, query_embedding: List[float], k: int = 3
-) -> List[str]:
-    """Return top ``k`` document texts from Cloud SQL similar to ``query_embedding``."""
+) -> List[tuple[str, str]]:
+    """Return top ``k`` document texts and references from Cloud SQL."""
     logging.info("Retrieving top %d document chunk(s) from database", k)
     documents = sqlalchemy.Table(
-        "docs_opennebula_io",
+        "documents",
         sqlalchemy.MetaData(),
         sqlalchemy.Column("content", sqlalchemy.Text, nullable=False),
         sqlalchemy.Column("embedding", Vector()),
+        sqlalchemy.Column("reference", sqlalchemy.Text, nullable=False),
     )
     with engine.connect() as conn:
         stmt = (
-            sqlalchemy.select(documents.c.content)
+            sqlalchemy.select(documents.c.content, documents.c.reference)
             .order_by(documents.c.embedding.cosine_distance(query_embedding))
             .limit(k)
         )
-        rows = [row[0] for row in conn.execute(stmt)]
+        rows = [(row[0], row[1]) for row in conn.execute(stmt)]
         logging.debug("Retrieved %d chunk(s) from database", len(rows))
         return rows
 
@@ -105,10 +106,15 @@ def build_rag_and_answer(query: str, k: int = 3) -> str:
     engine = init_engine()
     query_embedding = embedder.embed_query(query)
     logging.debug("Query embedding length: %d", len(query_embedding))
-    chunks = retrieve_chunks_db(engine, query_embedding, k=k)
-    logging.info("Retrieved %d chunk(s) for context", len(chunks))
+    rows = retrieve_chunks_db(engine, query_embedding, k=k)
+    logging.info("Retrieved %d chunk(s) for context", len(rows))
+    chunks = [row[0] for row in rows]
+    references = [row[1] for row in rows]
     context = "\n\n".join(chunks)
     answer = generate_answer(query, context, client=client)
+    if os.getenv("APPEND_REFERENCES", "false").lower() in {"1", "true", "yes"} and references:
+        refs_text = "\n\nReferences:\n" + "\n".join(references)
+        answer = f"{answer}{refs_text}"
     logging.info("RAG pipeline completed for query: %s", query)
     return answer
 

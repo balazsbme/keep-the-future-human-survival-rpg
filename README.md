@@ -96,6 +96,7 @@ Running the Q\&A pipeline is simple.
       DB_USER="username"
       DB_PASS="password"
       DB_NAME="database"
+      APPEND_REFERENCES="false"  # set to "true" to include reference links in answers
       ```
     * Run the ingestion script:
       ```bash
