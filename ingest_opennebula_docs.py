@@ -19,6 +19,29 @@ from rag_pipeline import VertexAIEmbeddings
 
 BASE_URL = "https://docs.opennebula.io/7.0/"
 HEADERS = {"User-Agent": "OpenNebulaDocScraper/1.0"}
+# Cache of BeautifulSoup objects populated during ``crawl_site``
+SOUP_CACHE: dict[str, BeautifulSoup] = {}
+
+
+def _extract_text(soup: BeautifulSoup) -> str:
+    """Return the main textual content from ``soup``.
+
+    Attempts to locate the primary content container and strips out script and
+    style tags. Falls back to the entire document text when a dedicated container
+    cannot be found.
+    """
+
+    main_content = soup.find("main") or soup.find("div", role="main") or soup.body
+
+    if main_content:
+        for tag in main_content.find_all(["script", "style", "noscript"]):
+            tag.decompose()
+        text = main_content.get_text(separator=" ", strip=True)
+    else:
+        # Fallback to entire document text
+        text = soup.get_text(separator=" ", strip=True)
+
+    return text
 
 def scrape_urls(
     urls: Iterable[str], *, session: requests.Session | None = None, retries: int = 3, delay: int = 5
@@ -45,18 +68,7 @@ def scrape_urls(
                 response = session.get(url, timeout=10, headers=headers)
                 response.raise_for_status()
                 soup = BeautifulSoup(response.text, "html.parser")
-
-                # Try common containers for the main page content
-                main_content = soup.find("main") or soup.find("div", role="main") or soup.body
-
-                if main_content:
-                    for tag in main_content.find_all(["script", "style", "noscript"]):
-                        tag.decompose()
-                    text = main_content.get_text(separator=" ", strip=True)
-                else:
-                    # Fallback to entire document text
-                    text = soup.get_text(separator=" ", strip=True)
-
+                text = _extract_text(soup)
                 if text:
                     texts.append(text)
                 break
@@ -92,6 +104,7 @@ def crawl_site(base_url: str = BASE_URL) -> List[str]:
     visited: Set[str] = set()
     to_visit = deque([base_url])
     results: List[str] = []
+    SOUP_CACHE.clear()
 
     while to_visit:
         url = to_visit.popleft()
@@ -115,6 +128,7 @@ def crawl_site(base_url: str = BASE_URL) -> List[str]:
                 "Collected %d URLs so far; example: %s", len(results), url
             )
         soup = BeautifulSoup(resp.text, "html.parser")
+        SOUP_CACHE[url] = soup
         for a in soup.find_all("a", href=True):
             href = a["href"]
             if href.startswith("#"):
@@ -194,8 +208,13 @@ def ingest() -> None:
     embedder = VertexAIEmbeddings(client=client)
     engine = init_engine()
     for url in urls:
-        logging.info("Fetching %s", url)
-        text = scrape_urls([url])
+        logging.info("Processing %s", url)
+        soup = SOUP_CACHE.get(url)
+        if soup is not None:
+            text = _extract_text(soup)
+        else:
+            # Fallback in case the page was not cached during crawling
+            text = scrape_urls([url])
         if not text:
             logging.warning("No content extracted from %s", url)
             continue
