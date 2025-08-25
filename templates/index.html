@@ -1,13 +1,28 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OpenNebula Support</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 1em;
+            font-family: Arial, sans-serif;
+            line-height: 1.5;
+            overflow-wrap: break-word;
+            max-width: 100%;
+        }
+        #response {
+            white-space: pre-wrap;
+            overflow-wrap: break-word;
+        }
+    </style>
 </head>
 <body>
     <input type="text" id="query" placeholder="Ask a question" />
     <button id="send">Send</button>
-    <pre id="response"></pre>
+    <div id="response"></div>
     <script>
     document.getElementById('send').addEventListener('click', async () => {
         const query = document.getElementById('query').value;
