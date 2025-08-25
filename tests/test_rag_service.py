@@ -1,6 +1,7 @@
 import json
 import sys
 import os
+import logging
 from unittest.mock import patch
 
 import pytest
@@ -30,3 +31,12 @@ def test_query_endpoint_requires_query():
         assert response.status_code == 400
         data = response.get_json()
         assert 'error' in data
+
+
+def test_system_exit_logged_info(caplog):
+    with patch('rag_service.build_rag_and_answer', side_effect=SystemExit('timeout')):
+        with rag_service.app.test_client() as client:
+            with caplog.at_level(logging.INFO):
+                with pytest.raises(SystemExit):
+                    client.post('/query', json={'query': 'hi'})
+        assert any('Request aborted' in r.message for r in caplog.records)
