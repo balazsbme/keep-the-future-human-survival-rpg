@@ -185,7 +185,7 @@ def store_chunks(
     embeddings_list = list(embeddings)
     references_list = list(references)
 
-    documents = sqlalchemy.Table(
+    docs_table = sqlalchemy.Table(
         "docs_opennebula_io",
         sqlalchemy.MetaData(),
         sqlalchemy.Column("content", sqlalchemy.Text, nullable=False),
@@ -194,7 +194,7 @@ def store_chunks(
     )
     with engine.begin() as conn:
         conn.execute(
-            documents.insert(),
+            docs_table.insert(),
             [
                 {"content": c, "embedding": e, "reference": r}
                 for c, e, r in zip(chunks_list, embeddings_list, references_list)

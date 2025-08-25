@@ -63,20 +63,19 @@ def retrieve_chunks_db(
 ) -> List[tuple[str, str]]:
     """Return top ``k`` document texts and references from Cloud SQL."""
     logging.info("Retrieving top %d document chunk(s) from database", k)
-    documents = sqlalchemy.Table(
-        "documents",
-        sqlalchemy.MetaData(),
-        sqlalchemy.Column("content", sqlalchemy.Text, nullable=False),
-        sqlalchemy.Column("embedding", Vector()),
-        sqlalchemy.Column("reference", sqlalchemy.Text, nullable=False),
+    docs_table = sqlalchemy.Table(
+        "docs_opennebula_io", sqlalchemy.MetaData(), autoload_with=engine
     )
+    select_cols = [docs_table.c.content]
+    if "reference" in docs_table.c:
+        select_cols.append(docs_table.c.reference)
     with engine.connect() as conn:
         stmt = (
-            sqlalchemy.select(documents.c.content, documents.c.reference)
-            .order_by(documents.c.embedding.cosine_distance(query_embedding))
+            sqlalchemy.select(*select_cols)
+            .order_by(docs_table.c.embedding.cosine_distance(query_embedding))
             .limit(k)
         )
-        rows = [(row[0], row[1]) for row in conn.execute(stmt)]
+        rows = [tuple(row) for row in conn.execute(stmt)]
         logging.debug("Retrieved %d chunk(s) from database", len(rows))
         return rows
 
@@ -109,7 +108,10 @@ def build_rag_and_answer(query: str, k: int = 3) -> str:
     rows = retrieve_chunks_db(engine, query_embedding, k=k)
     logging.info("Retrieved %d chunk(s) for context", len(rows))
     chunks = [row[0] for row in rows]
-    references = [str(row[1]) for row in rows if row[1] is not None]
+    references: List[str] = []
+    for row in rows:
+        if len(row) > 1 and row[1] is not None:
+            references.append(str(row[1]))
     context = "\n\n".join(chunks)
     answer = generate_answer(query, context, client=client)
     if os.getenv("APPEND_REFERENCES", "false").lower() in {"1", "true", "yes"} and references:
