@@ -109,7 +109,7 @@ def build_rag_and_answer(query: str, k: int = 3) -> str:
     rows = retrieve_chunks_db(engine, query_embedding, k=k)
     logging.info("Retrieved %d chunk(s) for context", len(rows))
     chunks = [row[0] for row in rows]
-    references = [row[1] for row in rows]
+    references = [str(row[1]) for row in rows if row[1] is not None]
     context = "\n\n".join(chunks)
     answer = generate_answer(query, context, client=client)
     if os.getenv("APPEND_REFERENCES", "false").lower() in {"1", "true", "yes"} and references:

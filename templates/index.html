@@ -14,7 +14,6 @@
             max-width: 100%;
         }
         #response {
-            white-space: pre-wrap;
             overflow-wrap: break-word;
         }
     </style>
@@ -24,6 +23,15 @@
     <button id="send">Send</button>
     <div id="response"></div>
     <script>
+    function formatResponse(text) {
+        const escaped = text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+        const withLinks = escaped.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+        return withLinks.replace(/\n/g, '<br>');
+    }
+
     document.getElementById('send').addEventListener('click', async () => {
         const query = document.getElementById('query').value;
         const resp = await fetch('/query', {
@@ -32,7 +40,12 @@
             body: JSON.stringify({ query })
         });
         const data = await resp.json();
-        document.getElementById('response').textContent = data.answer || data.error;
+        const target = document.getElementById('response');
+        if (data.answer) {
+            target.innerHTML = formatResponse(data.answer);
+        } else {
+            target.textContent = data.error;
+        }
     });
     </script>
 </body>
