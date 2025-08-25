@@ -19,6 +19,9 @@ from rag_pipeline import VertexAIEmbeddings
 
 BASE_URL = "https://docs.opennebula.io/7.0/"
 HEADERS = {"User-Agent": "OpenNebulaDocScraper/1.0"}
+if not logging.getLogger().hasHandlers():
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(message)s")
+logging.getLogger().setLevel(logging.INFO)
 # Cache of BeautifulSoup objects populated during ``crawl_site``
 SOUP_CACHE: dict[str, BeautifulSoup] = {}
 
@@ -44,7 +47,7 @@ def _extract_text(soup: BeautifulSoup) -> str:
     return text
 
 def scrape_urls(
-    urls: Iterable[str], *, session: requests.Session | None = None, retries: int = 3, delay: int = 5
+    urls: Iterable[str], *, session: requests.Session | None = None, retries: int = 3, delay: int = 2
 ) -> str:
     """Return concatenated text content from ``urls``.
 
@@ -89,7 +92,7 @@ def scrape_urls(
 
     return "\n\n".join(texts)
 
-def chunk_text(text: str, *, chunk_size: int = 1000, chunk_overlap: int = 150) -> List[str]:
+def chunk_text(text: str, *, chunk_size: int = 5000, chunk_overlap: int = 400) -> List[str]:
     """Split ``text`` into overlapping chunks."""
     splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     return splitter.split_text(text)
@@ -123,7 +126,7 @@ def crawl_site(base_url: str = BASE_URL) -> List[str]:
             logging.warning("Failed to crawl %s: %s", url, exc)
             continue
         results.append(url)
-        if len(results) % 20 == 0:
+        if len(results) % 5 == 0:
             logging.debug(
                 "Collected %d URLs so far; example: %s", len(results), url
             )
@@ -172,7 +175,7 @@ def store_chunks(
     embeddings: Iterable[List[float]],
     references: Iterable[str],
 ) -> None:
-    """Persist ``chunks`` and their metadata into the ``documents`` table.
+    """Persist ``chunks`` and their metadata into the ``docs_opennebula_io`` table.
 
     Uses the ``pgvector`` SQLAlchemy extension to safely bind Python lists to the
     ``vector`` column type, avoiding manual string construction and mitigating
@@ -183,7 +186,7 @@ def store_chunks(
     references_list = list(references)
 
     documents = sqlalchemy.Table(
-        "documents",
+        "docs_opennebula_io",
         sqlalchemy.MetaData(),
         sqlalchemy.Column("content", sqlalchemy.Text, nullable=False),
         sqlalchemy.Column("embedding", Vector()),
@@ -202,7 +205,6 @@ def store_chunks(
 def ingest() -> None:
     """Scrape OpenNebula docs and store embeddings in Cloud SQL."""
     load_dotenv()
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(message)s")
     urls = crawl_site(BASE_URL)
     client = genai.Client()
     embedder = VertexAIEmbeddings(client=client)
