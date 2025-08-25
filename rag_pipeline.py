@@ -64,7 +64,7 @@ def retrieve_chunks_db(
     """Return top ``k`` document texts and references from Cloud SQL."""
     logging.info("Retrieving top %d document chunk(s) from database", k)
     documents = sqlalchemy.Table(
-        "documents",
+        "docs_opennebula_io",
         sqlalchemy.MetaData(),
         sqlalchemy.Column("content", sqlalchemy.Text, nullable=False),
         sqlalchemy.Column("embedding", Vector()),
