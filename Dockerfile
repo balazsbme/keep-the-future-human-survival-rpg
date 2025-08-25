@@ -18,4 +18,6 @@ ENV PORT 8080
 EXPOSE ${PORT}
 
 # Run the application using Gunicorn (a production-ready WSGI HTTP Server)
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "rag_service:app"]
+# Run gunicorn with an increased timeout to avoid premature worker restarts
+# during long-running RAG operations.
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--timeout", "120", "rag_service:app"]
