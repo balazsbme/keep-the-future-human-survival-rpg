@@ -15,7 +15,7 @@ It's designed to be a straightforward example of how to build a powerful Q\&A bo
 The runtime pipeline performs the following steps:
 
 1.  **Embed Query:** Your question is embedded into a vector using the Vertex AI text embedding model.
-2.  **Search Cloud SQL:** The query embedding is compared against vectors stored in the `documents` table of Cloud SQL using `pgvector` to retrieve the most relevant text chunks.
+2.  **Search Cloud SQL:** The query embedding is compared against vectors stored in the `docs_opennebula_io` table of Cloud SQL using `pgvector` to retrieve the most relevant text chunks.
 3.  **Generate:** The retrieved chunks and your question are sent to the Gemini model on Vertex AI to produce a context-aware answer.
 
 For larger scale ingestion into Google Cloud SQL, see `ingest_opennebula_docs.py`, which crawls the entire OpenNebula 7.0 documentation, embeds the text with Vertex AI, and stores the results in a Cloud SQL table.
@@ -102,7 +102,7 @@ Running the Q\&A pipeline is simple.
       ```bash
       python ingest_opennebula_docs.py
       ```
-        This script crawls all pages under `https://docs.opennebula.io/7.0/`, splits the content into chunks, embeds them with Vertex AI, and stores the embeddings in the `documents` table inside your Cloud SQL database.
+        This script crawls all pages under `https://docs.opennebula.io/7.0/`, splits the content into chunks, embeds them with Vertex AI, and stores the embeddings in the `docs_opennebula_io` table inside your Cloud SQL database.
 
 -----
 
