@@ -1,12 +1,11 @@
-# Google Cloud Text Generation Example
+# Google Generative AI Text Generation Example
 
-This repository contains a tiny Python script demonstrating how to call Google Cloud's text generation API using the `google-genai` library.
+This repository contains a tiny Python script demonstrating how to call Google's Gemini API using the `google-generativeai` library.
 
 ## Setup
 
-1. Copy `.env.template` to `.env` and update the values for your project. The script loads this file automatically.
-2. Configure Google Cloud authentication (for example with `gcloud auth application-default login`).
-3. Install dependencies:
+1. Copy `.env.template` to `.env` and set `GEMINI_API_KEY` to your Gemini API key. The script loads this file automatically.
+2. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
@@ -24,3 +23,4 @@ The script sends your prompt to the `gemini-1.5-flash` model and prints the gene
 ## License
 
 MIT
+
