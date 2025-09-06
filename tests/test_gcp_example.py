@@ -1,14 +1,23 @@
 import os
 import unittest
 
-from dotenv import load_dotenv
-import google.generativeai as genai
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    load_dotenv = None
+
+try:
+    import google.generativeai as genai
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    genai = None
 
 
 class GenAITextGenerationTest(unittest.TestCase):
     """Integration test verifying text generation via ``google-generativeai``."""
 
     def test_generate_content(self):
+        if load_dotenv is None or genai is None:
+            self.skipTest("optional dependencies not installed")
         load_dotenv()
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
