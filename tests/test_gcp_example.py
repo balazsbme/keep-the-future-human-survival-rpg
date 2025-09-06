@@ -1,29 +1,25 @@
-import os
 import unittest
 
 from dotenv import load_dotenv
 from google import genai
-from google.genai.types import EmbedContentConfig
 
 
-class GenAIEmbeddingTest(unittest.TestCase):
-    """Integration test verifying Vertex AI embeddings via ``google-genai``."""
+class GenAITextGenerationTest(unittest.TestCase):
+    """Integration test verifying text generation via ``google-genai``."""
 
-    def test_embed_content(self):
+    def test_generate_content(self):
         load_dotenv()
         try:
             client = genai.Client()
-            response = client.models.embed_content(
-                model="text-embedding-005",
-                contents=["How do I get a driver's license/learner's permit?"],
-                config=EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT", output_dimensionality=768),
+            response = client.models.generate_content(
+                model="gemini-1.5-flash",
+                contents=["Hello, world!"],
             )
-            self.assertEqual(len(response.embeddings), 1)
-            self.assertGreater(len(response.embeddings[0].values), 0)
+            self.assertIsInstance(response.text, str)
+            self.assertGreater(len(response.text), 0)
         except Exception as exc:  # pragma: no cover - network/auth failures
             self.skipTest(f"Vertex AI request failed: {exc}")
 
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -1,11 +1,2 @@
-python-dotenv
-requests
-beautifulsoup4
-langchain-text-splitters
-langchain-community
 google-genai
-sqlalchemy
-pgvector
-pg8000
-cloud-sql-python-connector
-flask
+python-dotenv
