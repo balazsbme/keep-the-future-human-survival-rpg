@@ -1,6 +1,7 @@
 # Google Generative AI Text Generation Example
 
 This repository contains a tiny Python script demonstrating how to call Google's Gemini API using the `google-generativeai` library.
+It also includes a small role-playing game (RPG) demo that can be played either through the command line or via a web service.
 
 ## Setup
 
@@ -12,13 +13,25 @@ This repository contains a tiny Python script demonstrating how to call Google's
 
 ## Usage
 
-Run the script and provide a prompt when prompted:
+### Command-Line Demo
+
+Run the RPG demo interactively:
 
 ```bash
-python main.py
+python example_game.py
 ```
 
-The script sends your prompt to the `gemini-1.5-flash` model and prints the generated response.
+### Web Service
+
+Start a small Flask web service exposing the same game logic:
+
+```bash
+python web_service.py
+```
+Then open `http://127.0.0.1:5000/` in a browser. The page presents
+character choices as radio buttons. Select a character and submit to see
+possible questions, then choose a question and press **Send** to view the
+character's answer.
 
 ## License
 
