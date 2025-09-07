@@ -30,13 +30,14 @@ def create_app() -> Flask:
             f"{options}"
             "<button type='submit'>Choose</button>"
             "</form>"
+            f"{game_state.render_state()}"
         )
 
     @app.route("/actions", methods=["POST"])
     def character_actions() -> str:
         char_id = int(request.form["character"])
         char = game_state.characters[char_id]
-        actions: List[str] = char.generate_actions()
+        actions: List[str] = char.generate_actions(game_state.history)
         radios = "".join(
             f'<input type="radio" name="action" value="{a}" id="a{idx}">'\
             f'<label for="a{idx}">{a}</label><br>'
@@ -49,6 +50,7 @@ def create_app() -> Flask:
             "<button type='submit'>Send</button>"
             "</form>"
             "<a href='/'>Back to characters</a>"
+            f"{game_state.render_state()}"
         )
 
     @app.route("/perform", methods=["POST"])
@@ -56,9 +58,9 @@ def create_app() -> Flask:
         char_id = int(request.form["character"])
         action = request.form["action"]
         char = game_state.characters[char_id]
-        result = char.perform_action(action)
-        game_state.record_action(char, action)
-        return f"<p>{result}</p>"
+        result, scores = char.perform_action(action, game_state.history)
+        game_state.record_action(char, action, scores)
+        return f"<p>{result}</p>{game_state.render_state()}"
 
     return app
 

@@ -1,2 +1,0 @@
-# Test Character
-- Role: Sample.
