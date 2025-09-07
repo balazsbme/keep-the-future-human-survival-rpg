@@ -33,3 +33,8 @@ character choices as radio buttons. Select a character and submit to see
 possible questions, then choose a question and press **Send** to view the
 character's answer.
 
+## License
+
+This project is licensed under the terms of the [GNU General Public License
+v3.0 or later](LICENSE).
+
