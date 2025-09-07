@@ -1,11 +1,11 @@
-## Corporations (Major Technology Companies)
+## Regulators (National and International Institutions)
 - **Influence**: 
-  - Can stop the AGI race and redirect toward Tool AI.
-  - Possess outsized lobbying power to shape regulation.
-  - Could voluntarily adopt standards but currently resist them.
+  - Can prohibit AGI and enforce compute limits through law and licensing.
+  - Can establish tiered risk frameworks for Tool AI vs AGI.
+  - Could create global governance bodies similar to the IAEA.
 - **Resources/Capabilities**: 
-  - Control of massive compute, datasets, and top AI talent.
-  - Ability to define public narratives of inevitability around AGI.
+  - Legislative power at national level, potential for treaties at international level.
+  - Ability to impose liability and create enforcement mechanisms.
 - **Interactions with other actors**: 
-  - Strongly influence governments through lobbying and economic incentives.
-  - Depend on hardware manufacturers for compute resources.
+  - Strongly pressured by corporate lobbying to weaken or delay regulation.
+  - Depend on governments and international cooperation to gain legitimacy.
