@@ -29,8 +29,7 @@ def main() -> None:
     for idx, act in enumerate(options, 1):
         print(f"{idx}. {act}")
     action = options[int(input("Choose an action: ")) - 1]
-    result, scores = char.perform_action(action, state.history)
-    print(result)
+    scores = char.perform_action(action, state.history)
     state.record_action(char, action, scores)
 
 
