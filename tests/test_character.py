@@ -17,7 +17,6 @@ class FolderCharacterTest(unittest.TestCase):
         mock_model = MagicMock()
         mock_model.generate_content.side_effect = [
             MagicMock(text="1. Act1\n2. Act2\n3. Act3"),
-            MagicMock(text="Done."),
             MagicMock(text="10\n20\n30"),
         ]
         mock_genai.GenerativeModel.return_value = mock_model
@@ -25,8 +24,7 @@ class FolderCharacterTest(unittest.TestCase):
         char = FolderCharacter(FIXTURE_DIR)
         actions = char.generate_actions([])
         self.assertEqual(len(actions), 3)
-        result, scores = char.perform_action(actions[0], [])
-        self.assertEqual(result, "Done.")
+        scores = char.perform_action(actions[0], [])
         self.assertEqual(scores, [10, 20, 30])
 
 
