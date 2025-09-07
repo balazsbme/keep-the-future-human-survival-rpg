@@ -1,0 +1,11 @@
+## Corporations (Major Technology Companies)
+- **Influence**: 
+  - Can stop the AGI race and redirect toward Tool AI.
+  - Possess outsized lobbying power to shape regulation.
+  - Could voluntarily adopt standards but currently resist them.
+- **Resources/Capabilities**: 
+  - Control of massive compute, datasets, and top AI talent.
+  - Ability to define public narratives of inevitability around AGI.
+- **Interactions with other actors**: 
+  - Strongly influence governments through lobbying and economic incentives.
+  - Depend on hardware manufacturers for compute resources.
