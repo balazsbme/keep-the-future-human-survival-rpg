@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import List
+import os
 
 from flask import Flask, request
 
@@ -57,4 +58,4 @@ def create_app() -> Flask:
 
 if __name__ == "__main__":
     app = create_app()
-    app.run()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 7860)))
