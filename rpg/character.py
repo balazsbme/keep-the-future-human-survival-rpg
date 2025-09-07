@@ -21,12 +21,12 @@ class Character(ABC):
         self._model = genai.GenerativeModel(model)
 
     @abstractmethod
-    def generate_questions(self) -> List[str]:
-        """Return three possible questions a player might ask."""
+    def generate_actions(self) -> List[str]:
+        """Return three possible actions a player might request."""
 
     @abstractmethod
-    def answer_question(self, question: str) -> str:
-        """Return the character's answer to ``question``."""
+    def perform_action(self, action: str) -> str:
+        """Return the result of the character performing ``action``."""
 
 
 class MarkdownCharacter(Character):
@@ -39,27 +39,27 @@ class MarkdownCharacter(Character):
         # Generate a base context using the description
         self.base_context = self._model.generate_content(text).text
 
-    def generate_questions(self) -> List[str]:
+    def generate_actions(self) -> List[str]:
         prompt = (
             f"{self.base_context}\n"
-            "List three numbered questions a player might ask you." 
+            "List three numbered actions a player might ask you to perform."
         )
         response = self._model.generate_content(prompt)
         lines = [line.strip() for line in response.text.splitlines() if line.strip()]
-        questions: List[str] = []
+        actions: List[str] = []
         for line in lines:
             if line[0].isdigit():
                 parts = line.split(".", 1)
-                q = parts[1].strip() if len(parts) > 1 else line
-                questions.append(q)
+                act = parts[1].strip() if len(parts) > 1 else line
+                actions.append(act)
             else:
-                if questions:
-                    questions.append(line)
-            if len(questions) == 3:
+                if actions:
+                    actions.append(line)
+            if len(actions) == 3:
                 break
-        return questions
+        return actions
 
-    def answer_question(self, question: str) -> str:
-        prompt = f"{self.base_context}\nPlayer: {question}\n{self.name}:"
+    def perform_action(self, action: str) -> str:
+        prompt = f"{self.base_context}\nPlayer requests: {action}\n{self.name}:"
         response = self._model.generate_content(prompt)
         return response.text.strip()

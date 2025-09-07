@@ -10,52 +10,55 @@ import os
 from flask import Flask, request
 
 from example_game import load_characters
+from rpg.game_state import GameState
 
 
 def create_app() -> Flask:
     """Create and configure the Flask application."""
     app = Flask(__name__)
-    characters = load_characters()
+    game_state = GameState(load_characters())
 
     @app.route("/", methods=["GET"])
     def list_characters() -> str:
         options = "".join(
-            f'<input type="radio" name="character" value="{idx}" id="char{idx}">'
+            f'<input type="radio" name="character" value="{idx}" id="char{idx}">'\
             f'<label for="char{idx}">{char.name}</label><br>'
-            for idx, char in enumerate(characters)
+            for idx, char in enumerate(game_state.characters)
         )
         return (
-            "<form method='post' action='/questions'>"
+            "<form method='post' action='/actions'>"
             f"{options}"
             "<button type='submit'>Choose</button>"
             "</form>"
         )
 
-    @app.route("/questions", methods=["POST"])
-    def character_questions() -> str:
+    @app.route("/actions", methods=["POST"])
+    def character_actions() -> str:
         char_id = int(request.form["character"])
-        char = characters[char_id]
-        questions: List[str] = char.generate_questions()
+        char = game_state.characters[char_id]
+        actions: List[str] = char.generate_actions()
         radios = "".join(
-            f'<input type="radio" name="question" value="{q}" id="q{idx}">'
-            f'<label for="q{idx}">{q}</label><br>'
-            for idx, q in enumerate(questions)
+            f'<input type="radio" name="action" value="{a}" id="a{idx}">'\
+            f'<label for="a{idx}">{a}</label><br>'
+            for idx, a in enumerate(actions)
         )
         return (
-            "<form method='post' action='/answer'>"
+            "<form method='post' action='/perform'>"
             f"{radios}"
             f"<input type='hidden' name='character' value='{char_id}'>"
             "<button type='submit'>Send</button>"
             "</form>"
+            "<a href='/'>Back to characters</a>"
         )
 
-    @app.route("/answer", methods=["POST"])
-    def character_answer() -> str:
+    @app.route("/perform", methods=["POST"])
+    def character_perform() -> str:
         char_id = int(request.form["character"])
-        question = request.form["question"]
-        char = characters[char_id]
-        answer = char.answer_question(question)
-        return f"<p>{answer}</p>"
+        action = request.form["action"]
+        char = game_state.characters[char_id]
+        result = char.perform_action(action)
+        game_state.record_action(char, action)
+        return f"<p>{result}</p>"
 
     return app
 

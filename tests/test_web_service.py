@@ -19,14 +19,17 @@ class WebServiceTest(unittest.TestCase):
             mock_model = MagicMock()
             mock_model.generate_content.side_effect = [
                 MagicMock(text="Base context"),
-                MagicMock(text="1. Where are you?\n2. Who are you?\n3. What do you do?"),
+                MagicMock(text="1. Guard the gate\n2. Patrol\n3. Rest"),
                 MagicMock(text="I stand guard."),
             ]
             mock_genai.GenerativeModel.return_value = mock_model
 
             character = MarkdownCharacter("Tester", FIXTURE)
 
-        with patch("web_service.load_characters", return_value=[character]):
+        with patch("web_service.load_characters", return_value=[character]), \
+            patch("web_service.GameState") as MockState:
+            mock_state = MockState.return_value
+            mock_state.characters = [character]
             app = create_app()
             client = app.test_client()
 
@@ -34,15 +37,18 @@ class WebServiceTest(unittest.TestCase):
             self.assertEqual(resp.status_code, 200)
             self.assertIn("Tester", resp.data.decode())
 
-            resp = client.post("/questions", data={"character": "0"})
+            resp = client.post("/actions", data={"character": "0"})
             self.assertEqual(resp.status_code, 200)
-            self.assertIn("Where are you?", resp.data.decode())
+            page = resp.data.decode()
+            self.assertIn("Guard the gate", page)
+            self.assertIn("Back to characters", page)
 
             resp = client.post(
-                "/answer", data={"character": "0", "question": "Where are you?"}
+                "/perform", data={"character": "0", "action": "Guard the gate"}
             )
             self.assertEqual(resp.status_code, 200)
             self.assertIn("I stand guard.", resp.data.decode())
+            mock_state.record_action.assert_called_once_with(character, "Guard the gate")
 
 
 if __name__ == "__main__":
