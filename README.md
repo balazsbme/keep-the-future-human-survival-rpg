@@ -30,8 +30,8 @@ python web_service.py
 ```
 Then open `http://127.0.0.1:7860/` in a browser. The page presents
 character choices as radio buttons. Select a character and submit to see
-possible questions, then choose a question and press **Send** to view the
-character's answer.
+possible actions, then choose an action and press **Send** to view the
+character's response.
 
 ## License
 

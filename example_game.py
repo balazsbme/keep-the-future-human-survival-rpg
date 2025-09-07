@@ -6,6 +6,7 @@ import os
 from typing import List
 
 from rpg.character import MarkdownCharacter
+from rpg.game_state import GameState
 
 
 def load_characters() -> List[MarkdownCharacter]:
@@ -17,16 +18,17 @@ def load_characters() -> List[MarkdownCharacter]:
 
 
 def main() -> None:
-    characters = load_characters()
-    for idx, char in enumerate(characters, 1):
+    state = GameState(load_characters())
+    for idx, char in enumerate(state.characters, 1):
         print(f"{idx}. {char.name}")
     choice = int(input("Choose a character: ")) - 1
-    char = characters[choice]
-    options = char.generate_questions()
-    for idx, q in enumerate(options, 1):
-        print(f"{idx}. {q}")
-    question = options[int(input("Choose a question: ")) - 1]
-    print(char.answer_question(question))
+    char = state.characters[choice]
+    options = char.generate_actions()
+    for idx, act in enumerate(options, 1):
+        print(f"{idx}. {act}")
+    action = options[int(input("Choose an action: ")) - 1]
+    print(char.perform_action(action))
+    state.record_action(char, action)
 
 
 if __name__ == "__main__":

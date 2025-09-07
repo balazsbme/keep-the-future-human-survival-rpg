@@ -17,16 +17,16 @@ class MarkdownCharacterTest(unittest.TestCase):
         mock_model = MagicMock()
         mock_model.generate_content.side_effect = [
             MagicMock(text="Base context"),
-            MagicMock(text="1. Where are you?\n2. Who are you?\n3. What do you do?"),
+            MagicMock(text="1. Guard the gate\n2. Patrol\n3. Rest"),
             MagicMock(text="I stand guard."),
         ]
         mock_genai.GenerativeModel.return_value = mock_model
 
         char = MarkdownCharacter("Tester", FIXTURE)
-        questions = char.generate_questions()
-        self.assertEqual(len(questions), 3)
-        answer = char.answer_question(questions[0])
-        self.assertEqual(answer, "I stand guard.")
+        actions = char.generate_actions()
+        self.assertEqual(len(actions), 3)
+        result = char.perform_action(actions[0])
+        self.assertEqual(result, "I stand guard.")
 
 
 if __name__ == "__main__":
