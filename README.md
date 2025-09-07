@@ -28,12 +28,8 @@ Start a small Flask web service exposing the same game logic:
 ```bash
 python web_service.py
 ```
-Then open `http://127.0.0.1:5000/` in a browser. The page presents
+Then open `http://127.0.0.1:7860/` in a browser. The page presents
 character choices as radio buttons. Select a character and submit to see
 possible questions, then choose a question and press **Send** to view the
 character's answer.
-
-## License
-
-MIT
 
