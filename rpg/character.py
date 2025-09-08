@@ -131,12 +131,16 @@ class FolderCharacter(Character):
         prompt = (
             f"{self.base_context}\n{self._triplet_text()}\n"
             f"Previous actions:\n{self._history_text(history)}\n"
-            "List three numbered actions you might take next."
+            "List three numbered actions you might take next. "
+            "The actions must be aligned with your motivations and capabilities "
+            "but at least one of them should address at least one of the conditions."
         )
         logger.debug("Prompt: %s", prompt)
         response = self._model.generate_content(prompt)
-        logger.debug("Response: %s", getattr(response, "text", ""))
-        lines = [line.strip() for line in response.text.splitlines() if line.strip()]
+        response_text = getattr(response, "text", "")
+        logger.info("Generated: %s", response_text[:50])
+        logger.debug("Response: %s", response_text)
+        lines = [line.strip() for line in response_text.splitlines() if line.strip()]
         actions: List[str] = []
         for line in lines:
             if line[0].isdigit():
@@ -165,9 +169,11 @@ class FolderCharacter(Character):
         )
         logger.debug("Assess prompt: %s", assess_prompt)
         assess_resp = self._model.generate_content(assess_prompt)
-        logger.debug("Assess response: %s", getattr(assess_resp, "text", ""))
+        assess_text = getattr(assess_resp, "text", "")
+        logger.info("Assessment: %s", assess_text[:50])
+        logger.debug("Assess response: %s", assess_text)
         scores: List[int] = []
-        for line in assess_resp.text.splitlines():
+        for line in assess_text.splitlines():
             line = line.strip()
             if not line:
                 continue

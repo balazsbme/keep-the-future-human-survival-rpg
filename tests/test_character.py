@@ -23,6 +23,9 @@ class FolderCharacterTest(unittest.TestCase):
 
         char = FolderCharacter(FIXTURE_DIR)
         actions = char.generate_actions([])
+        prompt_used = mock_model.generate_content.call_args_list[0][0][0]
+        self.assertIn("condition1", prompt_used)
+        self.assertIn("aligned with your motivations and capabilities", prompt_used)
         self.assertEqual(len(actions), 3)
         scores = char.perform_action(actions[0], [])
         self.assertEqual(scores, [10, 20, 30])
