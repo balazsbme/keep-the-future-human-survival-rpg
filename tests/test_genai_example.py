@@ -27,7 +27,9 @@ class GenAITextGenerationTest(unittest.TestCase):
         try:
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel("gemini-2.5-flash")
-            response = model.generate_content("Hello, world!")
+            response = model.generate_content(
+                "Hello, world!", request_options={"timeout": 5}
+            )
             self.assertIsInstance(response.text, str)
             self.assertGreater(len(response.text), 0)
         except Exception as exc:  # pragma: no cover - network/auth failures
