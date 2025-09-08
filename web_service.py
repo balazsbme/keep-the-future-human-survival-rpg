@@ -10,7 +10,7 @@ import os
 
 from flask import Flask, request, redirect, Response
 
-from example_game import load_characters
+from cli_game import load_characters
 from rpg.game_state import GameState
 
 
