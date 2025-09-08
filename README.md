@@ -1,7 +1,20 @@
-# Google Generative AI Text Generation Example
+# Keep the Future Human Survival RPG
 
-This repository contains a tiny Python script demonstrating how to call Google's Gemini API using the `google-generativeai` library.
-It also includes a small role-playing game (RPG) demo that can be played either through the command line or via a web service.
+This project is an experimental role‑playing game inspired by the themes of the
+[Keep the Future Human essay contest](https://keepthefuturehuman.ai/contest/).
+It began as a minimal example of how to call Google's Gemini API with the
+`google-generativeai` library and has grown into a playable RPG. The repository
+now includes:
+
+- **CLI game (`cli_game.py`)** – play through the terminal.
+- **Flask web service (`web_service.py`)** – interact with the same mechanics via a browser.
+- **Character definitions (`characters/`)** – each folder describes a playable
+  character whose actions are generated with the model.
+- **Gemini API wrapper (`main.py`)** – a simple script demonstrating direct text
+  generation calls.
+
+Together these pieces form a small game exploring how humans might survive and
+thrive in future scenarios.
 
 ## Setup
 
@@ -18,7 +31,7 @@ It also includes a small role-playing game (RPG) demo that can be played either 
 Run the RPG demo interactively:
 
 ```bash
-python example_game.py
+python cli_game.py
 ```
 
 ### Web Service
