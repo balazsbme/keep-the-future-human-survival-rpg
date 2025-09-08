@@ -46,6 +46,12 @@ character choices as radio buttons. Select a character and submit to see
 possible actions, then choose an action and press **Send** to view the
 character's response.
 
+### Logging
+
+Both entry points respect the `LOG_LEVEL` environment variable to control
+verbosity. Set `LOG_LEVEL=DEBUG` for more detailed output. The default
+level is `INFO`.
+
 ## License
 
 This project is licensed under the terms of the [GNU General Public License

@@ -2,6 +2,7 @@
 
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import logging
 import os
 from typing import List
 
@@ -20,6 +21,7 @@ def load_characters() -> List[FolderCharacter]:
 
 
 def main() -> None:
+    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
     state = GameState(load_characters())
     for idx, char in enumerate(state.characters, 1):
         print(f"{idx}. {char.name}")
