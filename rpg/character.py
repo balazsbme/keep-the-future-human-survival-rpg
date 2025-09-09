@@ -1,13 +1,10 @@
-"""Character abstractions backed by folder-defined context."""
+"""Character abstractions backed by YAML-defined context."""
 
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import logging
-import os
 from abc import ABC, abstractmethod
-from typing import Any, List, Tuple
-
-import yaml
+from typing import List, Tuple
 
 try:  # pragma: no cover - optional dependency
     import google.generativeai as genai
@@ -64,39 +61,32 @@ class Character(ABC):
         """
 
 
-class FolderCharacter(Character):
-    """Character defined by a folder containing context and yaml lists."""
+class YamlCharacter(Character):
+    """Character defined by a YAML entry containing context and triplets."""
 
-    def __init__(self, folder: str, model: str = "gemini-2.5-flash"):
-        """Load character data from ``folder``.
+    def __init__(self, name: str, spec: dict, model: str = "gemini-2.5-flash"):
+        """Create a character from YAML ``spec`` data.
 
         Args:
-            folder: Directory containing character definition files.
+            name: Character name.
+            spec: Dictionary with ``MarkdownContext``, ``conditions``,
+                ``current_state`` and ``gaps`` keys.
             model: Generative model identifier.
 
         Returns:
             None.
         """
-        name = os.path.basename(folder.rstrip(os.sep))
-
-        md_files = [f for f in os.listdir(folder) if f.endswith(".md")]
-        if not md_files:
-            raise FileNotFoundError("character folder missing markdown context")
-        md_path = os.path.join(folder, md_files[0])
-        with open(md_path, "r", encoding="utf-8") as f:
-            base_context = f.read()
-
-        def load_yaml(filename: str) -> List[Any]:
-            path = os.path.join(folder, filename)
-            with open(path, "r", encoding="utf-8") as fh:
-                data = yaml.safe_load(fh) or []
-            if not isinstance(data, list):
-                raise ValueError(f"{filename} must contain a list")
-            return data
-
-        self.current = load_yaml("current.yaml")
-        self.conditions = load_yaml("conditions.yaml")
-        self.gaps = load_yaml("gaps.yaml")
+        base_context = spec.get("MarkdownContext", "")
+        conditions = spec.get("conditions", [])
+        current = spec.get("current_state", [])
+        gaps = spec.get("gaps", [])
+        if not all(isinstance(lst, list) for lst in (conditions, current, gaps)):
+            raise ValueError(
+                "conditions, current_state, and gaps must be lists"
+            )
+        self.current = current
+        self.conditions = conditions
+        self.gaps = gaps
         self.triplets = list(zip(self.current, self.conditions, self.gaps))
         super().__init__(name, base_context, model)
         self.base_context = base_context

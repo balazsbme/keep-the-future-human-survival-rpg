@@ -1,0 +1,15 @@
+test_character:
+  MarkdownContext: |
+    Base context for test character.
+  conditions:
+    - condition1
+    - condition2
+    - condition3
+  current_state:
+    - current1
+    - current2
+    - current3
+  gaps:
+    - gap1
+    - gap2
+    - gap3

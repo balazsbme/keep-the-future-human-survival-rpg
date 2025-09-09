@@ -5,13 +5,15 @@ import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
+import yaml
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from rpg.character import FolderCharacter
+from rpg.character import YamlCharacter
 
-FIXTURE_DIR = os.path.join(os.path.dirname(__file__), "fixtures", "test_character")
+FIXTURE_FILE = os.path.join(os.path.dirname(__file__), "fixtures", "characters.yaml")
 
 
-class FolderCharacterTest(unittest.TestCase):
+class YamlCharacterTest(unittest.TestCase):
     @patch("rpg.character.genai")
     def test_generate_and_answer(self, mock_genai):
         mock_model = MagicMock()
@@ -21,7 +23,9 @@ class FolderCharacterTest(unittest.TestCase):
         ]
         mock_genai.GenerativeModel.return_value = mock_model
 
-        char = FolderCharacter(FIXTURE_DIR)
+        with open(FIXTURE_FILE, "r", encoding="utf-8") as fh:
+            data = yaml.safe_load(fh)
+        char = YamlCharacter("test_character", data["test_character"])
         actions = char.generate_actions([])
         prompt_used = mock_model.generate_content.call_args_list[0][0][0]
         self.assertIn("condition1", prompt_used)

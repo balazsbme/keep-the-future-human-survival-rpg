@@ -1,23 +1,21 @@
-"""Command-line demo for folder-defined RPG characters."""
-
 # SPDX-License-Identifier: GPL-3.0-or-later
+"""Command-line demo for YAML-defined RPG characters."""
 
 import logging
 import os
 from typing import List
 
-from rpg.character import FolderCharacter
+import yaml
+
+from rpg.character import YamlCharacter
 from rpg.game_state import GameState
 
 
-def load_characters() -> List[FolderCharacter]:
-    base = os.path.join(os.path.dirname(__file__), "characters")
-    chars: List[FolderCharacter] = []
-    for name in os.listdir(base):
-        path = os.path.join(base, name)
-        if os.path.isdir(path):
-            chars.append(FolderCharacter(path))
-    return chars
+def load_characters() -> List[YamlCharacter]:
+    file_path = os.path.join(os.path.dirname(__file__), "characters.yaml")
+    with open(file_path, "r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    return [YamlCharacter(name, spec) for name, spec in data.items()]
 
 
 def main() -> None:
