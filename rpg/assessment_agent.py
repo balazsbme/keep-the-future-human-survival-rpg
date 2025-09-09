@@ -52,12 +52,12 @@ class AssessmentAgent:
             prompt = (
                 "You are the Game Master for the 'Keep the future human' survival RPG. "
                 "The player is interacting with the characters and convinces them to take actions. "
-                f"You assess of the following character's current-condition-gap triplets with a 0-100 integer: {actor_list}, "
+                f"You assess of the following character's 'initial state - end state - gap' triplets with a 0-100 integer: {actor_list}, "
                 "based on the baseline script and the performed actions.\n"
                 f"The baseline script: {how_to_win}\n"
                 f"Performed actions: {history_text}\n"
                 f"Assess all triplets of the character {context}.\n"
-                "Output an ordered list of 0-100 integers one for each triplet."
+                "Output ONLY an ordered list of 0-100 integers one for each triplet line-by-line."
             )
             logger.debug("Assessment prompt for %s: %s", char.name, prompt)
             response = self._model.generate_content(prompt)
