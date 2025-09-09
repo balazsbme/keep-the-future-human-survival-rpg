@@ -8,8 +8,8 @@ now includes:
 
 - **CLI game (`cli_game.py`)** – play through the terminal.
 - **Flask web service (`web_service.py`)** – interact with the same mechanics via a browser.
-- **Character definitions (`characters/`)** – each folder describes a playable
-  character whose actions are generated with the model.
+- **Character definitions (`characters.yaml`)** – each YAML entry describes a
+  playable character whose actions are generated with the model.
 - **Gemini API wrapper (`main.py`)** – a simple script demonstrating direct text
   generation calls.
 

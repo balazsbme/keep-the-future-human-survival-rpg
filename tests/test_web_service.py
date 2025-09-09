@@ -5,12 +5,14 @@ import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
+import yaml
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from web_service import create_app
-from rpg.character import FolderCharacter
+from rpg.character import YamlCharacter
 
-FIXTURE_DIR = os.path.join(os.path.dirname(__file__), "fixtures", "test_character")
+FIXTURE_FILE = os.path.join(os.path.dirname(__file__), "fixtures", "characters.yaml")
 
 
 class WebServiceTest(unittest.TestCase):
@@ -23,7 +25,9 @@ class WebServiceTest(unittest.TestCase):
                 MagicMock(text="10\n20\n30"),
             ]
             mock_genai.GenerativeModel.return_value = mock_model
-            character = FolderCharacter(FIXTURE_DIR)
+            with open(FIXTURE_FILE, "r", encoding="utf-8") as fh:
+                data = yaml.safe_load(fh)
+            character = YamlCharacter("test_character", data["test_character"])
 
         with patch("web_service.load_characters", return_value=[character]):
             app = create_app()
