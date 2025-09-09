@@ -69,25 +69,36 @@ class YamlCharacter(Character):
 
         Args:
             name: Character name.
-            spec: Dictionary with ``MarkdownContext``, ``conditions``,
-                ``current_state`` and ``gaps`` keys.
+            spec: Dictionary with ``MarkdownContext``, ``initial_states``,
+                ``end_states`` and ``gaps`` keys.
             model: Generative model identifier.
 
         Returns:
             None.
         """
         base_context = spec.get("MarkdownContext", "")
-        conditions = spec.get("conditions", [])
-        current = spec.get("current_state", [])
+        end_states = spec.get("end_states", [])
+        initial_states = spec.get("initial_states", [])
         gaps = spec.get("gaps", [])
-        if not all(isinstance(lst, list) for lst in (conditions, current, gaps)):
+        if not all(
+            isinstance(lst, list) for lst in (end_states, initial_states, gaps)
+        ):
             raise ValueError(
-                "conditions, current_state, and gaps must be lists"
+                "end_states, initial_states, and gaps must be lists"
             )
-        self.current = current
-        self.conditions = conditions
+        self.initial_states = initial_states
+        self.end_states = end_states
         self.gaps = gaps
-        self.triplets = list(zip(self.current, self.conditions, self.gaps))
+        self.triplets = list(zip(self.initial_states, self.end_states, self.gaps))
+        # Pre-compute weight of each gap based on its severity/size
+        weight_map = {"Critical": 4, "Large": 3, "Moderate": 2, "Small": 1}
+        self.weights: List[int] = []
+        for gap in self.gaps:
+            if isinstance(gap, dict):
+                sev = gap.get("severity") or gap.get("size")
+                self.weights.append(weight_map.get(sev, 1))
+            else:
+                self.weights.append(1)
         super().__init__(name, base_context, model)
         self.base_context = base_context
 
@@ -95,13 +106,19 @@ class YamlCharacter(Character):
         """Return a textual representation of triplet data.
 
         Returns:
-            A multi-line string describing current, condition, and gap.
+            A multi-line string describing initial state, end state, gap, and size.
         """
         lines = []
-        for idx, (cur, cond, gap) in enumerate(self.triplets, 1):
-            gap_text = gap if isinstance(gap, str) else gap.get("explanation", str(gap))
+        for idx, (initial, end, gap) in enumerate(self.triplets, 1):
+            if isinstance(gap, str):
+                gap_text = gap
+                gap_size = ""
+            else:
+                gap_text = gap.get("explanation", str(gap))
+                gap_size = gap.get("severity") or gap.get("size")
+            size_part = f" (size: {gap_size})" if gap_size else ""
             lines.append(
-                f"{idx}. Initial state: {cur}\n   End state: {cond}\n   Gap: {gap_text}"
+                f"{idx}. Initial state: {initial}\n   End state: {end}\n   Gap: {gap_text}{size_part}"
             )
         return "\n".join(lines)
 

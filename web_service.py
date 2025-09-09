@@ -56,6 +56,9 @@ def create_app() -> Flask:
             f"{options}"
             "<button type='submit'>Choose</button>"
             "</form>"
+            "<form method='post' action='/reset'>"
+            "<button type='submit'>Reset</button>"
+            "</form>"
             f"{game_state.render_state()}"
         )
 
@@ -83,6 +86,9 @@ def create_app() -> Flask:
             "<button type='submit'>Send</button>"
             "</form>"
             "<a href='/'>Back to characters</a>"
+            "<form method='post' action='/reset'>"
+            "<button type='submit'>Reset</button>"
+            "</form>"
             f"{game_state.render_state()}"
         )
 
@@ -101,7 +107,30 @@ def create_app() -> Flask:
         scores = assessor.assess(game_state.characters, game_state.how_to_win, game_state.history)
         logger.debug("Scores: %s", scores)
         game_state.update_progress(scores)
+        final_score = game_state.final_weighted_score()
+        if final_score >= 80 or len(game_state.history) >= 10:
+            return redirect("/result")
         return redirect("/")
+
+    @app.route("/reset", methods=["POST"])
+    def reset() -> Response:
+        """Reset the game to its initial state."""
+        nonlocal game_state
+        game_state = GameState(load_characters())
+        return redirect("/")
+
+    @app.route("/result", methods=["GET"])
+    def result() -> str:
+        """Display the final game outcome."""
+        final = game_state.final_weighted_score()
+        outcome = "You won!" if final >= 80 else "You lost!"
+        return (
+            f"<h1>{outcome}</h1>"
+            f"{game_state.render_state()}"
+            "<form method='post' action='/reset'>"
+            "<button type='submit'>Reset</button>"
+            "</form>"
+        )
 
     return app
 

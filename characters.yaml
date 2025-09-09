@@ -1,10 +1,10 @@
 Governments:
-  conditions:
+  end_states:
     - Impose compute caps and enforce reporting
     - Create empowered AI oversight agencies
     - Negotiate international agreements for verification and enforcement
     - Shift national security framing from AGI race to Tool AI programs
-  current_state:
+  initial_states:
     - Political focus on economic growth and national security competition
     - Oversight agencies limited or nonexistent
     - Export controls exist but no international treaties on AI compute
@@ -28,12 +28,12 @@ Governments:
     - **Interactions**: Strongly influenced by corporate lobbying; in rivalry with other governments (e.g., US–China), affecting chipmakers and regulators.
 
 Corporations:
-  conditions:
+  end_states:
     - Accept strict liability for dangerous systems
     - Comply with compute oversight and hard caps
     - Pivot business models from AGI toward Tool AI
     - Respond to cultural and social pressure to change mission
-  current_state:
+  initial_states:
     - Corporations resist regulation, opposing liability frameworks such as California’s SB1047
     - Currently maximize compute use in pursuit of AGI capabilities
     - Business incentives favor labor-replacing AGI systems
@@ -58,12 +58,12 @@ Corporations:
     - **Interactions**: Depend on hardware manufacturers for chips; heavily influence governments and regulators.
 
 HardwareManufacturers:
-  conditions:
+  end_states:
     - Embed governance features in chips (cryptographic locks, metering, geolocation)
     - Cooperate with government oversight and reporting schemes
     - Support global standards without loopholes
     - Accept reduced sales in exchange for stability and safety
-  current_state:
+  initial_states:
     - Highly concentrated supply chain (TSMC, ASML, NVIDIA, AMD) makes oversight feasible
     - Some export controls in place (e.g., US restrictions to China)
     - No global harmonized standards; unilateral controls create loopholes
@@ -87,11 +87,11 @@ HardwareManufacturers:
     - **Interactions**: Depend on government mandates for governance; affected by geopolitical rivalries between governments.
 
 Regulators:
-  conditions:
+  end_states:
     - Stay independent from corporate and national capture
     - Develop clear technical standards for compute reporting and accounting
     - Create legitimate global governance institutions
-  current_state:
+  initial_states:
     - Industry lobbying strongly influences rulemaking; EU AI Act exempts military AI and does not prohibit AGI
     - Early standards like Frontier Model Forum exist but lack enforcement
     - No global AI governance body exists; only proposals for CERN/IAEA-style institutions
@@ -113,11 +113,11 @@ Regulators:
     - **Interactions**: Vulnerable to corporate capture; depend on governments for legitimacy and on international cooperation for enforcement.
 
 CivilSociety:
-  conditions:
+  end_states:
     - Be well-informed on AGI risks and Tool AI alternatives
     - Build broad coalitions across NGOs, labor, and media
     - Exert democratic leverage early to influence policy
-  current_state:
+  initial_states:
     - Public polls show opposition to AGI but understanding of risks is shallow
     - NGOs exist (Future of Life Institute, alignment groups) but fragmented and weak relative to corporations
     - Institutions weak; lobbying power of corporations outweighs public preference
@@ -139,11 +139,11 @@ CivilSociety:
     - **Interactions**: Influence governments and regulators through democratic processes; need to build coalitions with scientists and media.
 
 ScientificCommunity:
-  conditions:
+  end_states:
     - Resist corporate funding capture
     - Coordinate globally to prevent 'safety tourism'
     - Engage public and policymakers with credible advocacy
-  current_state:
+  initial_states:
     - Many researchers absorbed by big tech labs; independent research underfunded
     - Some collaboration among AI safety networks but fragmented
     - Prominent researchers (Hinton, Bengio) actively warn of extinction risks
