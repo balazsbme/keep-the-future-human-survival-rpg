@@ -36,24 +36,33 @@ class GameState:
         with open(win_path, "r", encoding="utf-8") as f:
             self.how_to_win = f.read()
 
-    def record_action(
-        self, character: Character, action: str, scores: List[int]
-    ) -> None:
-        """Record an action and associated scores.
+    def record_action(self, character: Character, action: str) -> None:
+        """Record an action taken by a character.
 
         Args:
             character: The actor performing the action.
             action: The action undertaken.
-            scores: Updated progress scores for the actor.
-        
+
         Returns:
             None.
         """
         logger.info("Recording action '%s' for %s", action, character.name)
         self.history.append((character.name, action))
-        if character.name in self.progress:
-            current = self.progress[character.name]
-            for idx, score in enumerate(scores):
+
+    def update_progress(self, scores: Dict[str, List[int]]) -> None:
+        """Update progress scores for all characters.
+
+        Args:
+            scores: Mapping of character name to list of progress values.
+
+        Returns:
+            None.
+        """
+        for name, new_scores in scores.items():
+            if name not in self.progress:
+                continue
+            current = self.progress[name]
+            for idx, score in enumerate(new_scores):
                 if idx < len(current):
                     current[idx] = score
 
