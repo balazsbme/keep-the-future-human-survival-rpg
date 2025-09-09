@@ -1,15 +1,18 @@
 test_character:
   MarkdownContext: |
     Base context for test character.
-  conditions:
-    - condition1
-    - condition2
-    - condition3
-  current_state:
-    - current1
-    - current2
-    - current3
+  end_states:
+    - end1
+    - end2
+    - end3
+  initial_states:
+    - initial1
+    - initial2
+    - initial3
   gaps:
-    - gap1
-    - gap2
-    - gap3
+    - severity: Small
+      explanation: gap1
+    - severity: Moderate
+      explanation: gap2
+    - severity: Large
+      explanation: gap3
