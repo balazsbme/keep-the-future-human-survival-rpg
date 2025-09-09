@@ -125,8 +125,9 @@ class YamlCharacter(Character):
             f"Throughout the game you are acting related to the following numbered list of triplets, describing the initial state at the start of the game, end state and the gap between them:\n{self._triplet_text()}\n"
             f"Previous actions taken by you or other actors:\n{self._history_text(history)}\n"
             "List three numbered actions you might take next. "
-            "The actions must be aligned with your motivations and capabilities, "
+            "The actions MUST be aligned with your motivations and capabilities, "
             "but at least one of them should address closing the gap between any of the above triplets."
+            "Do not mention in the output the triplets nor any of their parts directly."
         )
         logger.debug("Prompt: %s", prompt)
         response = self._model.generate_content(prompt)
