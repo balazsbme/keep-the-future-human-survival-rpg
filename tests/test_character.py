@@ -34,7 +34,8 @@ class YamlCharacterTest(unittest.TestCase):
         char = YamlCharacter("test_character", data["test_character"])
         actions = char.generate_actions([])
         prompt_used = mock_action_model.generate_content.call_args_list[0][0][0]
-        self.assertIn("condition1", prompt_used)
+        self.assertIn("end1", prompt_used)
+        self.assertIn("size: Small", prompt_used)
         self.assertIn("aligned with your motivations and capabilities", prompt_used)
         self.assertEqual(len(actions), 3)
         assessor = AssessmentAgent()
