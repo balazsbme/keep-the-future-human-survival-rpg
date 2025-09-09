@@ -18,20 +18,26 @@ FIXTURE_FILE = os.path.join(os.path.dirname(__file__), "fixtures", "characters.y
 class WebServiceTest(unittest.TestCase):
     def test_html_flow(self):
         """Ensure the web flow renders pages and records history."""
-        with patch("rpg.character.genai") as mock_genai:
-            mock_model = MagicMock()
-            mock_model.generate_content.side_effect = [
-                MagicMock(text="1. A\n2. B\n3. C"),
-                MagicMock(text="10\n20\n30"),
-            ]
-            mock_genai.GenerativeModel.return_value = mock_model
+        with patch("rpg.character.genai") as mock_char_genai, patch(
+            "rpg.assessment_agent.genai"
+        ) as mock_assess_genai:
+            mock_action_model = MagicMock()
+            mock_assess_model = MagicMock()
+            mock_action_model.generate_content.return_value = MagicMock(
+                text="1. A\n2. B\n3. C"
+            )
+            mock_assess_model.generate_content.return_value = MagicMock(
+                text="10\n20\n30"
+            )
+            mock_char_genai.GenerativeModel.return_value = mock_action_model
+            mock_assess_genai.GenerativeModel.return_value = mock_assess_model
             with open(FIXTURE_FILE, "r", encoding="utf-8") as fh:
                 data = yaml.safe_load(fh)
             character = YamlCharacter("test_character", data["test_character"])
 
-        with patch("web_service.load_characters", return_value=[character]):
-            app = create_app()
-            client = app.test_client()
+            with patch("web_service.load_characters", return_value=[character]):
+                app = create_app()
+                client = app.test_client()
 
             resp = client.get("/")
             page = resp.data.decode()

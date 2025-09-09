@@ -12,6 +12,7 @@ from flask import Flask, request, redirect, Response
 
 from cli_game import load_characters
 from rpg.game_state import GameState
+from rpg.assessment_agent import AssessmentAgent
 
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ def create_app() -> Flask:
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
     app = Flask(__name__)
     game_state = GameState(load_characters())
+    assessor = AssessmentAgent()
 
     @app.before_request
     def log_request() -> None:
@@ -95,9 +97,10 @@ def create_app() -> Flask:
         action = request.form["action"]
         logger.info("Performing action '%s' for character %d", action, char_id)
         char = game_state.characters[char_id]
-        scores = char.perform_action(action, game_state.history)
+        game_state.record_action(char, action)
+        scores = assessor.assess(game_state.characters, game_state.how_to_win, game_state.history)
         logger.debug("Scores: %s", scores)
-        game_state.record_action(char, action, scores)
+        game_state.update_progress(scores)
         return redirect("/")
 
     return app
