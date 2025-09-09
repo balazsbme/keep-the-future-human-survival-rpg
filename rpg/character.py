@@ -101,7 +101,7 @@ class YamlCharacter(Character):
         for idx, (cur, cond, gap) in enumerate(self.triplets, 1):
             gap_text = gap if isinstance(gap, str) else gap.get("explanation", str(gap))
             lines.append(
-                f"{idx}. Current: {cur}\n   Condition: {cond}\n   Gap: {gap_text}"
+                f"{idx}. Initial state: {cur}\n   End state: {cond}\n   Gap: {gap_text}"
             )
         return "\n".join(lines)
 
@@ -119,11 +119,14 @@ class YamlCharacter(Character):
     def generate_actions(self, history: List[Tuple[str, str]]) -> List[str]:
         logger.info("Generating actions for %s", self.name)
         prompt = (
-            f"{self.base_context}\n{self._triplet_text()}\n"
-            f"Previous actions:\n{self._history_text(history)}\n"
+            "You are an NPC character/actor in the 'Keep the Future Human' survival RPG game."
+            "Your attributes, personality, preferences, motivations and relationship to other characters are described in the following section, called 'MarkdownContext'"
+            f"**MarkdownContext**\n{self.base_context}\n**End of MarkdownContext**"
+            f"Throughout the game you are acting related to the following numbered list of triplets, describing the initial state at the start of the game, end state and the gap between them:\n{self._triplet_text()}\n"
+            f"Previous actions taken by you or other actors:\n{self._history_text(history)}\n"
             "List three numbered actions you might take next. "
-            "The actions must be aligned with your motivations and capabilities "
-            "but at least one of them should address at least one of the conditions."
+            "The actions must be aligned with your motivations and capabilities, "
+            "but at least one of them should address closing the gap between any of the above triplets."
         )
         logger.debug("Prompt: %s", prompt)
         response = self._model.generate_content(prompt)
