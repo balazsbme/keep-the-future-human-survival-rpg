@@ -46,6 +46,11 @@ character choices as radio buttons. Select a character and submit to see
 possible actions, then choose an action and press **Send** to view the
 character's response.
 
+Set the environment variable `ENABLE_PARALLELISM=1` to run the web
+service with experimental threading support. When enabled the server
+pre-generates character actions and performs progress assessments in the
+background, improving responsiveness.
+
 ### Logging
 
 Both entry points respect the `LOG_LEVEL` environment variable to control

@@ -4,9 +4,11 @@
 
 from __future__ import annotations
 
-from typing import List
+from typing import Dict, List
 import logging
 import os
+import threading
+import queue
 
 from flask import Flask, request, redirect, Response
 
@@ -26,8 +28,16 @@ def create_app() -> Flask:
     """
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
     app = Flask(__name__)
-    game_state = GameState(load_characters())
+    # Load characters once at startup and reuse for resets to avoid external
+    # dependency calls during tests.
+    initial_characters = load_characters()
+    game_state = GameState(list(initial_characters))
     assessor = AssessmentAgent()
+    enable_parallel = os.environ.get("ENABLE_PARALLELISM") == "1"
+    pending_actions: Dict[int, queue.Queue[List[str]]] = {}
+    assessment_threads: List[threading.Thread] = []
+    assessment_lock = threading.Lock()
+    state_lock = threading.Lock()
 
     @app.before_request
     def log_request() -> None:
@@ -46,15 +56,35 @@ def create_app() -> Flask:
             HTML string listing characters and state.
         """
         logger.info("Listing characters")
+        with state_lock:
+            score = game_state.final_weighted_score()
+            hist_snapshot = list(game_state.history)
+            characters = list(game_state.characters)
+            state_html = game_state.render_state()
+        if score >= 80 or len(hist_snapshot) >= 10:
+            return redirect("/result")
+
+        if enable_parallel:
+            pending_actions.clear()
+
+            def launch(idx: int, char) -> None:
+                q: queue.Queue[List[str]] = queue.Queue()
+                pending_actions[idx] = q
+
+                def worker() -> None:
+                    q.put(char.generate_actions(hist_snapshot))
+
+                threading.Thread(target=worker, daemon=True).start()
+
+            for idx, char in enumerate(characters):
+                launch(idx, char)
+
         options = "".join(
-            f'<input type="radio" name="character" value="{idx}" id="char{idx}">'\
+            f'<input type="radio" name="character" value="{idx}" id="char{idx}">'
             f'<label for="char{idx}">{char.name}</label><br>'
-            for idx, char in enumerate(game_state.characters)
+            for idx, char in enumerate(characters)
         )
         return (
-            "<h1>Keep the Future Human RPG</h1>"
-            "<p>You are an expert negotiator with connection to all relevant actors in the AI safety world, you can convince them to propose and take actions. Your objective is to enure that AI is developed in the best interest of humanity. Your goal is to keep the future human.</p>"
-            "<p>You have 10 turns to reach a final weighted score of 80 or higher to win.</p>"
             "<form method='post' action='/actions'>"
             f"{options}"
             "<button type='submit'>Choose</button>"
@@ -62,8 +92,7 @@ def create_app() -> Flask:
             "<form method='post' action='/reset'>"
             "<button type='submit'>Reset</button>"
             "</form>"
-            f"{game_state.render_state()}"
-            "<footer><a href='https://github.com/balazsbme/keep-the-future-human-survival-rpg'>GitHub Repository</a></footer>"
+            f"{state_html}"
         )
 
     @app.route("/actions", methods=["POST"])
@@ -75,17 +104,31 @@ def create_app() -> Flask:
         """
         char_id = int(request.form["character"])
         logger.info("Generating actions for character %d", char_id)
-        char = game_state.characters[char_id]
-        actions: List[str] = char.generate_actions(game_state.history)
+        with state_lock:
+            char = game_state.characters[char_id]
+            hist_snapshot = list(game_state.history)
+            state_html = game_state.render_state()
+        actions: List[str]
+        if enable_parallel:
+            q = pending_actions.get(char_id)
+            if q is not None:
+                if q.empty():
+                    return (
+                        "<p>Loading...</p>"
+                        "<meta http-equiv='refresh' content='1'>"
+                    )
+                actions = q.get()
+            else:
+                actions = char.generate_actions(hist_snapshot)
+        else:
+            actions = char.generate_actions(hist_snapshot)
         logger.debug("Actions: %s", actions)
         radios = "".join(
-            f'<input type="radio" name="action" value="{a}" id="a{idx}">'\
+            f'<input type="radio" name="action" value="{a}" id="a{idx}">'
             f'<label for="a{idx}">{a}</label><br>'
             for idx, a in enumerate(actions)
         )
         return (
-            f"<h1>Choose Action for {char.name}</h1>"
-            "<p>Select an action and click Send.</p>"
             "<form method='post' action='/perform'>"
             f"{radios}"
             f"<input type='hidden' name='character' value='{char_id}'>"
@@ -95,8 +138,7 @@ def create_app() -> Flask:
             "<form method='post' action='/reset'>"
             "<button type='submit'>Reset</button>"
             "</form>"
-            f"{game_state.render_state()}"
-            "<footer><a href='https://github.com/balazsbme/keep-the-future-human-survival-rpg'>GitHub Repository</a></footer>"
+            f"{state_html}"
         )
 
     @app.route("/perform", methods=["POST"])
@@ -109,13 +151,51 @@ def create_app() -> Flask:
         char_id = int(request.form["character"])
         action = request.form["action"]
         logger.info("Performing action '%s' for character %d", action, char_id)
-        char = game_state.characters[char_id]
-        game_state.record_action(char, action)
-        scores = assessor.assess(game_state.characters, game_state.how_to_win, game_state.history)
-        logger.debug("Scores: %s", scores)
-        game_state.update_progress(scores)
-        final_score = game_state.final_weighted_score()
-        if final_score >= 80 or len(game_state.history) >= 10:
+        with state_lock:
+            char = game_state.characters[char_id]
+            game_state.record_action(char, action)
+            chars_snapshot = list(game_state.characters)
+            history_snapshot = list(game_state.history)
+            how_to_win = game_state.how_to_win
+
+        if enable_parallel:
+            def run_assessment(chars: List, htw: str, hist: List) -> None:
+                try:
+                    scores = assessor.assess(
+                        chars,
+                        htw,
+                        hist,
+                        parallel=True,
+                    )
+                    with state_lock:
+                        game_state.update_progress(scores)
+                finally:
+                    with assessment_lock:
+                        try:
+                            assessment_threads.remove(threading.current_thread())
+                        except ValueError:
+                            pass
+
+            t = threading.Thread(
+                target=run_assessment,
+                args=(chars_snapshot, how_to_win, history_snapshot),
+                daemon=True,
+            )
+            with assessment_lock:
+                assessment_threads.append(t)
+            t.start()
+        else:
+            scores = assessor.assess(
+                chars_snapshot, how_to_win, history_snapshot
+            )
+            logger.debug("Scores: %s", scores)
+            with state_lock:
+                game_state.update_progress(scores)
+
+        with state_lock:
+            final_score = game_state.final_weighted_score()
+            hist_len = len(game_state.history)
+        if final_score >= 80 or hist_len >= 10:
             return redirect("/result")
         return redirect("/")
 
@@ -123,21 +203,34 @@ def create_app() -> Flask:
     def reset() -> Response:
         """Reset the game to its initial state."""
         nonlocal game_state
-        game_state = GameState(load_characters())
+        with state_lock:
+            # Recreate game state from the initially loaded characters
+            game_state = GameState(list(initial_characters))
+            pending_actions.clear()
+        with assessment_lock:
+            assessment_threads.clear()
         return redirect("/")
 
     @app.route("/result", methods=["GET"])
     def result() -> str:
         """Display the final game outcome."""
-        final = game_state.final_weighted_score()
+        with assessment_lock:
+            running = any(t.is_alive() for t in assessment_threads)
+        if running:
+            return (
+                "<p>Waiting for assessments...</p>"
+                "<meta http-equiv='refresh' content='1'>"
+            )
+        with state_lock:
+            final = game_state.final_weighted_score()
+            state_html = game_state.render_state()
         outcome = "You won!" if final >= 80 else "You lost!"
         return (
             f"<h1>{outcome}</h1>"
-            f"{game_state.render_state()}"
+            f"{state_html}"
             "<form method='post' action='/reset'>"
             "<button type='submit'>Reset</button>"
             "</form>"
-            "<footer><a href='https://github.com/balazsbme/keep-the-future-human-survival-rpg'>GitHub Repository</a></footer>"
         )
 
     return app
