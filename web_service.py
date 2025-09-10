@@ -52,8 +52,8 @@ def create_app() -> Flask:
             for idx, char in enumerate(game_state.characters)
         )
         return (
-            "<h1>AI Safety Negotiation Game</h1>"
-            "<p>You are an expert negotiator with connection to all relevant actors in the AI safety world, you can convince them to propose and take actions.  your objective is to enure that ai is developed in the best interest of humanity. your goal is to keep the future human.</p>"
+            "<h1>Keep the Future Human RPG</h1>"
+            "<p>You are an expert negotiator with connection to all relevant actors in the AI safety world, you can convince them to propose and take actions. Your objective is to enure that AI is developed in the best interest of humanity. Your goal is to keep the future human.</p>"
             "<p>You have 10 turns to reach a final weighted score of 80 or higher to win.</p>"
             "<form method='post' action='/actions'>"
             f"{options}"
