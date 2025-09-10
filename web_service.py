@@ -52,6 +52,9 @@ def create_app() -> Flask:
             for idx, char in enumerate(game_state.characters)
         )
         return (
+            "<h1>AI Safety Negotiation Game</h1>"
+            "<p>You are an expert negotiator with connection to all relevant actors in the AI safety world, you can convince them to propose and take actions.  your objective is to enure that ai is developed in the best interest of humanity. your goal is to keep the future human.</p>"
+            "<p>You have 10 turns to reach a final weighted score of 80 or higher to win.</p>"
             "<form method='post' action='/actions'>"
             f"{options}"
             "<button type='submit'>Choose</button>"
@@ -60,6 +63,7 @@ def create_app() -> Flask:
             "<button type='submit'>Reset</button>"
             "</form>"
             f"{game_state.render_state()}"
+            "<footer><a href='https://github.com/balazsbme/keep-the-future-human-survival-rpg'>GitHub Repository</a></footer>"
         )
 
     @app.route("/actions", methods=["POST"])
@@ -80,6 +84,8 @@ def create_app() -> Flask:
             for idx, a in enumerate(actions)
         )
         return (
+            f"<h1>Choose Action for {char.name}</h1>"
+            "<p>Select an action and click Send.</p>"
             "<form method='post' action='/perform'>"
             f"{radios}"
             f"<input type='hidden' name='character' value='{char_id}'>"
@@ -90,6 +96,7 @@ def create_app() -> Flask:
             "<button type='submit'>Reset</button>"
             "</form>"
             f"{game_state.render_state()}"
+            "<footer><a href='https://github.com/balazsbme/keep-the-future-human-survival-rpg'>GitHub Repository</a></footer>"
         )
 
     @app.route("/perform", methods=["POST"])
@@ -130,6 +137,7 @@ def create_app() -> Flask:
             "<form method='post' action='/reset'>"
             "<button type='submit'>Reset</button>"
             "</form>"
+            "<footer><a href='https://github.com/balazsbme/keep-the-future-human-survival-rpg'>GitHub Repository</a></footer>"
         )
 
     return app

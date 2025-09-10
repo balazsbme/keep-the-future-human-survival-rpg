@@ -49,7 +49,7 @@ class WebServiceTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.request.path, "/result")
         self.assertIn("You won!", page)
-        self.assertIn("History:", page)
+        self.assertIn("Action History", page)
         self.assertIn("test_character: A", page)
         self.assertIn("Final weighted score", page)
         self.assertIn("Reset", page)
@@ -58,7 +58,7 @@ class WebServiceTest(unittest.TestCase):
         page = resp.data.decode()
         self.assertEqual(resp.request.path, "/")
         self.assertIn("Final weighted score: 0", page)
-        self.assertNotIn("History:", page)
+        self.assertNotIn("Action History", page)
 
     def test_loss_after_ten_actions(self):
         with patch("rpg.character.genai") as mock_char_genai, patch(
@@ -93,7 +93,7 @@ class WebServiceTest(unittest.TestCase):
         page = resp.data.decode()
         self.assertEqual(resp.request.path, "/result")
         self.assertIn("You lost!", page)
-        self.assertIn("History:", page)
+        self.assertIn("Action History", page)
         self.assertIn("Final weighted score", page)
         self.assertIn("Reset", page)
 

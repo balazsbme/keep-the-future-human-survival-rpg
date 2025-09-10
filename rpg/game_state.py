@@ -101,7 +101,7 @@ class GameState:
             for name, scores in self.progress.items()
         ]
         if self.history:
-            lines.append("History:")
+            lines.append("<h2>Action History</h2>")
             lines.extend(f"{n}: {a}" for n, a in self.history)
         lines.append(f"Final weighted score: {self.final_weighted_score()}")
         return "<div id='state'>" + "<br>".join(lines) + "</div>"
