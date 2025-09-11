@@ -149,7 +149,7 @@ class YamlCharacter(Character):
         logger.debug("Prompt: %s", prompt)
         response = self._model.generate_content(prompt)
         response_text = getattr(response, "text", "")
-        logger.info("Generated: %s", response_text[:50])
+        logger.info("Generated for %s: %s", self.name, response_text[:50])
         logger.debug("Response: %s", response_text)
         lines = [line.strip() for line in response_text.splitlines() if line.strip()]
         actions: List[str] = []
