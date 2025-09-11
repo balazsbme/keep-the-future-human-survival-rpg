@@ -41,6 +41,8 @@ def test_async_action_generation(mock_char_genai, mock_assess_genai):
             assert b"Loading" in resp.data
             finish_evt.set()
             time.sleep(0.1)
+            resp = client.get("/actions", query_string={"character": "0"})
+            assert b"A" in resp.data
             resp = client.post("/actions", data={"character": "0"})
             assert b"A" in resp.data
 

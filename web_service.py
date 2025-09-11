@@ -34,7 +34,7 @@ def create_app() -> Flask:
     game_state = GameState(list(initial_characters))
     assessor = AssessmentAgent()
     enable_parallel = os.environ.get("ENABLE_PARALLELISM") == "1"
-    pending_actions: Dict[int, queue.Queue[List[str]]] = {}
+    pending_actions: Dict[int, queue.Queue[List[str]] | List[str]] = {}
     assessment_threads: List[threading.Thread] = []
     assessment_lock = threading.Lock()
     state_lock = threading.Lock()
@@ -85,6 +85,7 @@ def create_app() -> Flask:
             for idx, char in enumerate(characters)
         )
         return (
+            "<h1>Keep the Future Human Survival RPG</h1>"
             "<form method='post' action='/actions'>"
             f"{options}"
             "<button type='submit'>Choose</button>"
@@ -94,15 +95,14 @@ def create_app() -> Flask:
             "</form>"
             f"{state_html}"
         )
-
-    @app.route("/actions", methods=["POST"])
+    @app.route("/actions", methods=["GET", "POST"])
     def character_actions() -> str:
         """Show actions for the selected character.
 
         Returns:
             HTML string listing possible actions.
         """
-        char_id = int(request.form["character"])
+        char_id = int(request.values["character"])
         logger.info("Generating actions for character %d", char_id)
         with state_lock:
             char = game_state.characters[char_id]
@@ -110,14 +110,17 @@ def create_app() -> Flask:
             state_html = game_state.render_state()
         actions: List[str]
         if enable_parallel:
-            q = pending_actions.get(char_id)
-            if q is not None:
-                if q.empty():
+            entry = pending_actions.get(char_id)
+            if isinstance(entry, list):
+                actions = entry
+            elif isinstance(entry, queue.Queue):
+                if entry.empty():
                     return (
                         "<p>Loading...</p>"
-                        "<meta http-equiv='refresh' content='1'>"
+                        f"<meta http-equiv='refresh' content='1;url=/actions?character={char_id}'>"
                     )
-                actions = q.get()
+                actions = entry.get()
+                pending_actions[char_id] = actions
             else:
                 actions = char.generate_actions(hist_snapshot)
         else:
