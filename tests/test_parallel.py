@@ -35,7 +35,7 @@ def test_async_action_generation(mock_char_genai, mock_assess_genai):
         with patch("web_service.load_characters", return_value=[character]):
             app = create_app()
             client = app.test_client()
-            client.get("/")
+            client.get("/start")
             assert start_evt.wait(timeout=1)
             resp = client.post("/actions", data={"character": "0"})
             assert b"Loading" in resp.data
@@ -71,7 +71,7 @@ def test_assessment_background_wait(mock_char_genai, mock_assess_genai):
             with patch("web_service.load_characters", return_value=[character]):
                 app = create_app()
                 client = app.test_client()
-                client.get("/")
+                client.get("/start")
                 resp = client.post(
                     "/perform", data={"character": "0", "action": "A"}
                 )

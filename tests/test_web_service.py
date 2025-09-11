@@ -40,10 +40,18 @@ class WebServiceTest(unittest.TestCase):
         resp = client.get("/")
         page = resp.data.decode()
         self.assertEqual(resp.status_code, 200)
-        self.assertIn("Keep the Future Human Survival RPG", page)
-        self.assertIn("Reset", page)
+        self.assertIn("AI Safety Negotiation Game", page)
+        self.assertIn("Start", page)
         self.assertIn("Instructions", page)
         self.assertIn("GitHub", page)
+
+        start_resp = client.get("/start")
+        start_page = start_resp.data.decode()
+        self.assertEqual(start_resp.status_code, 200)
+        self.assertIn("Keep the Future Human Survival RPG", start_page)
+        self.assertIn("Reset", start_page)
+        self.assertIn("Instructions", start_page)
+        self.assertIn("GitHub", start_page)
 
         inst_resp = client.get("/instructions")
         inst_page = inst_resp.data.decode()
@@ -66,7 +74,7 @@ class WebServiceTest(unittest.TestCase):
 
         resp = client.post("/reset", follow_redirects=True)
         page = resp.data.decode()
-        self.assertEqual(resp.request.path, "/")
+        self.assertEqual(resp.request.path, "/start")
         self.assertIn("Final weighted score: 0", page)
         self.assertNotIn("Action History", page)
         self.assertIn("GitHub", page)
@@ -96,7 +104,7 @@ class WebServiceTest(unittest.TestCase):
             resp = client.post(
                 "/perform", data={"character": "0", "action": "A"}, follow_redirects=True
             )
-            self.assertEqual(resp.request.path, "/")
+            self.assertEqual(resp.request.path, "/start")
 
         resp = client.post(
             "/perform", data={"character": "0", "action": "A"}, follow_redirects=True

@@ -16,7 +16,7 @@ from cli_game import load_characters
 from rpg.game_state import GameState
 from rpg.assessment_agent import AssessmentAgent
 
-GITHUB_URL = "https://github.com/keep-the-future-human/keep-the-future-human-survival-rpg"
+GITHUB_URL = "https://github.com/keep-the-future-human/ai-safety-negotiation-game"
 
 
 logger = logging.getLogger(__name__)
@@ -55,12 +55,19 @@ def create_app() -> Flask:
         logger.info("%s %s", request.method, request.path)
 
     @app.route("/", methods=["GET"])
-    def list_characters() -> str:
-        """Display available characters and current game state.
+    def main_page() -> str:
+        """Display the landing page with game introduction."""
+        return (
+            "<h1>AI Safety Negotiation Game</h1>"
+            "<p>You are an expert negotiator with connection to all relevant actors in the AI safety world, you can convince them to propose and take actions.  your objective is to enure that ai is developed in the best interest of humanity. your goal is to keep the future human.</p>"
+            "<p>You have 10 turns to reach a final weighted score of 80 or higher to win.</p>"
+            "<a href='/start'>Start</a>"
+            f"{footer}"
+        )
 
-        Returns:
-            HTML string listing characters and state.
-        """
+    @app.route("/start", methods=["GET"])
+    def list_characters() -> str:
+        """Display available characters and current game state."""
         logger.info("Listing characters")
         with state_lock:
             score = game_state.final_weighted_score()
@@ -145,7 +152,7 @@ def create_app() -> Flask:
             f"<input type='hidden' name='character' value='{char_id}'>"
             "<button type='submit'>Send</button>"
             "</form>"
-            "<a href='/'>Back to characters</a>"
+            "<a href='/start'>Back to characters</a>"
             "<form method='post' action='/reset'>"
             "<button type='submit'>Reset</button>"
             "</form>"
@@ -155,10 +162,10 @@ def create_app() -> Flask:
 
     @app.route("/perform", methods=["POST"])
     def character_perform() -> Response:
-        """Carry out a character action and redirect to the main page.
+        """Carry out a character action and redirect to the start page.
 
         Returns:
-            A redirect response to the root page.
+            A redirect response to the start page.
         """
         char_id = int(request.form["character"])
         action = request.form["action"]
@@ -210,7 +217,7 @@ def create_app() -> Flask:
             hist_len = len(game_state.history)
         if final_score >= 80 or hist_len >= 10:
             return redirect("/result")
-        return redirect("/")
+        return redirect("/start")
 
     @app.route("/reset", methods=["POST"])
     def reset() -> Response:
@@ -222,7 +229,7 @@ def create_app() -> Flask:
             pending_actions.clear()
         with assessment_lock:
             assessment_threads.clear()
-        return redirect("/")
+        return redirect("/start")
 
     @app.route("/instructions", methods=["GET"])
     def instructions() -> str:
@@ -232,7 +239,7 @@ def create_app() -> Flask:
         return (
             "<h1>Instructions</h1>"
             f"<pre>{content}</pre>"
-            "<a href='/'>Back to game</a>"
+            "<a href='/start'>Back to game</a>"
             f"{footer}"
         )
 
