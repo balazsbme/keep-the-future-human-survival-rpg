@@ -40,6 +40,7 @@ class WebServiceTest(unittest.TestCase):
         resp = client.get("/")
         page = resp.data.decode()
         self.assertEqual(resp.status_code, 200)
+        self.assertIn("Keep the Future Human Survival RPG", page)
         self.assertIn("Reset", page)
 
         resp = client.post(
