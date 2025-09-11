@@ -42,6 +42,14 @@ class WebServiceTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIn("Keep the Future Human Survival RPG", page)
         self.assertIn("Reset", page)
+        self.assertIn("Instructions", page)
+        self.assertIn("GitHub", page)
+
+        inst_resp = client.get("/instructions")
+        inst_page = inst_resp.data.decode()
+        self.assertEqual(inst_resp.status_code, 200)
+        self.assertIn("Instructions", inst_page)
+        self.assertIn("GitHub", inst_page)
 
         resp = client.post(
             "/perform", data={"character": "0", "action": "A"}, follow_redirects=True
@@ -51,15 +59,17 @@ class WebServiceTest(unittest.TestCase):
         self.assertEqual(resp.request.path, "/result")
         self.assertIn("You won!", page)
         self.assertIn("Action History", page)
-        self.assertIn("test_character: A", page)
+        self.assertIn("<li><strong>test_character</strong>: A</li>", page)
         self.assertIn("Final weighted score", page)
         self.assertIn("Reset", page)
+        self.assertIn("GitHub", page)
 
         resp = client.post("/reset", follow_redirects=True)
         page = resp.data.decode()
         self.assertEqual(resp.request.path, "/")
         self.assertIn("Final weighted score: 0", page)
         self.assertNotIn("Action History", page)
+        self.assertIn("GitHub", page)
 
     def test_loss_after_ten_actions(self):
         with patch("rpg.character.genai") as mock_char_genai, patch(
@@ -97,6 +107,7 @@ class WebServiceTest(unittest.TestCase):
         self.assertIn("Action History", page)
         self.assertIn("Final weighted score", page)
         self.assertIn("Reset", page)
+        self.assertIn("GitHub", page)
 
 
 if __name__ == "__main__":

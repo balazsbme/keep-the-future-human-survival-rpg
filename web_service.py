@@ -16,6 +16,8 @@ from cli_game import load_characters
 from rpg.game_state import GameState
 from rpg.assessment_agent import AssessmentAgent
 
+GITHUB_URL = "https://github.com/keep-the-future-human/keep-the-future-human-survival-rpg"
+
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,10 @@ def create_app() -> Flask:
     assessment_threads: List[threading.Thread] = []
     assessment_lock = threading.Lock()
     state_lock = threading.Lock()
+    footer = (
+        "<p><a href='/instructions'>Instructions</a> | "
+        f"<a href='{GITHUB_URL}'>GitHub</a></p>"
+    )
 
     @app.before_request
     def log_request() -> None:
@@ -94,6 +100,7 @@ def create_app() -> Flask:
             "<button type='submit'>Reset</button>"
             "</form>"
             f"{state_html}"
+            f"{footer}"
         )
     @app.route("/actions", methods=["GET", "POST"])
     def character_actions() -> str:
@@ -103,11 +110,11 @@ def create_app() -> Flask:
             HTML string listing possible actions.
         """
         char_id = int(request.values["character"])
-        logger.info("Generating actions for character %d", char_id)
         with state_lock:
             char = game_state.characters[char_id]
             hist_snapshot = list(game_state.history)
             state_html = game_state.render_state()
+        logger.info("Generating actions for %s (%d)", char.name, char_id)
         actions: List[str]
         if enable_parallel:
             entry = pending_actions.get(char_id)
@@ -118,6 +125,7 @@ def create_app() -> Flask:
                     return (
                         "<p>Loading...</p>"
                         f"<meta http-equiv='refresh' content='1;url=/actions?character={char_id}'>"
+                        f"{footer}"
                     )
                 actions = entry.get()
                 pending_actions[char_id] = actions
@@ -142,6 +150,7 @@ def create_app() -> Flask:
             "<button type='submit'>Reset</button>"
             "</form>"
             f"{state_html}"
+            f"{footer}"
         )
 
     @app.route("/perform", methods=["POST"])
@@ -153,9 +162,10 @@ def create_app() -> Flask:
         """
         char_id = int(request.form["character"])
         action = request.form["action"]
-        logger.info("Performing action '%s' for character %d", action, char_id)
         with state_lock:
             char = game_state.characters[char_id]
+        logger.info("Performing action '%s' for %s (%d)", action, char.name, char_id)
+        with state_lock:
             game_state.record_action(char, action)
             chars_snapshot = list(game_state.characters)
             history_snapshot = list(game_state.history)
@@ -214,6 +224,18 @@ def create_app() -> Flask:
             assessment_threads.clear()
         return redirect("/")
 
+    @app.route("/instructions", methods=["GET"])
+    def instructions() -> str:
+        """Display the how-to-win instructions."""
+        with state_lock:
+            content = game_state.how_to_win
+        return (
+            "<h1>Instructions</h1>"
+            f"<pre>{content}</pre>"
+            "<a href='/'>Back to game</a>"
+            f"{footer}"
+        )
+
     @app.route("/result", methods=["GET"])
     def result() -> str:
         """Display the final game outcome."""
@@ -234,6 +256,7 @@ def create_app() -> Flask:
             "<form method='post' action='/reset'>"
             "<button type='submit'>Reset</button>"
             "</form>"
+            f"{footer}"
         )
 
     return app
