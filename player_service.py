@@ -14,6 +14,8 @@ from cli_game import load_characters
 from rpg.game_state import GameState
 from rpg.assessment_agent import AssessmentAgent
 from players import RandomPlayer, GeminiWinPlayer, GeminiGovCorpPlayer, Player
+from evaluations.assessment_baseline import run_baseline_assessment
+from evaluations.assessment_consistency import run_consistency_assessment
 
 
 logger = logging.getLogger(__name__)
@@ -86,6 +88,9 @@ def create_app() -> Flask:
             "<label>Rounds: <input name='rounds' value='10'></label><br>"
             "<button type='submit'>Start</button>"
             "</form>"
+            "<h2>Evaluations</h2>"
+            "<form action='/evaluation/baseline' method='post'><button type='submit'>Baseline Assessment</button></form>"
+            "<form action='/evaluation/consistency' method='post'><button type='submit'>Consistency Assessment</button></form>"
         )
 
     @app.route("/progress", methods=["GET"])
@@ -119,6 +124,24 @@ def create_app() -> Flask:
             + "</table>"
             + f"<div>Final weighted score: {final_score}</div>"
             + "<a href='/'>Back</a>"
+        )
+
+    @app.route("/evaluation/baseline", methods=["POST"])
+    def baseline_evaluation():
+        result = run_baseline_assessment()
+        return (
+            "<h1>Baseline Assessment</h1>"
+            f"<pre>{result}</pre>"
+            "<a href='/'>Back</a>"
+        )
+
+    @app.route("/evaluation/consistency", methods=["POST"])
+    def consistency_evaluation():
+        result = run_consistency_assessment()
+        return (
+            "<h1>Consistency Assessment</h1>"
+            f"<pre>{result}</pre>"
+            "<a href='/'>Back</a>"
         )
 
     return app
