@@ -16,7 +16,8 @@ from cli_game import load_characters
 from rpg.game_state import GameState
 from rpg.assessment_agent import AssessmentAgent
 
-GITHUB_URL = "https://github.com/keep-the-future-human/ai-safety-negotiation-game"
+# Link to this project's source code repository for inclusion in the web UI footer
+GITHUB_URL = "https://github.com/balazsbme/keep-the-future-human-survival-rpg"
 
 
 logger = logging.getLogger(__name__)
@@ -147,6 +148,8 @@ def create_app() -> Flask:
             for idx, a in enumerate(actions)
         )
         return (
+            f"<h1>{char.name}</h1>"
+            f"<p>Which action do you want {char.name} to perform?</p>"
             "<form method='post' action='/perform'>"
             f"{radios}"
             f"<input type='hidden' name='character' value='{char_id}'>"
