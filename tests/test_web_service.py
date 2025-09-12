@@ -53,6 +53,14 @@ class WebServiceTest(unittest.TestCase):
         self.assertIn("Instructions", start_page)
         self.assertIn("GitHub", start_page)
 
+        actions_resp = client.post("/actions", data={"character": "0"})
+        actions_page = actions_resp.data.decode()
+        self.assertEqual(actions_resp.status_code, 200)
+        self.assertIn("<h1>test_character</h1>", actions_page)
+        self.assertIn(
+            "Which action do you want test_character to perform?", actions_page
+        )
+
         inst_resp = client.get("/instructions")
         inst_page = inst_resp.data.decode()
         self.assertEqual(inst_resp.status_code, 200)
