@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import argparse
+import logging
+import os
 from typing import Dict
 
 from cli_game import load_characters
@@ -25,6 +27,9 @@ def create_players(characters) -> Dict[str, object]:
 
 
 def main() -> None:
+    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
+    logger = logging.getLogger(__name__)
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--player",
@@ -41,11 +46,15 @@ def main() -> None:
     players = create_players(characters)
     player = players[args.player]
 
-    for _ in range(args.rounds):
+    logger.info("Starting player %s for %d rounds", args.player, args.rounds)
+    for round_num in range(1, args.rounds + 1):
+        logger.info("Round %d", round_num)
         player.take_turn(state, assessor)
         if state.final_weighted_score() >= 80:
+            logger.info("Final score threshold reached; ending game")
             break
 
+    logger.info("Game finished with final score %d", state.final_weighted_score())
     print(state.render_state())
 
 

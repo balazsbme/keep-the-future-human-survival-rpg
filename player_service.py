@@ -42,10 +42,12 @@ def create_app() -> Flask:
         if request.method == "POST":
             player_key = request.form["player"]
             rounds = int(request.form.get("rounds", "10"))
+            logger.info("Starting new game with player %s for %d rounds", player_key, rounds)
             state = GameState(list(characters))
             progress.clear()
             player = players[player_key]
             for round_num in range(1, rounds + 1):
+                logger.info("Beginning round %d", round_num)
                 player.take_turn(state, assessor)
                 progress.append(
                     {
@@ -58,9 +60,22 @@ def create_app() -> Flask:
                         },
                     }
                 )
+                logger.info(
+                    "Round %d result: actor=%s score=%s",
+                    round_num,
+                    progress[-1]["actor"],
+                    progress[-1]["score"],
+                )
                 if state.final_weighted_score() >= 80:
+                    logger.info("Final score threshold reached; ending game")
                     break
+            logger.info(
+                "Game finished after %d rounds with final score %s",
+                len(progress),
+                state.final_weighted_score(),
+            )
             return redirect("/progress")
+        logger.info("Showing main player selection page")
         options = "".join(
             f'<option value="{key}">{key}</option>' for key in players
         )
@@ -75,6 +90,7 @@ def create_app() -> Flask:
 
     @app.route("/progress", methods=["GET"])
     def show_progress():
+        logger.info("Showing progress page")
         rows = "".join(
             "<tr><td>{round}</td><td>{actor}</td><td>{score}</td><td>{actors}</td></tr>".format(
                 round=entry["round"],
@@ -86,11 +102,23 @@ def create_app() -> Flask:
             )
             for entry in progress
         )
+        final_score = state.final_weighted_score()
+        result = "Win" if final_score >= 80 else "Lose"
+        summary = (
+            "<h1>Game Status</h1>"
+            f"<div>Iterations: {len(progress)}</div>"
+            f"<div>Actions: {len(state.history)}</div>"
+            f"<div>Current weighted final score: {final_score}</div>"
+            f"<div>Result: {result}</div>"
+            "<h2>Game Progress</h2>"
+        )
         return (
-            "<h1>Game Progress</h1>"
-            "<table><tr><th>Round</th><th>Actor</th><th>Weighted Score</th><th>Actor Scores</th></tr>" + rows + "</table>"
-            f"<div>Final weighted score: {state.final_weighted_score()}</div>"
-            "<a href='/'>Back</a>"
+            summary
+            + "<table><tr><th>Round</th><th>Actor</th><th>Weighted Score</th><th>Actor Scores</th></tr>"
+            + rows
+            + "</table>"
+            + f"<div>Final weighted score: {final_score}</div>"
+            + "<a href='/'>Back</a>"
         )
 
     return app
