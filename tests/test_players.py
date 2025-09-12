@@ -44,10 +44,12 @@ class PlayerTests(unittest.TestCase):
         self.assertEqual(state.progress["test_character"], [10, 20, 30])
 
     @patch("players.genai")
-    def test_gemini_win_prompt(self, mock_genai):
+    @patch("rpg.character.genai")
+    def test_gemini_win_prompt(self, mock_char_genai, mock_players_genai):
         mock_model = MagicMock()
         mock_model.generate_content.return_value = MagicMock(text="1")
-        mock_genai.GenerativeModel.return_value = mock_model
+        mock_players_genai.GenerativeModel.return_value = mock_model
+        mock_char_genai.GenerativeModel.return_value = MagicMock()
         with open(FIXTURE_FILE, "r", encoding="utf-8") as fh:
             data = yaml.safe_load(fh)
         char = YamlCharacter("test_character", data["test_character"])
@@ -60,10 +62,12 @@ class PlayerTests(unittest.TestCase):
         self.assertIn(char.base_context.split()[0], prompt)
 
     @patch("players.genai")
-    def test_govcorp_context(self, mock_genai):
+    @patch("rpg.character.genai")
+    def test_govcorp_context(self, mock_char_genai, mock_players_genai):
         mock_model = MagicMock()
         mock_model.generate_content.return_value = MagicMock(text="1")
-        mock_genai.GenerativeModel.return_value = mock_model
+        mock_players_genai.GenerativeModel.return_value = mock_model
+        mock_char_genai.GenerativeModel.return_value = MagicMock()
         with open(FIXTURE_FILE, "r", encoding="utf-8") as fh:
             data = yaml.safe_load(fh)
         gov_ctx = corp_ctx = "CTX"

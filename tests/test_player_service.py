@@ -48,6 +48,17 @@ class PlayerServiceTest(unittest.TestCase):
         self.assertIn("test_character", page)
         self.assertIn("Final weighted score", page)
 
+    def test_evaluation_buttons_present(self):
+        with patch("player_service.load_characters", return_value=[]), patch(
+            "players.genai"
+        ), patch("rpg.assessment_agent.genai"):
+            app = create_app()
+            client = app.test_client()
+        resp = client.get("/")
+        page = resp.data.decode()
+        self.assertIn("Baseline Assessment", page)
+        self.assertIn("Consistency Assessment", page)
+
 
 if __name__ == "__main__":
     unittest.main()
