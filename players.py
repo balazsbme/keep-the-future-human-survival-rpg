@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import logging
 import random
 from abc import ABC, abstractmethod
 from typing import List
@@ -16,6 +17,9 @@ except ModuleNotFoundError:  # pragma: no cover
 from rpg.game_state import GameState
 from rpg.character import Character
 from rpg.assessment_agent import AssessmentAgent
+
+
+logger = logging.getLogger(__name__)
 
 
 class Player(ABC):
@@ -33,13 +37,18 @@ class Player(ABC):
 
     def take_turn(self, state: GameState, assessor: AssessmentAgent) -> None:
         """Execute a full turn by selecting character, action and updating state."""
+        logger.info("Taking turn")
         char = self.select_character(state)
+        logger.info("Selected character: %s", char.name)
         options = char.generate_actions(state.history)
         if not options:
+            logger.info("No actions available for %s", char.name)
             return
         action = self.select_action(char, options, state)
+        logger.info("Selected action for %s: %s", char.name, action)
         state.record_action(char, action)
         scores = assessor.assess(state.characters, state.how_to_win, state.history)
+        logger.info("Assessment results: %s", scores)
         state.update_progress(scores)
 
 
@@ -47,10 +56,14 @@ class RandomPlayer(Player):
     """Player that selects characters and actions randomly."""
 
     def select_character(self, state: GameState) -> Character:
-        return random.choice(state.characters)
+        char = random.choice(state.characters)
+        logger.info("RandomPlayer chose character: %s", char.name)
+        return char
 
     def select_action(self, character: Character, actions: List[str], state: GameState) -> str:
-        return random.choice(actions)
+        action = random.choice(actions)
+        logger.info("RandomPlayer chose action '%s' for %s", action, character.name)
+        return action
 
 
 class GeminiWinPlayer(Player):
@@ -69,10 +82,14 @@ class GeminiWinPlayer(Player):
             f"Available actors: {names}.\n"
             "Respond with the name of the actor only."
         )
+        logger.debug("GeminiWinPlayer character prompt: %s", prompt)
         resp = self._model.generate_content(prompt).text
+        logger.debug("GeminiWinPlayer character response: %s", resp)
         for char in state.characters:
             if char.name in resp:
+                logger.info("GeminiWinPlayer chose character: %s", char.name)
                 return char
+        logger.info("GeminiWinPlayer defaulted to %s", state.characters[0].name)
         return state.characters[0]
 
     def select_action(self, character: Character, actions: List[str], state: GameState) -> str:
@@ -84,12 +101,18 @@ class GeminiWinPlayer(Player):
             f"Possible actions:\n{numbered}\n"
             "Respond with the number of the best action."
         )
+        logger.debug("GeminiWinPlayer action prompt: %s", prompt)
         resp = self._model.generate_content(prompt).text
+        logger.debug("GeminiWinPlayer action response: %s", resp)
         for token in resp.split():
             if token.isdigit():
                 idx = int(token) - 1
                 if 0 <= idx < len(actions):
+                    logger.info(
+                        "GeminiWinPlayer chose action '%s' for %s", actions[idx], character.name
+                    )
                     return actions[idx]
+        logger.info("GeminiWinPlayer defaulted to action '%s'", actions[0])
         return actions[0]
 
 
@@ -118,13 +141,18 @@ class GeminiGovCorpPlayer(Player):
             "Choose the actor whose move would most favor governments and corporations.\n"
             "Respond with the name only."
         )
+        logger.debug("GeminiGovCorpPlayer character prompt: %s", prompt)
         resp = self._model.generate_content(prompt).text
+        logger.debug("GeminiGovCorpPlayer character response: %s", resp)
         for char in state.characters:
             if char.name in resp:
+                logger.info("GeminiGovCorpPlayer chose character: %s", char.name)
                 return char
         for char in state.characters:
             if char.name in ("Governments", "Corporations"):
+                logger.info("GeminiGovCorpPlayer defaulted to %s", char.name)
                 return char
+        logger.info("GeminiGovCorpPlayer defaulted to %s", state.characters[0].name)
         return state.characters[0]
 
     def select_action(self, character: Character, actions: List[str], state: GameState) -> str:
@@ -135,10 +163,18 @@ class GeminiGovCorpPlayer(Player):
             f"Possible actions:\n{numbered}\n"
             "Select the action number that best favors governments and corporations."
         )
+        logger.debug("GeminiGovCorpPlayer action prompt: %s", prompt)
         resp = self._model.generate_content(prompt).text
+        logger.debug("GeminiGovCorpPlayer action response: %s", resp)
         for token in resp.split():
             if token.isdigit():
                 idx = int(token) - 1
                 if 0 <= idx < len(actions):
+                    logger.info(
+                        "GeminiGovCorpPlayer chose action '%s' for %s",
+                        actions[idx],
+                        character.name,
+                    )
                     return actions[idx]
+        logger.info("GeminiGovCorpPlayer defaulted to action '%s'", actions[0])
         return actions[0]
