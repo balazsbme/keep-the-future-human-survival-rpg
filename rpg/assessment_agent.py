@@ -62,7 +62,7 @@ class AssessmentAgent:
             f"The baseline script: {how_to_win}\n"
             f"Performed actions: {history_text}\n"
             f"Assess all triplets of the character {context}.\n"
-            "Output ONLY an ordered list of 0-100 integers one for each triplet line-by-line."
+            "Output ONLY an ordered list of 0-100 integers one for each triplet line-by-line. For example, 0 means that no relevant actions have been performed for a triplet (i.e. still the 'initial state' stands), while ~50 means that the 'gap' has been reduced by a lot, but significant gap remains, finally 100 means that the performed actions equivalently describe the 'end state'."
         )
         logger.debug("Assessment prompt for %s: %s", char.name, prompt)
         response = self._get_model().generate_content(prompt)
