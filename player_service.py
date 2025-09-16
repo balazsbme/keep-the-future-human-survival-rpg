@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Dict, List, Set
 import logging
 import os
+import tempfile
 
 from flask import Flask, abort, redirect, request, send_from_directory
 
@@ -37,8 +38,19 @@ def create_app(log_dir: str | None = None) -> Flask:
         ),
     }
     if log_dir is None:
-        os.makedirs(app.instance_path, exist_ok=True)
-        log_dir = os.path.join(app.instance_path, "player_logs")
+        try:
+            os.makedirs(app.instance_path, exist_ok=True)
+            log_dir = os.path.join(app.instance_path, "player_logs")
+        except PermissionError:
+            fallback_instance = os.path.join(
+                tempfile.gettempdir(), "keep-the-future-human-instance"
+            )
+            os.makedirs(fallback_instance, exist_ok=True)
+            log_dir = os.path.join(fallback_instance, "player_logs")
+            logger.warning(
+                "Falling back to temporary instance directory at %s due to permission error",
+                fallback_instance,
+            )
     os.makedirs(log_dir, exist_ok=True)
     app.config["PLAYER_LOG_DIR"] = log_dir
     manager = PlayerManager(characters, assessor, log_dir)
