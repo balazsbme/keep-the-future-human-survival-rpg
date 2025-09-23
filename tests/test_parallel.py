@@ -1,6 +1,7 @@
 import os
 import os
 import threading
+import json
 import time
 from unittest.mock import MagicMock, patch
 
@@ -9,18 +10,20 @@ import yaml
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from web_service import create_app
-from rpg.character import YamlCharacter
+from rpg.character import ActionOption, YamlCharacter
 
 CHARACTERS_FILE = os.path.join(
     os.path.dirname(__file__), "fixtures", "characters.yaml"
 )
-FACTIONS_FILE = os.path.join(os.path.dirname(__file__), "fixtures", "factions.yaml")
+SCENARIO_FILE = os.path.join(
+    os.path.dirname(__file__), "fixtures", "scenarios", "complete.yaml"
+)
 
 
 def _load_test_character() -> YamlCharacter:
     with open(CHARACTERS_FILE, "r", encoding="utf-8") as fh:
         character_payload = yaml.safe_load(fh)
-    with open(FACTIONS_FILE, "r", encoding="utf-8") as fh:
+    with open(SCENARIO_FILE, "r", encoding="utf-8") as fh:
         faction_payload = yaml.safe_load(fh)
     profile = character_payload["Characters"][0]
     faction_spec = faction_payload[profile["faction"]]
@@ -41,7 +44,7 @@ def test_async_action_generation(mock_char_genai, mock_assess_genai):
     def slow_actions(history):
         start_evt.set()
         finish_evt.wait()
-        return ["A"]
+        return [ActionOption("A")]
 
     with patch.object(character, "generate_actions", side_effect=slow_actions):
         with patch("web_service.load_characters", return_value=[character]):
@@ -70,7 +73,11 @@ def test_assessment_background_wait(mock_char_genai, mock_assess_genai):
     start_evt = threading.Event()
     finish_evt = threading.Event()
 
-    with patch.object(character, "generate_actions", return_value=["A"]):
+    with patch.object(
+        character,
+        "generate_actions",
+        return_value=[ActionOption("A", 1, "leadership")],
+    ):
         class DummyAssess:
             def assess(self, chars, htw, hist, parallel=False):
                 start_evt.set()
@@ -82,9 +89,18 @@ def test_assessment_background_wait(mock_char_genai, mock_assess_genai):
                 app = create_app()
                 client = app.test_client()
                 client.get("/start")
-                resp = client.post(
-                    "/perform", data={"character": "0", "action": "A"}
+                action_payload = json.dumps(
+                    {
+                        "text": "A",
+                        "related-triplet": 1,
+                        "related-attribute": "leadership",
+                    }
                 )
+                with patch("rpg.game_state.random.uniform", return_value=0):
+                    resp = client.post(
+                        "/perform",
+                        data={"character": "0", "action": action_payload},
+                    )
                 assert resp.status_code == 302
                 assert start_evt.wait(timeout=1)
                 resp = client.get("/result")

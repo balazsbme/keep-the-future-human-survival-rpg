@@ -15,7 +15,7 @@ except ModuleNotFoundError:  # pragma: no cover
     genai = None
 
 from rpg.game_state import GameState
-from rpg.character import Character
+from rpg.character import ActionOption, Character
 from rpg.assessment_agent import AssessmentAgent
 
 
@@ -31,8 +31,11 @@ class Player(ABC):
 
     @abstractmethod
     def select_action(
-        self, character: Character, actions: List[str], state: GameState
-    ) -> str:
+        self,
+        character: Character,
+        actions: List[ActionOption],
+        state: GameState,
+    ) -> ActionOption:
         """Return the chosen action for ``character`` from ``actions``."""
 
     def take_turn(self, state: GameState, assessor: AssessmentAgent) -> None:
@@ -45,7 +48,7 @@ class Player(ABC):
             logger.info("No actions available for %s", char.name)
             return
         action = self.select_action(char, options, state)
-        logger.info("Selected action for %s: %s", char.name, action)
+        logger.info("Selected action for %s: %s", char.name, action.text)
         state.record_action(char, action)
         scores = assessor.assess(state.characters, state.how_to_win, state.history)
         logger.info("Assessment results: %s", scores)
@@ -60,9 +63,16 @@ class RandomPlayer(Player):
         logger.info("RandomPlayer chose character: %s", char.name)
         return char
 
-    def select_action(self, character: Character, actions: List[str], state: GameState) -> str:
+    def select_action(
+        self,
+        character: Character,
+        actions: List[ActionOption],
+        state: GameState,
+    ) -> ActionOption:
         action = random.choice(actions)
-        logger.info("RandomPlayer chose action '%s' for %s", action, character.name)
+        logger.info(
+            "RandomPlayer chose action '%s' for %s", action.text, character.name
+        )
         return action
 
 
@@ -95,8 +105,15 @@ class GeminiWinPlayer(Player):
         logger.info("GeminiWinPlayer defaulted to %s", state.characters[0].name)
         return state.characters[0]
 
-    def select_action(self, character: Character, actions: List[str], state: GameState) -> str:
-        numbered = "\n".join(f"{idx+1}. {act}" for idx, act in enumerate(actions))
+    def select_action(
+        self,
+        character: Character,
+        actions: List[ActionOption],
+        state: GameState,
+    ) -> ActionOption:
+        numbered = "\n".join(
+            f"{idx+1}. {act.text}" for idx, act in enumerate(actions)
+        )
         prompt = (
             "You are deciding which action to take in the 'Keep the future human' RPG. "
             f"Use the following guide to win: {state.how_to_win}\n"
@@ -113,10 +130,12 @@ class GeminiWinPlayer(Player):
                 idx = int(token) - 1
                 if 0 <= idx < len(actions):
                     logger.info(
-                        "GeminiWinPlayer chose action '%s' for %s", actions[idx], character.name
+                        "GeminiWinPlayer chose action '%s' for %s",
+                        actions[idx].text,
+                        character.name,
                     )
                     return actions[idx]
-        logger.info("GeminiWinPlayer defaulted to action '%s'", actions[0])
+        logger.info("GeminiWinPlayer defaulted to action '%s'", actions[0].text)
         return actions[0]
 
 
@@ -162,8 +181,15 @@ class GeminiGovCorpPlayer(Player):
         logger.info("GeminiGovCorpPlayer defaulted to %s", state.characters[0].name)
         return state.characters[0]
 
-    def select_action(self, character: Character, actions: List[str], state: GameState) -> str:
-        numbered = "\n".join(f"{idx+1}. {act}" for idx, act in enumerate(actions))
+    def select_action(
+        self,
+        character: Character,
+        actions: List[ActionOption],
+        state: GameState,
+    ) -> ActionOption:
+        numbered = "\n".join(
+            f"{idx+1}. {act.text}" for idx, act in enumerate(actions)
+        )
         prompt = (
             f"{self._context}"
             f"Character: {character.display_name}\n"
@@ -179,9 +205,11 @@ class GeminiGovCorpPlayer(Player):
                 if 0 <= idx < len(actions):
                     logger.info(
                         "GeminiGovCorpPlayer chose action '%s' for %s",
-                        actions[idx],
+                        actions[idx].text,
                         character.name,
                     )
                     return actions[idx]
-        logger.info("GeminiGovCorpPlayer defaulted to action '%s'", actions[0])
+        logger.info(
+            "GeminiGovCorpPlayer defaulted to action '%s'", actions[0].text
+        )
         return actions[0]

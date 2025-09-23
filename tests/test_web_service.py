@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import json
+from html import escape
 import os
 import sys
 import unittest
@@ -16,13 +17,15 @@ from rpg.character import YamlCharacter
 CHARACTERS_FILE = os.path.join(
     os.path.dirname(__file__), "fixtures", "characters.yaml"
 )
-FACTIONS_FILE = os.path.join(os.path.dirname(__file__), "fixtures", "factions.yaml")
+SCENARIO_FILE = os.path.join(
+    os.path.dirname(__file__), "fixtures", "scenarios", "complete.yaml"
+)
 
 
 def _load_test_character() -> YamlCharacter:
     with open(CHARACTERS_FILE, "r", encoding="utf-8") as fh:
         character_payload = yaml.safe_load(fh)
-    with open(FACTIONS_FILE, "r", encoding="utf-8") as fh:
+    with open(SCENARIO_FILE, "r", encoding="utf-8") as fh:
         faction_payload = yaml.safe_load(fh)
     profile = character_payload["Characters"][0]
     faction_spec = faction_payload[profile["faction"]]
@@ -30,7 +33,8 @@ def _load_test_character() -> YamlCharacter:
 
 
 class WebServiceTest(unittest.TestCase):
-    def test_win_and_reset_flow(self):
+    @patch("rpg.game_state.random.uniform", return_value=0)
+    def test_win_and_reset_flow(self, mock_uniform):
         with patch("rpg.character.genai") as mock_char_genai, patch(
             "rpg.assessment_agent.genai"
         ) as mock_assess_genai:
@@ -41,9 +45,21 @@ class WebServiceTest(unittest.TestCase):
                 text="```json\n"
                 + json.dumps(
                     [
-                        {"text": fancy_action, "related-triplet": 1},
-                        {"text": "B", "related-triplet": "None"},
-                        {"text": "C", "related-triplet": "None"},
+                        {
+                            "text": fancy_action,
+                            "related-triplet": 1,
+                            "related-attribute": "leadership",
+                        },
+                        {
+                            "text": "B",
+                            "related-triplet": "None",
+                            "related-attribute": "technology",
+                        },
+                        {
+                            "text": "C",
+                            "related-triplet": "None",
+                            "related-attribute": "policy",
+                        },
                     ]
                 )
                 + "\n```"
@@ -82,10 +98,15 @@ class WebServiceTest(unittest.TestCase):
             f"Which action do you want {character.display_name} to perform?",
             actions_page,
         )
-        self.assertIn(
-            'value="Coordinate &quot;&lt;AI&gt;&quot; &amp; &lt;Oversight&gt;"',
-            actions_page,
+        expected_payload = json.dumps(
+            {
+                "text": fancy_action,
+                "related-triplet": 1,
+                "related-attribute": "leadership",
+            }
         )
+        escaped_payload = escape(expected_payload, quote=True)
+        self.assertIn(f'value="{escaped_payload}"', actions_page)
         self.assertIn(
             '>Coordinate "&lt;AI&gt;" &amp; &lt;Oversight&gt;</label><br>',
             actions_page,
@@ -99,7 +120,7 @@ class WebServiceTest(unittest.TestCase):
 
         resp = client.post(
             "/perform",
-            data={"character": "0", "action": fancy_action},
+            data={"character": "0", "action": expected_payload},
             follow_redirects=True,
         )
         page = resp.data.decode()
@@ -122,7 +143,8 @@ class WebServiceTest(unittest.TestCase):
         self.assertNotIn("Action History", page)
         self.assertIn("GitHub", page)
 
-    def test_loss_after_ten_actions(self):
+    @patch("rpg.game_state.random.uniform", return_value=0)
+    def test_loss_after_ten_actions(self, mock_uniform):
         with patch("rpg.character.genai") as mock_char_genai, patch(
             "rpg.assessment_agent.genai"
         ) as mock_assess_genai:
@@ -132,9 +154,21 @@ class WebServiceTest(unittest.TestCase):
                 text="```json\n"
                 + json.dumps(
                     [
-                        {"text": "A", "related-triplet": 1},
-                        {"text": "B", "related-triplet": "None"},
-                        {"text": "C", "related-triplet": "None"},
+                        {
+                            "text": "A",
+                            "related-triplet": 1,
+                            "related-attribute": "leadership",
+                        },
+                        {
+                            "text": "B",
+                            "related-triplet": "None",
+                            "related-attribute": "technology",
+                        },
+                        {
+                            "text": "C",
+                            "related-triplet": "None",
+                            "related-attribute": "policy",
+                        },
                     ]
                 )
                 + "\n```"
@@ -149,14 +183,25 @@ class WebServiceTest(unittest.TestCase):
                 app = create_app()
                 client = app.test_client()
 
+        action_payload = json.dumps(
+            {
+                "text": "A",
+                "related-triplet": 1,
+                "related-attribute": "leadership",
+            }
+        )
         for _ in range(9):
             resp = client.post(
-                "/perform", data={"character": "0", "action": "A"}, follow_redirects=True
+                "/perform",
+                data={"character": "0", "action": action_payload},
+                follow_redirects=True,
             )
             self.assertEqual(resp.request.path, "/start")
 
         resp = client.post(
-            "/perform", data={"character": "0", "action": "A"}, follow_redirects=True
+            "/perform",
+            data={"character": "0", "action": action_payload},
+            follow_redirects=True,
         )
         page = resp.data.decode()
         self.assertEqual(resp.request.path, "/result")
