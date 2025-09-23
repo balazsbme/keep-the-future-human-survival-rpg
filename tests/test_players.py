@@ -14,7 +14,20 @@ from rpg.assessment_agent import AssessmentAgent
 from rpg.game_state import GameState
 from rpg.character import YamlCharacter
 
-FIXTURE_FILE = os.path.join(os.path.dirname(__file__), "fixtures", "characters.yaml")
+CHARACTERS_FILE = os.path.join(
+    os.path.dirname(__file__), "fixtures", "characters.yaml"
+)
+FACTIONS_FILE = os.path.join(os.path.dirname(__file__), "fixtures", "factions.yaml")
+
+
+def _load_test_character() -> YamlCharacter:
+    with open(CHARACTERS_FILE, "r", encoding="utf-8") as fh:
+        character_payload = yaml.safe_load(fh)
+    with open(FACTIONS_FILE, "r", encoding="utf-8") as fh:
+        faction_payload = yaml.safe_load(fh)
+    profile = character_payload["Characters"][0]
+    faction_spec = faction_payload[profile["faction"]]
+    return YamlCharacter(profile["name"], faction_spec, profile)
 
 
 class PlayerTests(unittest.TestCase):
@@ -32,16 +45,17 @@ class PlayerTests(unittest.TestCase):
         )
         mock_char_genai.GenerativeModel.return_value = mock_action_model
         mock_assess_genai.GenerativeModel.return_value = mock_assess_model
-        with open(FIXTURE_FILE, "r", encoding="utf-8") as fh:
-            data = yaml.safe_load(fh)
-        char = YamlCharacter("test_character", data["test_character"])
+        char = _load_test_character()
         state = GameState([char])
         assessor = AssessmentAgent()
         mock_choice.side_effect = [char, "A"]
         player = RandomPlayer()
         player.take_turn(state, assessor)
-        self.assertEqual(state.history[0], ("test_character", "A"))
-        self.assertEqual(state.progress["test_character"], [10, 20, 30])
+        self.assertEqual(
+            state.history[0],
+            (char.display_name, "A"),
+        )
+        self.assertEqual(state.progress[char.progress_key], [10, 20, 30])
 
     @patch("players.genai")
     @patch("rpg.character.genai")
@@ -50,16 +64,14 @@ class PlayerTests(unittest.TestCase):
         mock_model.generate_content.return_value = MagicMock(text="1")
         mock_players_genai.GenerativeModel.return_value = mock_model
         mock_char_genai.GenerativeModel.return_value = MagicMock()
-        with open(FIXTURE_FILE, "r", encoding="utf-8") as fh:
-            data = yaml.safe_load(fh)
-        char = YamlCharacter("test_character", data["test_character"])
+        char = _load_test_character()
         state = GameState([char])
         player = GeminiWinPlayer()
         actions = ["A", "B", "C"]
         player.select_action(char, actions, state)
         prompt = mock_model.generate_content.call_args[0][0]
         self.assertIn(state.how_to_win.split()[0], prompt)
-        self.assertIn(char.base_context.split()[0], prompt)
+        self.assertIn(char.display_name, prompt)
 
     @patch("players.genai")
     @patch("rpg.character.genai")
@@ -68,11 +80,9 @@ class PlayerTests(unittest.TestCase):
         mock_model.generate_content.return_value = MagicMock(text="1")
         mock_players_genai.GenerativeModel.return_value = mock_model
         mock_char_genai.GenerativeModel.return_value = MagicMock()
-        with open(FIXTURE_FILE, "r", encoding="utf-8") as fh:
-            data = yaml.safe_load(fh)
+        char = _load_test_character()
         gov_ctx = corp_ctx = "CTX"
         player = GeminiGovCorpPlayer(gov_ctx, corp_ctx)
-        char = YamlCharacter("test_character", data["test_character"])
         state = GameState([char])
         actions = ["A", "B", "C"]
         player.select_action(char, actions, state)

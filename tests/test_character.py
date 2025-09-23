@@ -12,7 +12,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from rpg.character import YamlCharacter
 from rpg.assessment_agent import AssessmentAgent
 
-FIXTURE_FILE = os.path.join(os.path.dirname(__file__), "fixtures", "characters.yaml")
+CHARACTERS_FILE = os.path.join(
+    os.path.dirname(__file__), "fixtures", "characters.yaml"
+)
+FACTIONS_FILE = os.path.join(os.path.dirname(__file__), "fixtures", "factions.yaml")
 
 
 class YamlCharacterTest(unittest.TestCase):
@@ -36,18 +39,24 @@ class YamlCharacterTest(unittest.TestCase):
         mock_char_genai.GenerativeModel.return_value = mock_action_model
         mock_assess_genai.GenerativeModel.return_value = mock_assess_model
 
-        with open(FIXTURE_FILE, "r", encoding="utf-8") as fh:
-            data = yaml.safe_load(fh)
-        char = YamlCharacter("test_character", data["test_character"])
+        with open(CHARACTERS_FILE, "r", encoding="utf-8") as fh:
+            character_payload = yaml.safe_load(fh)
+        with open(FACTIONS_FILE, "r", encoding="utf-8") as fh:
+            faction_payload = yaml.safe_load(fh)
+        profile = character_payload["Characters"][0]
+        faction_spec = faction_payload[profile["faction"]]
+        char = YamlCharacter(profile["name"], faction_spec, profile)
         actions = char.generate_actions([])
         prompt_used = mock_action_model.generate_content.call_args_list[0][0][0]
         self.assertIn("end1", prompt_used)
         self.assertIn("size: Small", prompt_used)
         self.assertIn("aligned with your motivations and capabilities", prompt_used)
+        self.assertIn("Perks: Detailed planner", prompt_used)
+        self.assertIn("Weaknesses: Struggles to prioritize", prompt_used)
         self.assertIn("Return the result as a JSON array", prompt_used)
         self.assertEqual(actions, ["Act1", "Act2", "Act3"])
         assessor = AssessmentAgent()
-        scores = assessor.assess([char], "baseline", [])[char.name]
+        scores = assessor.assess([char], "baseline", [])[char.progress_key]
         self.assertEqual(scores, [10, 20, 30])
 
     @patch("rpg.character.genai")
@@ -64,9 +73,13 @@ class YamlCharacterTest(unittest.TestCase):
         )
         mock_char_genai.GenerativeModel.return_value = mock_action_model
 
-        with open(FIXTURE_FILE, "r", encoding="utf-8") as fh:
-            data = yaml.safe_load(fh)
-        char = YamlCharacter("test_character", data["test_character"])
+        with open(CHARACTERS_FILE, "r", encoding="utf-8") as fh:
+            character_payload = yaml.safe_load(fh)
+        with open(FACTIONS_FILE, "r", encoding="utf-8") as fh:
+            faction_payload = yaml.safe_load(fh)
+        profile = character_payload["Characters"][0]
+        faction_spec = faction_payload[profile["faction"]]
+        char = YamlCharacter(profile["name"], faction_spec, profile)
 
         with self.assertLogs("rpg.character", level="WARNING") as log_ctx:
             actions = char.generate_actions([])

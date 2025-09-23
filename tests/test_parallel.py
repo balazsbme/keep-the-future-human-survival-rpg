@@ -1,4 +1,5 @@
 import os
+import os
 import threading
 import time
 from unittest.mock import MagicMock, patch
@@ -10,7 +11,20 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from web_service import create_app
 from rpg.character import YamlCharacter
 
-FIXTURE_FILE = os.path.join(os.path.dirname(__file__), "fixtures", "characters.yaml")
+CHARACTERS_FILE = os.path.join(
+    os.path.dirname(__file__), "fixtures", "characters.yaml"
+)
+FACTIONS_FILE = os.path.join(os.path.dirname(__file__), "fixtures", "factions.yaml")
+
+
+def _load_test_character() -> YamlCharacter:
+    with open(CHARACTERS_FILE, "r", encoding="utf-8") as fh:
+        character_payload = yaml.safe_load(fh)
+    with open(FACTIONS_FILE, "r", encoding="utf-8") as fh:
+        faction_payload = yaml.safe_load(fh)
+    profile = character_payload["Characters"][0]
+    faction_spec = faction_payload[profile["faction"]]
+    return YamlCharacter(profile["name"], faction_spec, profile)
 
 
 @patch.dict(os.environ, {"ENABLE_PARALLELISM": "1"})
@@ -19,9 +33,7 @@ FIXTURE_FILE = os.path.join(os.path.dirname(__file__), "fixtures", "characters.y
 def test_async_action_generation(mock_char_genai, mock_assess_genai):
     mock_char_genai.GenerativeModel.return_value = MagicMock()
     mock_assess_genai.GenerativeModel.return_value = MagicMock()
-    with open(FIXTURE_FILE, "r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh)
-    character = YamlCharacter("test_character", data["test_character"])
+    character = _load_test_character()
 
     start_evt = threading.Event()
     finish_evt = threading.Event()
@@ -53,9 +65,7 @@ def test_async_action_generation(mock_char_genai, mock_assess_genai):
 def test_assessment_background_wait(mock_char_genai, mock_assess_genai):
     mock_char_genai.GenerativeModel.return_value = MagicMock()
     mock_assess_genai.GenerativeModel.return_value = MagicMock()
-    with open(FIXTURE_FILE, "r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh)
-    character = YamlCharacter("test_character", data["test_character"])
+    character = _load_test_character()
 
     start_evt = threading.Event()
     finish_evt = threading.Event()
@@ -65,7 +75,7 @@ def test_assessment_background_wait(mock_char_genai, mock_assess_genai):
             def assess(self, chars, htw, hist, parallel=False):
                 start_evt.set()
                 finish_evt.wait()
-                return {c.name: [100] * len(c.triplets) for c in chars}
+                return {c.progress_key: [100] * len(c.triplets) for c in chars}
 
         with patch("web_service.AssessmentAgent", return_value=DummyAssess()):
             with patch("web_service.load_characters", return_value=[character]):

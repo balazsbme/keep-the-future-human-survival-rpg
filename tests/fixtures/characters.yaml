@@ -1,18 +1,7 @@
-test_character:
-  MarkdownContext: |
-    Base context for test character.
-  end_states:
-    - end1
-    - end2
-    - end3
-  initial_states:
-    - initial1
-    - initial2
-    - initial3
-  gaps:
-    - severity: Small
-      explanation: gap1
-    - severity: Moderate
-      explanation: gap2
-    - severity: Large
-      explanation: gap3
+Characters:
+  - name: "Test Character"
+    faction: "test_character"
+    perks: "Detailed planner who keeps negotiators aligned"
+    weaknesses: "Struggles to prioritize when multiple crises overlap"
+    motivations: "Close policy gaps for their faction while maintaining alliances"
+    background: "Veteran mediator trained in both policy and public communications"

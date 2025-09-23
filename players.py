@@ -75,12 +75,15 @@ class GeminiWinPlayer(Player):
         self._model = genai.GenerativeModel(model)
 
     def select_character(self, state: GameState) -> Character:
-        names = ", ".join(c.name for c in state.characters)
+        names = ", ".join(
+            f"{c.name} ({c.faction} faction)" if c.faction else c.name
+            for c in state.characters
+        )
         prompt = (
             "You are playing the 'Keep the future human' survival RPG. "
-            "Choose which actor should act next to best achieve victory.\n"
-            f"Available actors: {names}.\n"
-            "Respond with the name of the actor only."
+            "Choose which character should act next to best achieve victory.\n"
+            f"Available characters: {names}.\n"
+            "Respond with the name of the character only."
         )
         logger.debug("GeminiWinPlayer character prompt: %s", prompt)
         resp = self._model.generate_content(prompt).text
@@ -97,7 +100,8 @@ class GeminiWinPlayer(Player):
         prompt = (
             "You are deciding which action to take in the 'Keep the future human' RPG. "
             f"Use the following guide to win: {state.how_to_win}\n"
-            f"Actor context: {character.base_context}\n"
+            f"Character: {character.display_name}\n"
+            f"Faction context: {character.base_context}\n"
             f"Possible actions:\n{numbered}\n"
             "Respond with the number of the best action."
         )
@@ -134,11 +138,14 @@ class GeminiGovCorpPlayer(Player):
         )
 
     def select_character(self, state: GameState) -> Character:
-        names = ", ".join(c.name for c in state.characters)
+        names = ", ".join(
+            f"{c.name} ({c.faction} faction)" if c.faction else c.name
+            for c in state.characters
+        )
         prompt = (
             f"{self._context}"
-            f"Available actors: {names}.\n"
-            "Choose the actor whose move would most favor governments and corporations.\n"
+            f"Available characters: {names}.\n"
+            "Choose the character whose move would most favor governments and corporations.\n"
             "Respond with the name only."
         )
         logger.debug("GeminiGovCorpPlayer character prompt: %s", prompt)
@@ -149,7 +156,7 @@ class GeminiGovCorpPlayer(Player):
                 logger.info("GeminiGovCorpPlayer chose character: %s", char.name)
                 return char
         for char in state.characters:
-            if char.name in ("Governments", "Corporations"):
+            if char.faction in ("Governments", "Corporations"):
                 logger.info("GeminiGovCorpPlayer defaulted to %s", char.name)
                 return char
         logger.info("GeminiGovCorpPlayer defaulted to %s", state.characters[0].name)
@@ -159,7 +166,7 @@ class GeminiGovCorpPlayer(Player):
         numbered = "\n".join(f"{idx+1}. {act}" for idx, act in enumerate(actions))
         prompt = (
             f"{self._context}"
-            f"Actor: {character.name}\n"
+            f"Character: {character.display_name}\n"
             f"Possible actions:\n{numbered}\n"
             "Select the action number that best favors governments and corporations."
         )

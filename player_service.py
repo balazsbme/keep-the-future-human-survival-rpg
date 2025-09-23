@@ -33,8 +33,8 @@ def create_app(log_dir: str | None = None) -> Flask:
         "random": RandomPlayer(),
         "gemini-win": GeminiWinPlayer(),
         "gemini-govcorp": GeminiGovCorpPlayer(
-            next((c.base_context for c in characters if c.name == "Governments"), ""),
-            next((c.base_context for c in characters if c.name == "Corporations"), ""),
+            next((c.base_context for c in characters if c.faction == "Governments"), ""),
+            next((c.base_context for c in characters if c.faction == "Corporations"), ""),
         ),
     }
     if log_dir is None:
@@ -113,28 +113,28 @@ def create_app(log_dir: str | None = None) -> Flask:
             f"<div>Rounds per game: {last_run.get('rounds', 0)}</div>"
         )
 
-        def actor_score_lines(actor_data: Dict[str, Dict[str, object]]) -> str:
+        def faction_score_lines(faction_data: Dict[str, Dict[str, object]]) -> str:
             return "<br>".join(
                 "{}: {} (weighted {})".format(
                     name,
                     ", ".join(str(score) for score in details["scores"]),
                     details["weighted"],
                 )
-                for name, details in actor_data.items()
+                for name, details in faction_data.items()
             )
 
         sections = []
         for entry in game_runs:
             rows = "".join(
-                "<tr><td>{round}</td><td>{actor}</td><td>{score}</td><td>{actors}</td></tr>".format(
+                "<tr><td>{round}</td><td>{character}</td><td>{score}</td><td>{factions}</td></tr>".format(
                     round=round_info["round"],
-                    actor=round_info["actor"],
+                    character=round_info["character"],
                     score=round_info["score"],
-                    actors=actor_score_lines(round_info["actors"]),
+                    factions=faction_score_lines(round_info["factions"]),
                 )
                 for round_info in entry["rounds"]
             )
-            final_actors = actor_score_lines(entry["final_actors"])
+            final_factions = faction_score_lines(entry["final_factions"])
             sections.append(
                 (
                     f"<section><h2>Game {entry['game_number']}</h2>"
@@ -142,10 +142,10 @@ def create_app(log_dir: str | None = None) -> Flask:
                     f"<div>Actions: {entry['actions']}</div>"
                     f"<div>Final weighted score: {entry['final_score']}</div>"
                     f"<div>Result: {entry['result']}</div>"
-                    f"<div>Final actor scores:<br>{final_actors}</div>"
+                    f"<div>Final faction scores:<br>{final_factions}</div>"
                     f"<div><a href='/logs/{entry['log_filename']}'>Download log</a></div>"
                     "<h3>Round-by-round progress</h3>"
-                    "<table><tr><th>Round</th><th>Actor</th><th>Weighted Score</th><th>Actor Scores</th></tr>"
+                    "<table><tr><th>Round</th><th>Character</th><th>Weighted Score</th><th>Faction Scores</th></tr>"
                     + rows
                     + "</table></section>"
                 )

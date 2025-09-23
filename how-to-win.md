@@ -27,7 +27,7 @@
   - Build treaties akin to nuclear non-proliferation.  
   - Verification relies on a handful of companies controlling chip supply chains (TSMC, NVIDIA, AMD, etc.).  
 
-**Key actors that must change:**  
+**Key factions that must change:**
 - **Governments**: legislate and enforce compute oversight.  
 - **Chipmakers**: integrate mandatory security and reporting features.  
 - **Tech companies**: accept binding limits instead of racing toward AGI.  
@@ -43,7 +43,7 @@
   - Systems proven to be secure and controllable.  
 - **Injunctive Relief**: courts empowered to halt risky AI development pre-emptively.  
 
-**Key actors that must change:**  
+**Key factions that must change:**
 - **Lawmakers**: pass liability laws covering AGI-like risks.  
 - **Courts/regulators**: enforce liability and block unsafe projects.  
 - **AI firms**: assume personal accountability, not outsource risk to the public.  
@@ -59,7 +59,7 @@
 - **National agencies** (existing or new) empowered to license, audit, and block unsafe models.  
 - **International harmonization** to prevent loopholes.  
 
-**Key actors that must change:**  
+**Key factions that must change:**
 - **Governments/regulators**: build fast, empowered AI oversight agencies.  
 - **Industry**: accept graded regulation, not fight all regulation.  
 

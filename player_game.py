@@ -17,8 +17,14 @@ from players import RandomPlayer, GeminiWinPlayer, GeminiGovCorpPlayer
 
 def create_players(characters) -> Dict[str, object]:
     """Return available player instances based on characters."""
-    gov_ctx = next((c.base_context for c in characters if c.name == "Governments"), "")
-    corp_ctx = next((c.base_context for c in characters if c.name == "Corporations"), "")
+    gov_ctx = next(
+        (c.base_context for c in characters if c.faction == "Governments"),
+        "",
+    )
+    corp_ctx = next(
+        (c.base_context for c in characters if c.faction == "Corporations"),
+        "",
+    )
     return {
         "random": RandomPlayer(),
         "gemini-win": GeminiWinPlayer(),

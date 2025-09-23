@@ -60,7 +60,7 @@ def create_app() -> Flask:
         """Display the landing page with game introduction."""
         return (
             "<h1>AI Safety Negotiation Game</h1>"
-            "<p>You are an expert negotiator with connection to all relevant actors in the AI safety world, you can convince them to propose and take actions.  your objective is to enure that ai is developed in the best interest of humanity. your goal is to keep the future human.</p>"
+            "<p>You are an expert negotiator with connections to every major faction shaping AI governance. You can persuade their key representatives to propose and take actions. Your objective is to ensure AI is developed in humanity's best interest and keep the future human.</p>"
             "<p>You have 10 turns to reach a final weighted score of 71 or higher to win.</p>"
             "<a href='/start'>Start</a>"
             f"{footer}"
@@ -95,7 +95,7 @@ def create_app() -> Flask:
 
         options = "".join(
             f'<input type="radio" name="character" value="{idx}" id="char{idx}">'
-            f'<label for="char{idx}">{char.name}</label><br>'
+            f'<label for="char{idx}">{char.display_name}</label><br>'
             for idx, char in enumerate(characters)
         )
         return (
@@ -148,8 +148,8 @@ def create_app() -> Flask:
             for idx, a in enumerate(actions)
         )
         return (
-            f"<h1>{char.name}</h1>"
-            f"<p>Which action do you want {char.name} to perform?</p>"
+            f"<h1>{char.display_name}</h1>"
+            f"<p>Which action do you want {char.display_name} to perform?</p>"
             "<form method='post' action='/perform'>"
             f"{radios}"
             f"<input type='hidden' name='character' value='{char_id}'>"
