@@ -9,6 +9,7 @@ import logging
 import os
 import threading
 import queue
+from html import escape
 
 from flask import Flask, request, redirect, Response
 
@@ -95,7 +96,7 @@ def create_app() -> Flask:
 
         options = "".join(
             f'<input type="radio" name="character" value="{idx}" id="char{idx}">'
-            f'<label for="char{idx}">{char.display_name}</label><br>'
+            f'<label for="char{idx}">{escape(char.display_name, quote=False)}</label><br>'
             for idx, char in enumerate(characters)
         )
         return (
@@ -143,13 +144,14 @@ def create_app() -> Flask:
             actions = char.generate_actions(hist_snapshot)
         logger.debug("Actions: %s", actions)
         radios = "".join(
-            f'<input type="radio" name="action" value="{a}" id="a{idx}">'
-            f'<label for="a{idx}">{a}</label><br>'
+            f'<input type="radio" name="action" value="{escape(a, quote=True)}" id="a{idx}">'
+            f'<label for="a{idx}">{escape(a, quote=False)}</label><br>'
             for idx, a in enumerate(actions)
         )
+        display_name = escape(char.display_name, quote=False)
         return (
-            f"<h1>{char.display_name}</h1>"
-            f"<p>Which action do you want {char.display_name} to perform?</p>"
+            f"<h1>{display_name}</h1>"
+            f"<p>Which action do you want {display_name} to perform?</p>"
             "<form method='post' action='/perform'>"
             f"{radios}"
             f"<input type='hidden' name='character' value='{char_id}'>"

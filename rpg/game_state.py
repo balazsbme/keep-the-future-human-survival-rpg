@@ -8,6 +8,7 @@ import os
 import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple
+from html import escape
 
 from .character import Character
 
@@ -113,13 +114,14 @@ class GameState:
         logger.info("Rendering game state")
         lines = []
         for key, scores in self.progress.items():
-            label = self.faction_labels.get(key, key)
+            label = escape(self.faction_labels.get(key, key), quote=False)
             lines.append(
                 f"{label}: {scores} (weighted: {self._faction_weighted_score(key)})"
             )
         if self.history:
             hist_items = "".join(
-                f"<li><strong>{n}</strong>: {a}</li>" for n, a in self.history
+                f"<li><strong>{escape(n, quote=False)}</strong>: {escape(a, quote=False)}</li>"
+                for n, a in self.history
             )
             lines.append(f"<h2>Action History</h2><ol>{hist_items}</ol>")
         lines.append(f"Final weighted score: {self.final_weighted_score()}")
