@@ -13,7 +13,7 @@ import queue
 from flask import Flask, request, redirect, Response
 
 from cli_game import load_characters
-from rpg.game_state import GameState
+from rpg.game_state import GameState, WIN_THRESHOLD
 from rpg.assessment_agent import AssessmentAgent
 
 # Link to this project's source code repository for inclusion in the web UI footer
@@ -61,7 +61,7 @@ def create_app() -> Flask:
         return (
             "<h1>AI Safety Negotiation Game</h1>"
             "<p>You are an expert negotiator with connection to all relevant actors in the AI safety world, you can convince them to propose and take actions.  your objective is to enure that ai is developed in the best interest of humanity. your goal is to keep the future human.</p>"
-            "<p>You have 10 turns to reach a final weighted score of 80 or higher to win.</p>"
+            "<p>You have 10 turns to reach a final weighted score of 71 or higher to win.</p>"
             "<a href='/start'>Start</a>"
             f"{footer}"
         )
@@ -75,7 +75,7 @@ def create_app() -> Flask:
             hist_snapshot = list(game_state.history)
             characters = list(game_state.characters)
             state_html = game_state.render_state()
-        if score >= 80 or len(hist_snapshot) >= 10:
+        if score >= WIN_THRESHOLD or len(hist_snapshot) >= 10:
             return redirect("/result")
 
         if enable_parallel:
@@ -218,7 +218,7 @@ def create_app() -> Flask:
         with state_lock:
             final_score = game_state.final_weighted_score()
             hist_len = len(game_state.history)
-        if final_score >= 80 or hist_len >= 10:
+        if final_score >= WIN_THRESHOLD or hist_len >= 10:
             return redirect("/result")
         return redirect("/start")
 
@@ -259,7 +259,7 @@ def create_app() -> Flask:
         with state_lock:
             final = game_state.final_weighted_score()
             state_html = game_state.render_state()
-        outcome = "You won!" if final >= 80 else "You lost!"
+        outcome = "You won!" if final >= WIN_THRESHOLD else "You lost!"
         return (
             f"<h1>{outcome}</h1>"
             f"{state_html}"

@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import json
 import os
 import sys
 import unittest
@@ -21,7 +22,13 @@ class YamlCharacterTest(unittest.TestCase):
         mock_action_model = MagicMock()
         mock_assess_model = MagicMock()
         mock_action_model.generate_content.return_value = MagicMock(
-            text="1. Act1\n2. Act2\n3. Act3"
+            text=json.dumps(
+                [
+                    {"text": "Act1", "related-triplet": 1},
+                    {"text": "Act2", "related-triplet": "None"},
+                    {"text": "Act3", "related-triplet": "None"},
+                ]
+            )
         )
         mock_assess_model.generate_content.return_value = MagicMock(
             text="10\n20\n30"
@@ -37,10 +44,37 @@ class YamlCharacterTest(unittest.TestCase):
         self.assertIn("end1", prompt_used)
         self.assertIn("size: Small", prompt_used)
         self.assertIn("aligned with your motivations and capabilities", prompt_used)
-        self.assertEqual(len(actions), 3)
+        self.assertIn("Return the result as a JSON array", prompt_used)
+        self.assertEqual(actions, ["Act1", "Act2", "Act3"])
         assessor = AssessmentAgent()
         scores = assessor.assess([char], "baseline", [])[char.name]
         self.assertEqual(scores, [10, 20, 30])
+
+    @patch("rpg.character.genai")
+    def test_generate_actions_warning_for_related_triplets(self, mock_char_genai):
+        mock_action_model = MagicMock()
+        mock_action_model.generate_content.return_value = MagicMock(
+            text=json.dumps(
+                [
+                    {"text": "Act1", "related-triplet": 1},
+                    {"text": "Act2", "related-triplet": 2},
+                    {"text": "Act3", "related-triplet": "None"},
+                ]
+            )
+        )
+        mock_char_genai.GenerativeModel.return_value = mock_action_model
+
+        with open(FIXTURE_FILE, "r", encoding="utf-8") as fh:
+            data = yaml.safe_load(fh)
+        char = YamlCharacter("test_character", data["test_character"])
+
+        with self.assertLogs("rpg.character", level="WARNING") as log_ctx:
+            actions = char.generate_actions([])
+
+        self.assertEqual(actions, ["Act1", "Act2", "Act3"])
+        self.assertTrue(
+            any("Expected exactly one action referencing a triplet" in msg for msg in log_ctx.output)
+        )
 
 
 if __name__ == "__main__":
