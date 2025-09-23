@@ -91,25 +91,28 @@ class PlayerManager:
             for round_index in range(1, rounds + 1):
                 logger.info("Beginning round %d", round_index)
                 player.take_turn(state, self._assessor)
-                actor = state.history[-1][0] if state.history else ""
+                character_label = state.history[-1][0] if state.history else ""
                 final_score = state.final_weighted_score()
-                actor_scores = {
-                    name: {
+                faction_scores = {}
+                for key, scores in state.progress.items():
+                    label = state.faction_labels.get(key, key)
+                    faction_scores[label] = {
                         "scores": list(scores),
-                        "weighted": state._actor_weighted_score(name),
+                        "weighted": state._faction_weighted_score(key),
                     }
-                    for name, scores in state.progress.items()
-                }
                 rounds_progress.append(
                     {
                         "round": round_index,
-                        "actor": actor,
+                        "character": character_label,
                         "score": final_score,
-                        "actors": actor_scores,
+                        "factions": faction_scores,
                     }
                 )
                 logger.info(
-                    "Round %d result: actor=%s score=%s", round_index, actor, final_score
+                    "Round %d result: character=%s score=%s",
+                    round_index,
+                    character_label,
+                    final_score,
                 )
                 if final_score >= WIN_THRESHOLD:
                     logger.info(
@@ -130,12 +133,12 @@ class PlayerManager:
             "iterations": len(rounds_progress),
             "actions": len(state.history),
             "log_filename": log_filename,
-            "final_actors": {
-                name: {
+            "final_factions": {
+                state.faction_labels.get(key, key): {
                     "scores": list(scores),
-                    "weighted": state._actor_weighted_score(name),
+                    "weighted": state._faction_weighted_score(key),
                 }
-                for name, scores in state.progress.items()
+                for key, scores in state.progress.items()
             },
         }
         logger.info(

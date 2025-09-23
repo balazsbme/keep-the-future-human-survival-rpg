@@ -1,0 +1,18 @@
+test_character:
+  MarkdownContext: |
+    Base context for test character.
+  end_states:
+    - end1
+    - end2
+    - end3
+  initial_states:
+    - initial1
+    - initial2
+    - initial3
+  gaps:
+    - severity: Small
+      explanation: gap1
+    - severity: Moderate
+      explanation: gap2
+    - severity: Large
+      explanation: gap3

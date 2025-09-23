@@ -43,7 +43,7 @@ class AssessmentAgent:
     def _assess_single(
         self,
         char: Character,
-        actor_list: str,
+        faction_list: str,
         how_to_win: str,
         history_text: str,
     ) -> List[int]:
@@ -57,11 +57,11 @@ class AssessmentAgent:
         prompt = (
             "You are the Game Master for the 'Keep the future human' survival RPG. "
             "The player is interacting with the characters and convinces them to take actions. "
-            f"You assess of the following character's 'initial state - end state - gap' triplets with a 0-100 integer: {actor_list}, "
+            f"Assess the progress for the following factions' 'initial state - end state - gap' triplets with a 0-100 integer: {faction_list}, "
             "based on the baseline script and the performed actions.\n"
             f"The baseline script: {how_to_win}\n"
             f"Performed actions: {history_text}\n"
-            f"Assess all triplets of the character {context}.\n"
+            f"Assess all triplets for {char.progress_label} using the context below:\n{context}\n"
             "Output ONLY an ordered list of 0-100 integers one for each triplet line-by-line. For example, 0 means that no relevant actions have been performed for a triplet (i.e. still the 'initial state' stands), while ~50 means that the 'gap' has been reduced by a lot, but significant gap remains, finally 100 means that the performed actions equivalently describe the 'end state'."
         )
         logger.debug("Assessment prompt for %s: %s", char.name, prompt)
@@ -93,27 +93,27 @@ class AssessmentAgent:
         Args:
             characters: List of game characters.
             how_to_win: Baseline script content.
-            history: List of (actor, action) tuples performed so far.
+            history: List of (character label, action) tuples performed so far.
 
         Returns:
             Mapping of character name to list of progress scores.
         """
-        actor_list = ", ".join(c.name for c in characters)
-        history_text = "\n".join(f"{actor}: {act}" for actor, act in history) or "None"
+        faction_list = ", ".join(c.progress_label for c in characters)
+        history_text = "\n".join(f"{label}: {act}" for label, act in history) or "None"
 
         if parallel:
             with ThreadPoolExecutor(max_workers=len(characters)) as executor:
                 future_map = {
                     executor.submit(
-                        self._assess_single, char, actor_list, how_to_win, history_text
-                    ): char.name
+                        self._assess_single, char, faction_list, how_to_win, history_text
+                    ): char.progress_key
                     for char in characters
                 }
                 return {name: fut.result() for fut, name in future_map.items()}
 
         results: Dict[str, List[int]] = {}
         for char in characters:
-            results[char.name] = self._assess_single(
-                char, actor_list, how_to_win, history_text
+            results[char.progress_key] = self._assess_single(
+                char, faction_list, how_to_win, history_text
             )
         return results

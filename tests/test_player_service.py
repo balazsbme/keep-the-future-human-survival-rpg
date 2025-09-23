@@ -14,7 +14,20 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from player_service import create_app
 from rpg.character import YamlCharacter
 
-FIXTURE_FILE = os.path.join(os.path.dirname(__file__), "fixtures", "characters.yaml")
+CHARACTERS_FILE = os.path.join(
+    os.path.dirname(__file__), "fixtures", "characters.yaml"
+)
+FACTIONS_FILE = os.path.join(os.path.dirname(__file__), "fixtures", "factions.yaml")
+
+
+def _load_test_character() -> YamlCharacter:
+    with open(CHARACTERS_FILE, "r", encoding="utf-8") as fh:
+        character_payload = yaml.safe_load(fh)
+    with open(FACTIONS_FILE, "r", encoding="utf-8") as fh:
+        faction_payload = yaml.safe_load(fh)
+    profile = character_payload["Characters"][0]
+    faction_spec = faction_payload[profile["faction"]]
+    return YamlCharacter(profile["name"], faction_spec, profile)
 
 
 class PlayerServiceTest(unittest.TestCase):
@@ -36,9 +49,7 @@ class PlayerServiceTest(unittest.TestCase):
                 mock_char_genai.GenerativeModel.return_value = mock_action_model
                 mock_assess_genai.GenerativeModel.return_value = mock_assess_model
                 mock_players_genai.GenerativeModel.return_value = MagicMock()
-                with open(FIXTURE_FILE, "r", encoding="utf-8") as fh:
-                    data = yaml.safe_load(fh)
-                character = YamlCharacter("test_character", data["test_character"])
+                character = _load_test_character()
 
                 def choice_side_effect(options):
                     if options and isinstance(options[0], YamlCharacter):

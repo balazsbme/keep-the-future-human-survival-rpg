@@ -13,7 +13,20 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from web_service import create_app
 from rpg.character import YamlCharacter
 
-FIXTURE_FILE = os.path.join(os.path.dirname(__file__), "fixtures", "characters.yaml")
+CHARACTERS_FILE = os.path.join(
+    os.path.dirname(__file__), "fixtures", "characters.yaml"
+)
+FACTIONS_FILE = os.path.join(os.path.dirname(__file__), "fixtures", "factions.yaml")
+
+
+def _load_test_character() -> YamlCharacter:
+    with open(CHARACTERS_FILE, "r", encoding="utf-8") as fh:
+        character_payload = yaml.safe_load(fh)
+    with open(FACTIONS_FILE, "r", encoding="utf-8") as fh:
+        faction_payload = yaml.safe_load(fh)
+    profile = character_payload["Characters"][0]
+    faction_spec = faction_payload[profile["faction"]]
+    return YamlCharacter(profile["name"], faction_spec, profile)
 
 
 class WebServiceTest(unittest.TestCase):
@@ -37,9 +50,7 @@ class WebServiceTest(unittest.TestCase):
             )
             mock_char_genai.GenerativeModel.return_value = mock_action_model
             mock_assess_genai.GenerativeModel.return_value = mock_assess_model
-            with open(FIXTURE_FILE, "r", encoding="utf-8") as fh:
-                data = yaml.safe_load(fh)
-            character = YamlCharacter("test_character", data["test_character"])
+            character = _load_test_character()
             with patch("web_service.load_characters", return_value=[character]):
                 app = create_app()
                 client = app.test_client()
@@ -63,9 +74,10 @@ class WebServiceTest(unittest.TestCase):
         actions_resp = client.post("/actions", data={"character": "0"})
         actions_page = actions_resp.data.decode()
         self.assertEqual(actions_resp.status_code, 200)
-        self.assertIn("<h1>test_character</h1>", actions_page)
+        self.assertIn(f"<h1>{character.display_name}</h1>", actions_page)
         self.assertIn(
-            "Which action do you want test_character to perform?", actions_page
+            f"Which action do you want {character.display_name} to perform?",
+            actions_page,
         )
 
         inst_resp = client.get("/instructions")
@@ -82,7 +94,9 @@ class WebServiceTest(unittest.TestCase):
         self.assertEqual(resp.request.path, "/result")
         self.assertIn("You won!", page)
         self.assertIn("Action History", page)
-        self.assertIn("<li><strong>test_character</strong>: A</li>", page)
+        self.assertIn(
+            f"<li><strong>{character.display_name}</strong>: A</li>", page
+        )
         self.assertIn("Final weighted score", page)
         self.assertIn("Reset", page)
         self.assertIn("GitHub", page)
@@ -114,9 +128,7 @@ class WebServiceTest(unittest.TestCase):
             )
             mock_char_genai.GenerativeModel.return_value = mock_action_model
             mock_assess_genai.GenerativeModel.return_value = mock_assess_model
-            with open(FIXTURE_FILE, "r", encoding="utf-8") as fh:
-                data = yaml.safe_load(fh)
-            character = YamlCharacter("test_character", data["test_character"])
+            character = _load_test_character()
             with patch("web_service.load_characters", return_value=[character]):
                 app = create_app()
                 client = app.test_client()
