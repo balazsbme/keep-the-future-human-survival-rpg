@@ -8,6 +8,7 @@ from typing import List, Sequence
 import yaml
 
 from rpg.character import YamlCharacter
+from rpg.config import GameConfig, load_game_config
 from rpg.game_state import GameState
 from rpg.assessment_agent import AssessmentAgent
 
@@ -35,17 +36,53 @@ def _character_entries(payload: object) -> Sequence[dict]:
     return []
 
 
+def _faction_mapping(payload: object) -> dict:
+    """Return a mapping of faction specifications from YAML payload."""
+
+    if isinstance(payload, dict):
+        factions = payload.get("factions")
+        if isinstance(factions, dict):
+            return {k: v for k, v in factions.items() if isinstance(v, dict)}
+        return {k: v for k, v in payload.items() if isinstance(v, dict)}
+    return {}
+
+
 def load_characters(
-    character_file: str | None = None, factions_file: str | None = None
+    character_file: str | None = None,
+    factions_file: str | None = None,
+    *,
+    scenario_file: str | None = None,
+    scenario_name: str | None = None,
+    config: GameConfig | None = None,
 ) -> List[YamlCharacter]:
-    """Load characters linked to factions from YAML specifications."""
+    """Load characters linked to factions from scenario and context files."""
 
     base_dir = os.path.dirname(__file__)
-    factions_path = factions_file or os.path.join(base_dir, "factions.yaml")
+    cfg = config or load_game_config()
     characters_path = character_file or os.path.join(base_dir, "characters.yaml")
-    factions_payload = _load_yaml(factions_path)
+    scenario_dir = os.path.join(base_dir, "scenarios")
+    context_path = os.path.join(base_dir, "factions.yaml")
+    resolved_scenario: str | None = None
+    if scenario_file:
+        resolved_scenario = scenario_file
+    elif factions_file:
+        logger.warning(
+            "'factions_file' parameter is deprecated; please supply a scenario file instead."
+        )
+        resolved_scenario = factions_file
+    else:
+        scenario_name = (scenario_name or cfg.scenario).lower()
+        resolved_scenario = os.path.join(scenario_dir, f"{scenario_name}.yaml")
+    if factions_file and scenario_file:
+        context_path = factions_file
+
     characters_payload = _load_yaml(characters_path)
-    factions = factions_payload if isinstance(factions_payload, dict) else {}
+    scenario_payload = _load_yaml(resolved_scenario) if resolved_scenario else {}
+    context_payload = _load_yaml(context_path) if context_path else {}
+    triplet_specs = _faction_mapping(scenario_payload)
+    context_specs = _faction_mapping(context_payload)
+    if not triplet_specs:
+        logger.error("No faction definitions found in scenario file %s", resolved_scenario)
     characters: List[YamlCharacter] = []
     for entry in _character_entries(characters_payload):
         name = entry.get("name")
@@ -53,7 +90,7 @@ def load_characters(
         if not name or not faction_name:
             logger.warning("Skipping character with missing name or faction: %s", entry)
             continue
-        faction_spec = factions.get(faction_name)
+        faction_spec = triplet_specs.get(faction_name)
         if not isinstance(faction_spec, dict):
             logger.warning(
                 "No faction specification found for %s (character %s)",
@@ -61,7 +98,14 @@ def load_characters(
                 name,
             )
             continue
-        characters.append(YamlCharacter(name, faction_spec, entry))
+        combined_spec = dict(faction_spec)
+        context_spec = context_specs.get(faction_name)
+        if isinstance(context_spec, dict):
+            if context_spec.get("MarkdownContext"):
+                combined_spec["MarkdownContext"] = context_spec["MarkdownContext"]
+            for key, value in context_spec.items():
+                combined_spec.setdefault(key, value)
+        characters.append(YamlCharacter(name, combined_spec, entry))
     return characters
 
 
@@ -75,7 +119,7 @@ def main() -> None:
     char = state.characters[choice]
     options = char.generate_actions(state.history)
     for idx, act in enumerate(options, 1):
-        print(f"{idx}. {act}")
+        print(f"{idx}. {act.text}")
     action = options[int(input("Choose an action: ")) - 1]
     state.record_action(char, action)
     scores = assessor.assess(state.characters, state.how_to_win, state.history)

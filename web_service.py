@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Dict, List
 import logging
 import os
@@ -15,6 +16,7 @@ from flask import Flask, request, redirect, Response
 
 from cli_game import load_characters
 from rpg.game_state import GameState, WIN_THRESHOLD
+from rpg.character import ActionOption
 from rpg.assessment_agent import AssessmentAgent
 
 # Link to this project's source code repository for inclusion in the web UI footer
@@ -38,7 +40,9 @@ def create_app() -> Flask:
     game_state = GameState(list(initial_characters))
     assessor = AssessmentAgent()
     enable_parallel = os.environ.get("ENABLE_PARALLELISM") == "1"
-    pending_actions: Dict[int, queue.Queue[List[str]] | List[str]] = {}
+    pending_actions: Dict[
+        int, queue.Queue[List[ActionOption]] | List[ActionOption]
+    ] = {}
     assessment_threads: List[threading.Thread] = []
     assessment_lock = threading.Lock()
     state_lock = threading.Lock()
@@ -59,10 +63,11 @@ def create_app() -> Flask:
     @app.route("/", methods=["GET"])
     def main_page() -> str:
         """Display the landing page with game introduction."""
+        turns = game_state.config.max_rounds
         return (
             "<h1>AI Safety Negotiation Game</h1>"
             "<p>You are an expert negotiator with connections to every major faction shaping AI governance. You can persuade their key representatives to propose and take actions. Your objective is to ensure AI is developed in humanity's best interest and keep the future human.</p>"
-            "<p>You have 10 turns to reach a final weighted score of 71 or higher to win.</p>"
+            f"<p>You have {turns} turns to reach a final weighted score of {WIN_THRESHOLD} or higher to win.</p>"
             "<a href='/start'>Start</a>"
             f"{footer}"
         )
@@ -76,14 +81,14 @@ def create_app() -> Flask:
             hist_snapshot = list(game_state.history)
             characters = list(game_state.characters)
             state_html = game_state.render_state()
-        if score >= WIN_THRESHOLD or len(hist_snapshot) >= 10:
+        if score >= WIN_THRESHOLD or len(hist_snapshot) >= game_state.config.max_rounds:
             return redirect("/result")
 
         if enable_parallel:
             pending_actions.clear()
 
             def launch(idx: int, char) -> None:
-                q: queue.Queue[List[str]] = queue.Queue()
+                q: queue.Queue[List[ActionOption]] = queue.Queue()
                 pending_actions[idx] = q
 
                 def worker() -> None:
@@ -124,7 +129,7 @@ def create_app() -> Flask:
             hist_snapshot = list(game_state.history)
             state_html = game_state.render_state()
         logger.info("Generating actions for %s (%d)", char.name, char_id)
-        actions: List[str]
+        actions: List[ActionOption]
         if enable_parallel:
             entry = pending_actions.get(char_id)
             if isinstance(entry, list):
@@ -142,11 +147,11 @@ def create_app() -> Flask:
                 actions = char.generate_actions(hist_snapshot)
         else:
             actions = char.generate_actions(hist_snapshot)
-        logger.debug("Actions: %s", actions)
+        logger.debug("Actions: %s", [action.text for action in actions])
         radios = "".join(
-            f'<input type="radio" name="action" value="{escape(a, quote=True)}" id="a{idx}">'
-            f'<label for="a{idx}">{escape(a, quote=False)}</label><br>'
-            for idx, a in enumerate(actions)
+            f'<input type="radio" name="action" value="{escape(json.dumps(action.to_payload()), quote=True)}" id="a{idx}">'
+            f'<label for="a{idx}">{escape(action.text, quote=False)}</label><br>'
+            for idx, action in enumerate(actions)
         )
         display_name = escape(char.display_name, quote=False)
         return (
@@ -173,12 +178,26 @@ def create_app() -> Flask:
             A redirect response to the start page.
         """
         char_id = int(request.form["character"])
-        action = request.form["action"]
+        action_raw = request.form["action"]
+        try:
+            payload = json.loads(action_raw)
+        except json.JSONDecodeError:
+            selected_action = ActionOption(text=action_raw)
+        else:
+            if isinstance(payload, dict):
+                selected_action = ActionOption.from_payload(payload)
+            else:
+                selected_action = ActionOption(text=str(payload))
         with state_lock:
             char = game_state.characters[char_id]
-        logger.info("Performing action '%s' for %s (%d)", action, char.name, char_id)
+        logger.info(
+            "Performing action '%s' for %s (%d)",
+            selected_action.text,
+            char.name,
+            char_id,
+        )
         with state_lock:
-            game_state.record_action(char, action)
+            game_state.record_action(char, selected_action)
             chars_snapshot = list(game_state.characters)
             history_snapshot = list(game_state.history)
             how_to_win = game_state.how_to_win
@@ -220,7 +239,8 @@ def create_app() -> Flask:
         with state_lock:
             final_score = game_state.final_weighted_score()
             hist_len = len(game_state.history)
-        if final_score >= WIN_THRESHOLD or hist_len >= 10:
+            max_rounds = game_state.config.max_rounds
+        if final_score >= WIN_THRESHOLD or hist_len >= max_rounds:
             return redirect("/result")
         return redirect("/start")
 

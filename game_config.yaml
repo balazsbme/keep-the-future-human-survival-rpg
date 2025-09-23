@@ -1,0 +1,4 @@
+game:
+  scenario: complete
+  win_threshold: 71
+  max_rounds: 10

@@ -1,6 +1,10 @@
 Characters:
   - name: "Test Character"
     faction: "test_character"
+    leadership: "6"
+    technology: "5"
+    policy: "4"
+    network: "3"
     perks: "Detailed planner who keeps negotiators aligned"
     weaknesses: "Struggles to prioritize when multiple crises overlap"
     motivations: "Close policy gaps for their faction while maintaining alliances"

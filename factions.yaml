@@ -1,52 +1,14 @@
 Governments:
-  end_states:
-    - Impose compute caps and enforce reporting
-    - Create empowered AI oversight agencies
-    - Negotiate international agreements for verification and enforcement
-    - Shift national security framing from AGI race to Tool AI programs
-  initial_states:
-    - Political focus on economic growth and national security competition
-    - Oversight agencies limited or nonexistent
-    - Export controls exist but no international treaties on AI compute
-    - Security establishments frame AGI as strategic advantage, like nuclear weapons
-  gaps:
-    - severity: Large
-      explanation: Governments pursue economic and security competition rather than restraint
-    - severity: Large
-      explanation: Oversight agencies lack authority and speed; regulation lags industry progress
-    - severity: Critical
-      explanation: No international treaties or institutions; rivalry (e.g., US–China) intensifies
-    - severity: Critical
-      explanation: National security establishments view AGI race as winnable, opposite of the plan
   MarkdownContext: |
     ## Governments & Security Establishments
     - **Influence**: Can legislate compute caps, enforce reporting, establish oversight agencies, and negotiate international treaties. Security establishments must shift from AGI “Manhattan projects” to Tool AI “Apollo projects.”
     - **Resources/Capabilities**: Lawmaking power, export controls, intelligence and defense budgets, diplomatic channels.
-    - **Motivations**: 
+    - **Motivations**:
       - Publicly: economic growth, technological leadership, scientific progress.
       - Privately: fear of rivals gaining a decisive strategic advantage; belief that AGI could revolutionize military affairs (comparable to nuclear weapons).
     - **Interactions**: Strongly influenced by corporate lobbying; in rivalry with other governments (e.g., US–China), affecting chipmakers and regulators.
 
 Corporations:
-  end_states:
-    - Accept strict liability for dangerous systems
-    - Comply with compute oversight and hard caps
-    - Pivot business models from AGI toward Tool AI
-    - Respond to cultural and social pressure to change mission
-  initial_states:
-    - Corporations resist regulation, opposing liability frameworks such as California’s SB1047
-    - Currently maximize compute use in pursuit of AGI capabilities
-    - Business incentives favor labor-replacing AGI systems
-    - Employee dissent exists but leadership remains committed to AGI race
-  gaps:
-    - severity: Critical
-      explanation: Strong resistance to liability threatens public accountability
-    - severity: Critical
-      explanation: Corporate incentives favor AGI race; no acceptance of compute caps
-    - severity: Critical
-      explanation: Pivot to Tool AI conflicts with profit logic of automation
-    - severity: Large
-      explanation: Some cultural dissent, but weak relative to leadership and profit incentives
   MarkdownContext: |
     ## Corporations (Major Technology Companies)
     - **Influence**: Directly control AI development trajectory; could stop the AGI race and redirect toward Tool AI. Possess lobbying power to resist or shape regulation.
@@ -58,25 +20,6 @@ Corporations:
     - **Interactions**: Depend on hardware manufacturers for chips; heavily influence governments and regulators.
 
 HardwareManufacturers:
-  end_states:
-    - Embed governance features in chips (cryptographic locks, metering, geolocation)
-    - Cooperate with government oversight and reporting schemes
-    - Support global standards without loopholes
-    - Accept reduced sales in exchange for stability and safety
-  initial_states:
-    - Highly concentrated supply chain (TSMC, ASML, NVIDIA, AMD) makes oversight feasible
-    - Some export controls in place (e.g., US restrictions to China)
-    - No global harmonized standards; unilateral controls create loopholes
-    - Firms profit from maximizing demand; no incentives to restrain sales
-  gaps:
-    - severity: Moderate
-      explanation: Technical feasibility proven, but dependent on government mandates
-    - severity: Moderate
-      explanation: Partial oversight exists, but limited cooperation
-    - severity: Large
-      explanation: Global standards absent due to geopolitical rivalry
-    - severity: Large
-      explanation: Commercial incentives oppose restraint; alignment requires regulation
   MarkdownContext: |
     ## Hardware Manufacturers & Chip Supply Chain
     - **Influence**: Can embed governance features into chips, enforce compute metering, and serve as chokepoints for international verification.
@@ -87,21 +30,6 @@ HardwareManufacturers:
     - **Interactions**: Depend on government mandates for governance; affected by geopolitical rivalries between governments.
 
 Regulators:
-  end_states:
-    - Stay independent from corporate and national capture
-    - Develop clear technical standards for compute reporting and accounting
-    - Create legitimate global governance institutions
-  initial_states:
-    - Industry lobbying strongly influences rulemaking; EU AI Act exempts military AI and does not prohibit AGI
-    - Early standards like Frontier Model Forum exist but lack enforcement
-    - No global AI governance body exists; only proposals for CERN/IAEA-style institutions
-  gaps:
-    - severity: Large
-      explanation: Regulators heavily influenced by corporate lobbying and national agendas
-    - severity: Moderate
-      explanation: Groundwork exists but technical standards lack precision and enforcement
-    - severity: Critical
-      explanation: No international enforcement mechanisms; rival governments do not cooperate
   MarkdownContext: |
     ## Regulators & International Institutions
     - **Influence**: Can classify AGI as unacceptable risk, enforce tiered licensing, and potentially create international bodies like an AI IAEA.
@@ -113,21 +41,6 @@ Regulators:
     - **Interactions**: Vulnerable to corporate capture; depend on governments for legitimacy and on international cooperation for enforcement.
 
 CivilSociety:
-  end_states:
-    - Be well-informed on AGI risks and Tool AI alternatives
-    - Build broad coalitions across NGOs, labor, and media
-    - Exert democratic leverage early to influence policy
-  initial_states:
-    - Public polls show opposition to AGI but understanding of risks is shallow
-    - NGOs exist (Future of Life Institute, alignment groups) but fragmented and weak relative to corporations
-    - Institutions weak; lobbying power of corporations outweighs public preference
-  gaps:
-    - severity: Moderate
-      explanation: Public instincts align but education and awareness are lacking
-    - severity: Large
-      explanation: Coalitions fragmented; need stronger coordination
-    - severity: Large
-      explanation: Democratic pressure weak compared to corporate lobbying and declining institutional trust
   MarkdownContext: |
     ## Civil Society & the Public
     - **Influence**: Can mobilize public opinion, pressure policymakers, resist AGI inevitability narratives, and demand redistributive mechanisms like data dignity.
@@ -139,21 +52,6 @@ CivilSociety:
     - **Interactions**: Influence governments and regulators through democratic processes; need to build coalitions with scientists and media.
 
 ScientificCommunity:
-  end_states:
-    - Resist corporate funding capture
-    - Coordinate globally to prevent 'safety tourism'
-    - Engage public and policymakers with credible advocacy
-  initial_states:
-    - Many researchers absorbed by big tech labs; independent research underfunded
-    - Some collaboration among AI safety networks but fragmented
-    - Prominent researchers (Hinton, Bengio) actively warn of extinction risks
-  gaps:
-    - severity: Large
-      explanation: Corporate incentives dominate research directions
-    - severity: Moderate
-      explanation: Global coordination exists but fragmented and underpowered
-    - severity: Small
-      explanation: Advocacy growing and aligned, but not yet mainstreamed
   MarkdownContext: |
     ## Scientific & AI Research Community
     - **Influence**: Provide technical frameworks for Tool AI and safety verification, educate the public and policymakers, reframe narratives around AI safety.

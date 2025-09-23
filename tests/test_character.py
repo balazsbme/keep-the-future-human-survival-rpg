@@ -9,13 +9,19 @@ from unittest.mock import MagicMock, patch
 import yaml
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from cli_game import load_characters
 from rpg.character import YamlCharacter
 from rpg.assessment_agent import AssessmentAgent
 
 CHARACTERS_FILE = os.path.join(
     os.path.dirname(__file__), "fixtures", "characters.yaml"
 )
-FACTIONS_FILE = os.path.join(os.path.dirname(__file__), "fixtures", "factions.yaml")
+SCENARIO_FILE = os.path.join(
+    os.path.dirname(__file__), "fixtures", "scenarios", "complete.yaml"
+)
+FACTIONS_FILE = os.path.join(
+    os.path.dirname(__file__), "fixtures", "factions.yaml"
+)
 
 
 class YamlCharacterTest(unittest.TestCase):
@@ -28,9 +34,21 @@ class YamlCharacterTest(unittest.TestCase):
             text="```json\n"
             + json.dumps(
                 [
-                    {"text": "Act1", "related-triplet": 1},
-                    {"text": "Act2", "related-triplet": "None"},
-                    {"text": "Act3", "related-triplet": "None"},
+                    {
+                        "text": "Act1",
+                        "related-triplet": 1,
+                        "related-attribute": "leadership",
+                    },
+                    {
+                        "text": "Act2",
+                        "related-triplet": "None",
+                        "related-attribute": "technology",
+                    },
+                    {
+                        "text": "Act3",
+                        "related-triplet": "None",
+                        "related-attribute": "policy",
+                    },
                 ]
             )
             + "\n```"
@@ -43,20 +61,29 @@ class YamlCharacterTest(unittest.TestCase):
 
         with open(CHARACTERS_FILE, "r", encoding="utf-8") as fh:
             character_payload = yaml.safe_load(fh)
+        with open(SCENARIO_FILE, "r", encoding="utf-8") as fh:
+            faction_payload = yaml.safe_load(fh) or {}
         with open(FACTIONS_FILE, "r", encoding="utf-8") as fh:
-            faction_payload = yaml.safe_load(fh)
+            faction_contexts = yaml.safe_load(fh) or {}
         profile = character_payload["Characters"][0]
-        faction_spec = faction_payload[profile["faction"]]
+        faction_spec = dict(faction_payload[profile["faction"]])
+        faction_context = faction_contexts.get(profile["faction"], {})
+        if isinstance(faction_context, dict) and faction_context.get("MarkdownContext"):
+            faction_spec["MarkdownContext"] = faction_context["MarkdownContext"]
         char = YamlCharacter(profile["name"], faction_spec, profile)
         actions = char.generate_actions([])
         prompt_used = mock_action_model.generate_content.call_args_list[0][0][0]
         self.assertIn("end1", prompt_used)
         self.assertIn("size: Small", prompt_used)
+        self.assertIn("Base context for test character.", prompt_used)
         self.assertIn("aligned with your motivations and capabilities", prompt_used)
         self.assertIn("Perks: Detailed planner", prompt_used)
         self.assertIn("Weaknesses: Struggles to prioritize", prompt_used)
         self.assertIn("Return the result as a JSON array", prompt_used)
-        self.assertEqual(actions, ["Act1", "Act2", "Act3"])
+        self.assertIn("related-attribute", prompt_used)
+        self.assertEqual([action.text for action in actions], ["Act1", "Act2", "Act3"])
+        self.assertEqual(actions[0].related_triplet, 1)
+        self.assertEqual(actions[0].related_attribute, "leadership")
         assessor = AssessmentAgent()
         scores = assessor.assess([char], "baseline", [])[char.progress_key]
         self.assertEqual(scores, [10, 20, 30])
@@ -67,9 +94,21 @@ class YamlCharacterTest(unittest.TestCase):
         mock_action_model.generate_content.return_value = MagicMock(
             text=json.dumps(
                 [
-                    {"text": "Act1", "related-triplet": 1},
-                    {"text": "Act2", "related-triplet": 2},
-                    {"text": "Act3", "related-triplet": "None"},
+                    {
+                        "text": "Act1",
+                        "related-triplet": 1,
+                        "related-attribute": "leadership",
+                    },
+                    {
+                        "text": "Act2",
+                        "related-triplet": 2,
+                        "related-attribute": "technology",
+                    },
+                    {
+                        "text": "Act3",
+                        "related-triplet": 3,
+                        "related-attribute": "policy",
+                    },
                 ]
             )
         )
@@ -77,19 +116,41 @@ class YamlCharacterTest(unittest.TestCase):
 
         with open(CHARACTERS_FILE, "r", encoding="utf-8") as fh:
             character_payload = yaml.safe_load(fh)
+        with open(SCENARIO_FILE, "r", encoding="utf-8") as fh:
+            faction_payload = yaml.safe_load(fh) or {}
         with open(FACTIONS_FILE, "r", encoding="utf-8") as fh:
-            faction_payload = yaml.safe_load(fh)
+            faction_contexts = yaml.safe_load(fh) or {}
         profile = character_payload["Characters"][0]
-        faction_spec = faction_payload[profile["faction"]]
+        faction_spec = dict(faction_payload[profile["faction"]])
+        faction_context = faction_contexts.get(profile["faction"], {})
+        if isinstance(faction_context, dict) and faction_context.get("MarkdownContext"):
+            faction_spec["MarkdownContext"] = faction_context["MarkdownContext"]
         char = YamlCharacter(profile["name"], faction_spec, profile)
 
         with self.assertLogs("rpg.character", level="WARNING") as log_ctx:
             actions = char.generate_actions([])
 
-        self.assertEqual(actions, ["Act1", "Act2", "Act3"])
+        self.assertEqual([action.text for action in actions], ["Act1", "Act2", "Act3"])
         self.assertTrue(
-            any("Expected exactly one action referencing a triplet" in msg for msg in log_ctx.output)
+            any(
+                "Expected at least one triplet-related" in msg
+                for msg in log_ctx.output
+            )
         )
+
+    @patch("rpg.character.genai")
+    def test_load_characters_merges_markdown_context(self, mock_char_genai):
+        mock_char_genai.GenerativeModel.return_value = MagicMock()
+        characters = load_characters(
+            character_file=CHARACTERS_FILE,
+            scenario_file=SCENARIO_FILE,
+            factions_file=FACTIONS_FILE,
+        )
+        self.assertEqual(len(characters), 1)
+        self.assertEqual(
+            characters[0].base_context.strip(), "Base context for test character."
+        )
+        self.assertEqual(characters[0].gaps[0]["explanation"], "gap1")
 
 
 if __name__ == "__main__":

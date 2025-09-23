@@ -1,11 +1,14 @@
 """Character abstractions backed by YAML-defined context."""
 
+"""Character abstractions backed by YAML-defined context."""
+
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import json
 import logging
 import re
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import List, Tuple
 
 try:  # pragma: no cover - optional dependency
@@ -15,6 +18,53 @@ except ModuleNotFoundError:  # pragma: no cover
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ActionOption:
+    """Container describing an action proposed by a character."""
+
+    text: str
+    related_triplet: int | None = None
+    related_attribute: str | None = None
+
+    def to_payload(self) -> dict:
+        """Return a JSON-serialisable representation of the option."""
+
+        payload = {"text": self.text}
+        payload["related-triplet"] = self.related_triplet
+        payload["related-attribute"] = self.related_attribute
+        return payload
+
+    @classmethod
+    def from_payload(cls, data: dict) -> "ActionOption":
+        """Create an :class:`ActionOption` from a JSON payload dictionary."""
+
+        text = str(data.get("text", "")).strip()
+        raw_triplet = data.get("related-triplet")
+        related_triplet: int | None
+        if isinstance(raw_triplet, str):
+            cleaned = raw_triplet.strip()
+            if cleaned.lower() == "none":
+                related_triplet = None
+            else:
+                try:
+                    related_triplet = int(cleaned)
+                except ValueError:
+                    related_triplet = None
+        elif isinstance(raw_triplet, (int, float)):
+            related_triplet = int(raw_triplet)
+        else:
+            related_triplet = None
+        raw_attribute = data.get("related-attribute")
+        related_attribute = (
+            str(raw_attribute).strip().lower() if isinstance(raw_attribute, str) else None
+        )
+        return cls(
+            text=text,
+            related_triplet=related_triplet,
+            related_attribute=related_attribute or None,
+        )
 
 
 class Character(ABC):
@@ -60,15 +110,20 @@ class Character(ABC):
             raise ModuleNotFoundError("google-generativeai not installed")
         self._model = genai.GenerativeModel(model)
 
+    def attribute_score(self, attribute: str | None) -> int:
+        """Return the numeric score for ``attribute`` if available."""
+
+        return 0
+
     @abstractmethod
-    def generate_actions(self, history: List[Tuple[str, str]]) -> List[str]:
+    def generate_actions(self, history: List[Tuple[str, str]]) -> List[ActionOption]:
         """Return three possible actions a player might request.
 
         Args:
             history: Prior actions taken in the game.
 
         Returns:
-            A list of up to three proposed actions.
+            A list of up to three proposed action options.
         """
 
     @abstractmethod
@@ -143,6 +198,16 @@ class YamlCharacter(Character):
         )
         self.base_context = base_context
         self.profile = profile
+        self._attribute_scores: dict[str, int] = {}
+        for attr in ("leadership", "technology", "policy", "network"):
+            raw_value = profile.get(attr)
+            if raw_value is None and attr.capitalize() in profile:
+                raw_value = profile.get(attr.capitalize())
+            try:
+                numeric = int(raw_value)
+            except (TypeError, ValueError):
+                numeric = 0
+            self._attribute_scores[attr] = max(0, min(10, numeric))
 
     def _triplet_text(self) -> str:
         """Return a textual representation of triplet data.
@@ -192,7 +257,7 @@ class YamlCharacter(Character):
             lines.append(f"Motivations: {self.motivations}")
         return "\n".join(lines)
 
-    def generate_actions(self, history: List[Tuple[str, str]]) -> List[str]:
+    def generate_actions(self, history: List[Tuple[str, str]]) -> List[ActionOption]:
         logger.info("Generating actions for %s", self.name)
         prompt = (
             f"You are {self.display_name} in the 'Keep the Future Human' survival RPG game. "
@@ -204,10 +269,11 @@ class YamlCharacter(Character):
             f"Previous actions taken by you or other faction representatives:\n{self._history_text(history)}\n"
             "Provide exactly three possible actions you might take next. "
             "The actions MUST be aligned with your motivations and capabilities, "
-            "but at least one of them should address closing the gap between any of the above triplets."
-            "Do not mention in the output the triplets nor any of their parts directly."
-            "Return the result as a JSON array with three objects in order. Each object must contain the keys 'text' and 'related-triplet'. "
-            "The 'text' field holds the action description. The 'related-triplet' field must contain the 1-based index of the triplet primarily addressed by the action or the string 'None' if the action is not focused on a single triplet."
+            "and you must include at least one action that clearly works on closing a gap from the numbered triplets and at least one action that explores an opportunity not tied to a single triplet (mark its 'related-triplet' as 'None'). "
+            "Do not mention in the output the triplets nor any of their parts directly. "
+            "Return the result as a JSON array with three objects in order. Each object must contain the keys 'text', 'related-triplet', and 'related-attribute'. "
+            "The 'text' field holds the action description. The 'related-triplet' field must contain the 1-based index of the triplet primarily addressed by the action or the string 'None' if the action is not focused on a single triplet. "
+            "The 'related-attribute' field must be one of leadership, technology, policy, or network indicating which of your attributes best aligns with the action. "
             "Output only the JSON without additional commentary."
         )
         logger.debug("Prompt: %s", prompt)
@@ -215,8 +281,9 @@ class YamlCharacter(Character):
         response_text = getattr(response, "text", "").strip()
         logger.info("Generated for %s: %s", self.name, response_text[:50])
         logger.debug("Response: %s", response_text)
-        actions: List[str] = []
+        actions: List[ActionOption] = []
         related_triplet_count: int | None = None
+        unrelated_triplet_count: int | None = None
 
         if response_text:
             json_candidate = response_text
@@ -259,11 +326,19 @@ class YamlCharacter(Character):
                         return None
                     return None
 
+                def normalize_attribute(value: object) -> str | None:
+                    if isinstance(value, str):
+                        cleaned = value.strip().lower()
+                        if cleaned in self._attribute_scores:
+                            return cleaned
+                    return None
+
                 if isinstance(payload, dict) and "actions" in payload:
                     payload = payload["actions"]
 
                 if isinstance(payload, list):
                     related_triplet_count = 0
+                    unrelated_triplet_count = 0
                     for entry in payload:
                         if not isinstance(entry, dict):
                             continue
@@ -274,9 +349,21 @@ class YamlCharacter(Character):
                         if not text:
                             continue
                         related_value = normalize_related(entry.get("related-triplet"))
+                        attribute_value = normalize_attribute(
+                            entry.get("related-attribute")
+                        )
                         if related_value is not None:
                             related_triplet_count += 1
-                        actions.append(text)
+                        else:
+                            if unrelated_triplet_count is not None:
+                                unrelated_triplet_count += 1
+                        actions.append(
+                            ActionOption(
+                                text=text,
+                                related_triplet=related_value,
+                                related_attribute=attribute_value,
+                            )
+                        )
                         if len(actions) == 3:
                             break
                 else:
@@ -286,12 +373,15 @@ class YamlCharacter(Character):
                         payload,
                     )
 
-        if related_triplet_count is not None and related_triplet_count != 1:
-            logger.warning(
-                "Expected exactly one action referencing a triplet for %s but got %d",
-                self.name,
-                related_triplet_count,
-            )
+        if related_triplet_count is not None:
+            unrelated_value = unrelated_triplet_count or 0
+            if related_triplet_count < 1 or unrelated_value < 1:
+                logger.warning(
+                    "Expected at least one triplet-related and one unrelated action for %s but got %d related and %d unrelated",
+                    self.name,
+                    related_triplet_count,
+                    unrelated_value,
+                )
 
         if not actions:
             lines = [line.strip() for line in response_text.splitlines() if line.strip()]
@@ -299,13 +389,18 @@ class YamlCharacter(Character):
                 if line[0].isdigit():
                     parts = line.split(".", 1)
                     act = parts[1].strip() if len(parts) > 1 else line
-                    actions.append(act)
+                    actions.append(ActionOption(text=act))
                 else:
                     if actions:
-                        actions.append(line)
+                        actions.append(ActionOption(text=line))
                 if len(actions) == 3:
                     break
         return actions[:3]
+
+    def attribute_score(self, attribute: str | None) -> int:
+        if not attribute:
+            return 0
+        return self._attribute_scores.get(attribute.lower(), 0)
 
     def perform_action(
         self, action: str, history: List[Tuple[str, str]]

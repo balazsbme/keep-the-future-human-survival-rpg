@@ -8,10 +8,12 @@ now includes:
 
 - **CLI game (`cli_game.py`)** – play through the terminal.
 - **Flask web service (`web_service.py`)** – interact with the same mechanics via a browser.
-- **Faction definitions (`factions.yaml`)** – each YAML entry describes the
-  strategic context, goals, and gaps for a key faction in the game world.
+- **Scenario definitions (`scenarios/complete.yaml`)** – YAML mapping of
+  factions to their strategic context, goals, and gaps.
 - **Character profiles (`characters.yaml`)** – each YAML entry introduces a
   faction-aligned negotiator whose actions are generated with the model.
+- **Game configuration (`game_config.yaml`)** – sets the active scenario,
+  win threshold, and default number of rounds.
 - **Gemini API wrapper (`main.py`)** – a simple script demonstrating direct text
   generation calls.
 

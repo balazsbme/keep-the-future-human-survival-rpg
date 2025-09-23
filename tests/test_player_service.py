@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import json
 import os
 import re
 import sys
@@ -17,13 +18,15 @@ from rpg.character import YamlCharacter
 CHARACTERS_FILE = os.path.join(
     os.path.dirname(__file__), "fixtures", "characters.yaml"
 )
-FACTIONS_FILE = os.path.join(os.path.dirname(__file__), "fixtures", "factions.yaml")
+SCENARIO_FILE = os.path.join(
+    os.path.dirname(__file__), "fixtures", "scenarios", "complete.yaml"
+)
 
 
 def _load_test_character() -> YamlCharacter:
     with open(CHARACTERS_FILE, "r", encoding="utf-8") as fh:
         character_payload = yaml.safe_load(fh)
-    with open(FACTIONS_FILE, "r", encoding="utf-8") as fh:
+    with open(SCENARIO_FILE, "r", encoding="utf-8") as fh:
         faction_payload = yaml.safe_load(fh)
     profile = character_payload["Characters"][0]
     faction_spec = faction_payload[profile["faction"]]
@@ -41,7 +44,25 @@ class PlayerServiceTest(unittest.TestCase):
                 mock_action_model = MagicMock()
                 mock_assess_model = MagicMock()
                 mock_action_model.generate_content.return_value = MagicMock(
-                    text="1. A\n2. B\n3. C"
+                    text=json.dumps(
+                        [
+                            {
+                                "text": "A",
+                                "related-triplet": 1,
+                                "related-attribute": "leadership",
+                            },
+                            {
+                                "text": "B",
+                                "related-triplet": "None",
+                                "related-attribute": "technology",
+                            },
+                            {
+                                "text": "C",
+                                "related-triplet": "None",
+                                "related-attribute": "policy",
+                            },
+                        ]
+                    )
                 )
                 mock_assess_model.generate_content.return_value = MagicMock(
                     text="10\n20\n30"
@@ -54,12 +75,13 @@ class PlayerServiceTest(unittest.TestCase):
                 def choice_side_effect(options):
                     if options and isinstance(options[0], YamlCharacter):
                         return character
-                    return "A"
+                    return options[0]
 
                 mock_choice.side_effect = choice_side_effect
                 with patch("player_service.load_characters", return_value=[character]):
-                    app = create_app(log_dir=tmpdir)
-                    client = app.test_client()
+                    with patch("rpg.game_state.random.uniform", return_value=0):
+                        app = create_app(log_dir=tmpdir)
+                        client = app.test_client()
             resp = client.post(
                 "/",
                 data={"player": "random", "rounds": "1", "games": "2"},
