@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import json
 import os
 import sys
 import unittest
@@ -23,7 +24,13 @@ class WebServiceTest(unittest.TestCase):
             mock_action_model = MagicMock()
             mock_assess_model = MagicMock()
             mock_action_model.generate_content.return_value = MagicMock(
-                text="1. A\n2. B\n3. C"
+                text=json.dumps(
+                    [
+                        {"text": "A", "related-triplet": 1},
+                        {"text": "B", "related-triplet": "None"},
+                        {"text": "C", "related-triplet": "None"},
+                    ]
+                )
             )
             mock_assess_model.generate_content.return_value = MagicMock(
                 text="90\n90\n90"
@@ -94,7 +101,13 @@ class WebServiceTest(unittest.TestCase):
             mock_action_model = MagicMock()
             mock_assess_model = MagicMock()
             mock_action_model.generate_content.return_value = MagicMock(
-                text="1. A\n2. B\n3. C"
+                text=json.dumps(
+                    [
+                        {"text": "A", "related-triplet": 1},
+                        {"text": "B", "related-triplet": "None"},
+                        {"text": "C", "related-triplet": "None"},
+                    ]
+                )
             )
             mock_assess_model.generate_content.return_value = MagicMock(
                 text="10\n20\n30"

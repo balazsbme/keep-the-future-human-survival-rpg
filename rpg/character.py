@@ -2,6 +2,7 @@
 
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import json
 import logging
 from abc import ABC, abstractmethod
 from typing import List, Tuple
@@ -141,29 +142,95 @@ class YamlCharacter(Character):
             f"**MarkdownContext**\n{self.base_context}\n**End of MarkdownContext**"
             f"Throughout the game you are acting related to the following numbered list of triplets, describing the initial state at the start of the game, end state and the gap between them:\n{self._triplet_text()}\n"
             f"Previous actions taken by you or other actors:\n{self._history_text(history)}\n"
-            "List three numbered actions you might take next. "
+            "Provide exactly three possible actions you might take next. "
             "The actions MUST be aligned with your motivations and capabilities, "
             "but at least one of them should address closing the gap between any of the above triplets."
             "Do not mention in the output the triplets nor any of their parts directly."
+            "Return the result as a JSON array with three objects in order. Each object must contain the keys 'text' and 'related-triplet'. "
+            "The 'text' field holds the action description. The 'related-triplet' field must contain the 1-based index of the triplet primarily addressed by the action or the string 'None' if the action is not focused on a single triplet."
+            "Output only the JSON without additional commentary."
         )
         logger.debug("Prompt: %s", prompt)
         response = self._model.generate_content(prompt)
-        response_text = getattr(response, "text", "")
+        response_text = getattr(response, "text", "").strip()
         logger.info("Generated for %s: %s", self.name, response_text[:50])
         logger.debug("Response: %s", response_text)
-        lines = [line.strip() for line in response_text.splitlines() if line.strip()]
         actions: List[str] = []
-        for line in lines:
-            if line[0].isdigit():
-                parts = line.split(".", 1)
-                act = parts[1].strip() if len(parts) > 1 else line
-                actions.append(act)
+        related_triplet_count: int | None = None
+
+        if response_text:
+            try:
+                payload = json.loads(response_text)
+            except json.JSONDecodeError as exc:
+                logger.warning(
+                    "Failed to parse action JSON for %s: %s", self.name, exc
+                )
             else:
-                if actions:
-                    actions.append(line)
-            if len(actions) == 3:
-                break
-        return actions
+                max_index = len(self.triplets)
+
+                def normalize_related(value: object) -> int | None:
+                    if isinstance(value, str):
+                        cleaned = value.strip()
+                        if cleaned.lower() == "none":
+                            return None
+                        try:
+                            value = int(cleaned)
+                        except ValueError:
+                            return None
+                    if isinstance(value, (int, float)):
+                        candidate = int(value)
+                        if 1 <= candidate <= max_index:
+                            return candidate
+                        return None
+                    return None
+
+                if isinstance(payload, dict) and "actions" in payload:
+                    payload = payload["actions"]
+
+                if isinstance(payload, list):
+                    related_triplet_count = 0
+                    for entry in payload:
+                        if not isinstance(entry, dict):
+                            continue
+                        text_value = entry.get("text")
+                        if not isinstance(text_value, str):
+                            continue
+                        text = text_value.strip()
+                        if not text:
+                            continue
+                        related_value = normalize_related(entry.get("related-triplet"))
+                        if related_value is not None:
+                            related_triplet_count += 1
+                        actions.append(text)
+                        if len(actions) == 3:
+                            break
+                else:
+                    logger.warning(
+                        "Unexpected JSON structure for %s actions: %r",
+                        self.name,
+                        payload,
+                    )
+
+        if related_triplet_count is not None and related_triplet_count != 1:
+            logger.warning(
+                "Expected exactly one action referencing a triplet for %s but got %d",
+                self.name,
+                related_triplet_count,
+            )
+
+        if not actions:
+            lines = [line.strip() for line in response_text.splitlines() if line.strip()]
+            for line in lines:
+                if line[0].isdigit():
+                    parts = line.split(".", 1)
+                    act = parts[1].strip() if len(parts) > 1 else line
+                    actions.append(act)
+                else:
+                    if actions:
+                        actions.append(line)
+                if len(actions) == 3:
+                    break
+        return actions[:3]
 
     def perform_action(
         self, action: str, history: List[Tuple[str, str]]

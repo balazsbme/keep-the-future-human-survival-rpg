@@ -15,6 +15,9 @@ from .character import Character
 logger = logging.getLogger(__name__)
 
 
+WIN_THRESHOLD = 71
+
+
 @dataclass
 class GameState:
     """Store characters, their progress, and a history of actions."""
