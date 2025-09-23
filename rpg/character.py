@@ -4,6 +4,7 @@
 
 import json
 import logging
+import re
 from abc import ABC, abstractmethod
 from typing import List, Tuple
 
@@ -218,8 +219,23 @@ class YamlCharacter(Character):
         related_triplet_count: int | None = None
 
         if response_text:
+            json_candidate = response_text
+            if json_candidate.startswith("```"):
+                fence_match = re.match(
+                    r"^```[a-zA-Z0-9_-]*\s*\n(?P<body>.*)",
+                    json_candidate,
+                    re.DOTALL,
+                )
+                if fence_match:
+                    body = fence_match.group("body")
+                    closing_index = body.rfind("```")
+                    if closing_index != -1 and body[closing_index:].strip().startswith(
+                        "```"
+                    ):
+                        body = body[:closing_index]
+                    json_candidate = body.strip()
             try:
-                payload = json.loads(response_text)
+                payload = json.loads(json_candidate)
             except json.JSONDecodeError as exc:
                 logger.warning(
                     "Failed to parse action JSON for %s: %s", self.name, exc

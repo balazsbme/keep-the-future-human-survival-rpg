@@ -25,13 +25,15 @@ class YamlCharacterTest(unittest.TestCase):
         mock_action_model = MagicMock()
         mock_assess_model = MagicMock()
         mock_action_model.generate_content.return_value = MagicMock(
-            text=json.dumps(
+            text="```json\n"
+            + json.dumps(
                 [
                     {"text": "Act1", "related-triplet": 1},
                     {"text": "Act2", "related-triplet": "None"},
                     {"text": "Act3", "related-triplet": "None"},
                 ]
             )
+            + "\n```"
         )
         mock_assess_model.generate_content.return_value = MagicMock(
             text="10\n20\n30"

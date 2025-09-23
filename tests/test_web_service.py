@@ -36,14 +36,17 @@ class WebServiceTest(unittest.TestCase):
         ) as mock_assess_genai:
             mock_action_model = MagicMock()
             mock_assess_model = MagicMock()
+            fancy_action = 'Coordinate "<AI>" & <Oversight>'
             mock_action_model.generate_content.return_value = MagicMock(
-                text=json.dumps(
+                text="```json\n"
+                + json.dumps(
                     [
-                        {"text": "A", "related-triplet": 1},
+                        {"text": fancy_action, "related-triplet": 1},
                         {"text": "B", "related-triplet": "None"},
                         {"text": "C", "related-triplet": "None"},
                     ]
                 )
+                + "\n```"
             )
             mock_assess_model.generate_content.return_value = MagicMock(
                 text="90\n90\n90"
@@ -79,6 +82,14 @@ class WebServiceTest(unittest.TestCase):
             f"Which action do you want {character.display_name} to perform?",
             actions_page,
         )
+        self.assertIn(
+            'value="Coordinate &quot;&lt;AI&gt;&quot; &amp; &lt;Oversight&gt;"',
+            actions_page,
+        )
+        self.assertIn(
+            '>Coordinate "&lt;AI&gt;" &amp; &lt;Oversight&gt;</label><br>',
+            actions_page,
+        )
 
         inst_resp = client.get("/instructions")
         inst_page = inst_resp.data.decode()
@@ -87,7 +98,9 @@ class WebServiceTest(unittest.TestCase):
         self.assertIn("GitHub", inst_page)
 
         resp = client.post(
-            "/perform", data={"character": "0", "action": "A"}, follow_redirects=True
+            "/perform",
+            data={"character": "0", "action": fancy_action},
+            follow_redirects=True,
         )
         page = resp.data.decode()
         self.assertEqual(resp.status_code, 200)
@@ -95,7 +108,8 @@ class WebServiceTest(unittest.TestCase):
         self.assertIn("You won!", page)
         self.assertIn("Action History", page)
         self.assertIn(
-            f"<li><strong>{character.display_name}</strong>: A</li>", page
+            f"<li><strong>{character.display_name}</strong>: Coordinate \"&lt;AI&gt;\" &amp; &lt;Oversight&gt;</li>",
+            page,
         )
         self.assertIn("Final weighted score", page)
         self.assertIn("Reset", page)
@@ -115,13 +129,15 @@ class WebServiceTest(unittest.TestCase):
             mock_action_model = MagicMock()
             mock_assess_model = MagicMock()
             mock_action_model.generate_content.return_value = MagicMock(
-                text=json.dumps(
+                text="```json\n"
+                + json.dumps(
                     [
                         {"text": "A", "related-triplet": 1},
                         {"text": "B", "related-triplet": "None"},
                         {"text": "C", "related-triplet": "None"},
                     ]
                 )
+                + "\n```"
             )
             mock_assess_model.generate_content.return_value = MagicMock(
                 text="10\n20\n30"
