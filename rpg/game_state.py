@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 GAME_CONFIG = load_game_config()
 WIN_THRESHOLD = GAME_CONFIG.win_threshold
 MAX_ROUNDS = GAME_CONFIG.max_rounds
+PLAYER_FACTION = "CivilSociety"
 
 
 @dataclass
@@ -49,6 +50,7 @@ class GameState:
         self.faction_labels = {}
         self.config = GAME_CONFIG
         self.credibility = CredibilityMatrix()
+        self.credibility.ensure_faction(PLAYER_FACTION)
         for character in self.characters:
             key = character.progress_key
             if key not in self.progress:
@@ -78,8 +80,9 @@ class GameState:
             character: The faction-aligned character performing the action.
             action: The proposed action or its textual description.
             targets: Optional iterable of faction names whose interests the
-                action should benefit for credibility adjustments. When not
-                provided, the actor's own faction is assumed.
+                action should benefit for credibility adjustments. Currently
+                ignored because credibility updates always apply between the
+                player's faction and the actor's faction.
 
         Returns:
             ``True`` if the action is recorded as successful, ``False`` otherwise.
@@ -125,31 +128,24 @@ class GameState:
     ) -> None:
         """Update credibility values after a successful action."""
 
-        faction = getattr(character, "faction", None)
-        if not faction:
+        actor_faction = getattr(character, "faction", None)
+        if not actor_faction:
             return
-        self.credibility.ensure_faction(faction)
-        if targets is not None:
-            target_list = [target for target in targets if target]
-        else:
-            target_list = [
-                target for target in self.credibility.factions if target != faction
-            ]
-        if not target_list:
+        self.credibility.ensure_faction(actor_faction)
+        self.credibility.ensure_faction(PLAYER_FACTION)
+        target_faction = actor_faction
+        if target_faction == PLAYER_FACTION:
             return
         delta = (
             -CREDIBILITY_PENALTY if action.related_triplet is not None else CREDIBILITY_REWARD
         )
-        for target in target_list:
-            if target == faction:
-                continue
-            logger.debug(
-                "Adjusting credibility for source=%s target=%s by %+d",
-                faction,
-                target,
-                delta,
-            )
-            self.credibility.adjust(faction, target, delta)
+        logger.debug(
+            "Adjusting credibility for source=%s target=%s by %+d",
+            PLAYER_FACTION,
+            target_faction,
+            delta,
+        )
+        self.credibility.adjust(PLAYER_FACTION, target_faction, delta)
 
     def update_progress(self, scores: Dict[str, List[int]]) -> None:
         """Update progress scores for all characters.
