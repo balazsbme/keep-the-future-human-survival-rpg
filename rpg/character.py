@@ -21,10 +21,12 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
-class ActionOption:
+class ResponseOption:
     """Container describing an action proposed by a character."""
 
     text: str
+    # TODO: implement type: either 'action' or 'chat'
+    type: str
     related_triplet: int | None = None
     related_attribute: str | None = None
 
@@ -37,8 +39,8 @@ class ActionOption:
         return payload
 
     @classmethod
-    def from_payload(cls, data: dict) -> "ActionOption":
-        """Create an :class:`ActionOption` from a JSON payload dictionary."""
+    def from_payload(cls, data: dict) -> "ResponseOption":
+        """Create an :class:`ResponseOption` from a JSON payload dictionary."""
 
         text = str(data.get("text", "")).strip()
         raw_triplet = data.get("related-triplet")
@@ -115,15 +117,17 @@ class Character(ABC):
 
         return 0
 
+    # TODO: add conversation history and the character instance of the conversation partner
     @abstractmethod
-    def generate_actions(self, history: List[Tuple[str, str]]) -> List[ActionOption]:
+    def generate_response(self, history: List[Tuple[str, str]]) -> List[ResponseOption]:
         """Return three possible actions a player might request.
 
         Args:
             history: Prior actions taken in the game.
+            conversation: Full conversation history between this character and another.
 
         Returns:
-            A list of up to three proposed action options.
+            A list response options.
         """
 
     @abstractmethod
@@ -140,6 +144,27 @@ class Character(ABC):
             Updated progress scores for the character.
         """
 
+    # TODO: construct base and format prompt and use in subclasses
+    def common_base_prompt(self) -> str:
+            
+        base_prompt = f"You are {self.display_name} in the 'Keep the Future Human' survival RPG game. "
+            f"You are having a conversation with <<ADD HERE CONVERSATION PARTNER AND ITS FACTION>> about the next actions you will personally attempt to take to advance your faction's goals."
+            f"Your persona is described below: \n{self._profile_text()}\n"
+            "Ground your thinking in this persona and the faction context below before proposing responses."
+            f"\n**MarkdownContext**\n{self.base_context}\n**End of MarkdownContext**\n"
+            f"Throughout the game you are acting related to the following numbered list of triplets, describing the initial state at the start of the game, end state and the gap between them:\n{self._triplet_text()}\n"
+            f"Previous actions taken by you or other faction representatives:\n{self._history_text(history)}\n"
+            f"Full conversation history that you are now having with <<ADD HERE CONVERSATION PARTNER AND ITS FACTION>>: \n ADD HERE THE VARIABLE \n"
+
+        return base_prompt
+
+    def format_prompt(self) -> str:
+        format_prompt = "Return the result as a JSON array with objects in order. Each object must contain the keys 'text', 'type', 'related-triplet', and 'related-attribute'. "
+            "The 'text' field holds the action description. The 'type' filed is either 'action' or 'chat'. The 'related-triplet' field must contain the 1-based index of the triplet primarily addressed by the action or the string 'None' if the action is not focused on a single triplet. "
+            "The 'related-attribute' field must be one of leadership, technology, policy, or network indicating which of your attributes best aligns with the action. "
+            "Do not mention in the output the triplets nor any of their parts directly. Output only the JSON without additional commentary."
+
+        return format_prompt
 
 class YamlCharacter(Character):
     """Character defined by a YAML entry containing context and triplets."""
@@ -257,31 +282,22 @@ class YamlCharacter(Character):
             lines.append(f"Motivations: {self.motivations}")
         return "\n".join(lines)
 
-    def generate_actions(self, history: List[Tuple[str, str]]) -> List[ActionOption]:
+    def generate_response(self, history: List[Tuple[str, str]]) -> List[ResponseOption]:
         logger.info("Generating actions for %s", self.name)
+        # TODO: fix the prompt construction, and refactor the result handling.
         prompt = (
-            f"You are {self.display_name} in the 'Keep the Future Human' survival RPG game. "
-            "The player is consulting you directly about the next actions you will personally attempt to take to advance your faction's goals."
-            f"\n{self._profile_text()}\n"
-            "Ground your thinking in this persona and the faction context below before proposing actions."
-            f"\n**MarkdownContext**\n{self.base_context}\n**End of MarkdownContext**\n"
-            f"Throughout the game you are acting related to the following numbered list of triplets, describing the initial state at the start of the game, end state and the gap between them:\n{self._triplet_text()}\n"
-            f"Previous actions taken by you or other faction representatives:\n{self._history_text(history)}\n"
-            "Provide exactly three possible actions you might take next. "
-            "The actions MUST be aligned with your motivations and capabilities, "
-            "and you must include at least one action that clearly works on closing a gap from the numbered triplets and at least one action that explores an opportunity not tied to a single triplet (mark its 'related-triplet' as 'None'). "
-            "Do not mention in the output the triplets nor any of their parts directly. "
-            "Return the result as a JSON array with three objects in order. Each object must contain the keys 'text', 'related-triplet', and 'related-attribute'. "
-            "The 'text' field holds the action description. The 'related-triplet' field must contain the 1-based index of the triplet primarily addressed by the action or the string 'None' if the action is not focused on a single triplet. "
-            "The 'related-attribute' field must be one of leadership, technology, policy, or network indicating which of your attributes best aligns with the action. "
-            "Output only the JSON without additional commentary."
+            f"{self.common_base_prompt()}"
+            " Provide a single response to continue the ongoing conversation. Consider proposing an action or just continue the chat by providing answer to a question or ask <<ADD HERE CONVERSATION PARTNER AND ITS FACTION>> something that might interest you. "
+            "Your proposed actions MUST be aligned with your motivations and capabilities (mark 'related-triplet' as 'None'), and you SHOULD try to propose an action that clearly works on closing a gap from the numbered triplets (mark the 'related-triplet' its index). "
+
+            f"{self.format_prompt()}"
         )
         logger.debug("Prompt: %s", prompt)
         response = self._model.generate_content(prompt)
         response_text = getattr(response, "text", "").strip()
         logger.info("Generated for %s: %s", self.name, response_text[:50])
         logger.debug("Response: %s", response_text)
-        actions: List[ActionOption] = []
+        actions: List[ResponseOption] = []
         related_triplet_count: int | None = None
         unrelated_triplet_count: int | None = None
 
@@ -358,7 +374,7 @@ class YamlCharacter(Character):
                             if unrelated_triplet_count is not None:
                                 unrelated_triplet_count += 1
                         actions.append(
-                            ActionOption(
+                            ResponseOption(
                                 text=text,
                                 related_triplet=related_value,
                                 related_attribute=attribute_value,
@@ -389,10 +405,10 @@ class YamlCharacter(Character):
                 if line[0].isdigit():
                     parts = line.split(".", 1)
                     act = parts[1].strip() if len(parts) > 1 else line
-                    actions.append(ActionOption(text=act))
+                    actions.append(ResponseOption(text=act))
                 else:
                     if actions:
-                        actions.append(ActionOption(text=line))
+                        actions.append(ResponseOption(text=line))
                 if len(actions) == 3:
                     break
         return actions[:3]
@@ -432,3 +448,13 @@ class YamlCharacter(Character):
             if len(scores) == len(self.triplets):
                 break
         return scores
+
+class PlayerCharacter(Character):
+
+    def generate_response(self, history):
+
+        player_prompt = "Provide exactly three responses you might say to continue the ongoing conversation. You are trying to persuade the <<ADD HERE CONVERSATION PARTNER AND ITS FACTION>> to propose actions that they are willing to take. You may ask about their list of triplets. Also you might ask about their background, motivations, goals or their views on their own or other factions. Whatever you think they could make them propose actions."
+        
+        full_prompt = self.common_base_prompt() + player_prompt + self.format_prompt()
+        # TODO: call Gemini API with the full prompt
+
