@@ -9,9 +9,10 @@ import os
 import random
 from dataclasses import dataclass, field
 from html import escape
-from typing import Dict, List, Tuple
+from typing import Dict, Iterable, List, Tuple
 
 from .character import ActionOption, Character
+from .credibility import CREDIBILITY_PENALTY, CREDIBILITY_REWARD, CredibilityMatrix
 from .config import GameConfig, load_game_config
 
 
@@ -34,6 +35,7 @@ class GameState:
     how_to_win: str = field(init=False)
     faction_labels: Dict[str, str] = field(init=False)
     config: GameConfig = field(init=False)
+    credibility: CredibilityMatrix = field(init=False)
 
     def __post_init__(self) -> None:
         """Initialize progress tracking and load "how to win" instructions.
@@ -46,6 +48,7 @@ class GameState:
         self.weights = {}
         self.faction_labels = {}
         self.config = GAME_CONFIG
+        self.credibility = CredibilityMatrix()
         for character in self.characters:
             key = character.progress_key
             if key not in self.progress:
@@ -54,12 +57,17 @@ class GameState:
                     character, "weights", [1] * len(character.triplets)
                 )
                 self.faction_labels[key] = character.progress_label
+            self.credibility.ensure_faction(getattr(character, "faction", None))
         win_path = os.path.join(os.path.dirname(__file__), "..", "how-to-win.md")
         with open(win_path, "r", encoding="utf-8") as f:
             self.how_to_win = f.read()
 
     def record_action(
-        self, character: Character, action: ActionOption | str
+        self,
+        character: Character,
+        action: ActionOption | str,
+        *,
+        targets: Iterable[str] | None = None,
     ) -> bool:
         """Attempt to record an action taken by a character.
 
@@ -69,6 +77,9 @@ class GameState:
         Args:
             character: The faction-aligned character performing the action.
             action: The proposed action or its textual description.
+            targets: Optional iterable of faction names whose interests the
+                action should benefit for credibility adjustments. When not
+                provided, the actor's own faction is assumed.
 
         Returns:
             ``True`` if the action is recorded as successful, ``False`` otherwise.
@@ -96,6 +107,7 @@ class GameState:
         if success:
             logger.info("Action succeeded; recording in history")
             self.history.append((character.display_name, option.text))
+            self._apply_credibility_updates(character, option, targets)
         else:
             logger.info("Action failed; recording failure entry")
             label = attribute_name or "none"
@@ -104,6 +116,40 @@ class GameState:
             )
             self.history.append((character.display_name, failure_text))
         return success
+
+    def _apply_credibility_updates(
+        self,
+        character: Character,
+        action: ActionOption,
+        targets: Iterable[str] | None,
+    ) -> None:
+        """Update credibility values after a successful action."""
+
+        faction = getattr(character, "faction", None)
+        if not faction:
+            return
+        self.credibility.ensure_faction(faction)
+        if targets is not None:
+            target_list = [target for target in targets if target]
+        else:
+            target_list = [
+                target for target in self.credibility.factions if target != faction
+            ]
+        if not target_list:
+            return
+        delta = (
+            -CREDIBILITY_PENALTY if action.related_triplet is not None else CREDIBILITY_REWARD
+        )
+        for target in target_list:
+            if target == faction:
+                continue
+            logger.debug(
+                "Adjusting credibility for source=%s target=%s by %+d",
+                faction,
+                target,
+                delta,
+            )
+            self.credibility.adjust(faction, target, delta)
 
     def update_progress(self, scores: Dict[str, List[int]]) -> None:
         """Update progress scores for all characters.
@@ -164,5 +210,25 @@ class GameState:
                 for n, a in self.history
             )
             lines.append(f"<h2>Action History</h2><ol>{hist_items}</ol>")
+        credibility_snapshot = self.credibility.snapshot()
+        if credibility_snapshot:
+            headers = "".join(
+                f"<th>{escape(target, quote=False)}</th>" for target in self.credibility.factions
+            )
+            body_rows = []
+            for source in self.credibility.factions:
+                row_cells = [f"<th scope='row'>{escape(source, quote=False)}</th>"]
+                for target in self.credibility.factions:
+                    value = credibility_snapshot.get(source, {}).get(target, 0)
+                    row_cells.append(f"<td>{int(value)}</td>")
+                body_rows.append("<tr>" + "".join(row_cells) + "</tr>")
+            lines.append(
+                "<h2>Credibility Matrix</h2>"
+                + "<table><thead><tr><th>Source \\ Target</th>"
+                + headers
+                + "</tr></thead><tbody>"
+                + "".join(body_rows)
+                + "</tbody></table>"
+            )
         lines.append(f"Final weighted score: {self.final_weighted_score()}")
         return "<div id='state'>" + "<br>".join(lines) + "</div>"

@@ -1,0 +1,60 @@
+{
+  "factions": [
+    "Governments",
+    "Corporations",
+    "HardwareManufacturers",
+    "Regulators",
+    "CivilSociety",
+    "ScientificCommunity"
+  ],
+  "credibility": {
+    "Governments": {
+      "Governments": 100,
+      "Corporations": 35,
+      "HardwareManufacturers": 70,
+      "Regulators": 65,
+      "CivilSociety": 55,
+      "ScientificCommunity": 75
+    },
+    "Corporations": {
+      "Governments": 45,
+      "Corporations": 100,
+      "HardwareManufacturers": 85,
+      "Regulators": 30,
+      "CivilSociety": 20,
+      "ScientificCommunity": 55
+    },
+    "HardwareManufacturers": {
+      "Governments": 70,
+      "Corporations": 80,
+      "HardwareManufacturers": 100,
+      "Regulators": 55,
+      "CivilSociety": 35,
+      "ScientificCommunity": 60
+    },
+    "Regulators": {
+      "Governments": 75,
+      "Corporations": 25,
+      "HardwareManufacturers": 65,
+      "Regulators": 100,
+      "CivilSociety": 70,
+      "ScientificCommunity": 80
+    },
+    "CivilSociety": {
+      "Governments": 50,
+      "Corporations": 15,
+      "HardwareManufacturers": 30,
+      "Regulators": 75,
+      "CivilSociety": 100,
+      "ScientificCommunity": 85
+    },
+    "ScientificCommunity": {
+      "Governments": 65,
+      "Corporations": 35,
+      "HardwareManufacturers": 55,
+      "Regulators": 85,
+      "CivilSociety": 80,
+      "ScientificCommunity": 100
+    }
+  }
+}
