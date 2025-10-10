@@ -6,7 +6,7 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from rpg.character import ActionOption
-from rpg.game_state import GameState
+from rpg.game_state import PLAYER_FACTION, GameState
 
 
 class DummyCharacter:
@@ -34,31 +34,40 @@ class CredibilityMatrixTests(unittest.TestCase):
     def test_record_action_rewards_targets(self, mock_uniform):
         character = DummyCharacter("Alice", "Governments")
         state = GameState([character])
-        initial = state.credibility.value("Governments", "Regulators")
+        initial_player = state.credibility.value(PLAYER_FACTION, "Regulators")
+        initial_actor = state.credibility.value("Governments", "Regulators")
         action = ActionOption(text="Coordinate with regulators", related_triplet=None)
         state.record_action(character, action, targets=["Regulators"])
-        updated = state.credibility.value("Governments", "Regulators")
-        self.assertEqual(updated, min(100, initial + 20))
+        updated_player = state.credibility.value(PLAYER_FACTION, "Regulators")
+        updated_actor = state.credibility.value("Governments", "Regulators")
+        self.assertEqual(updated_player, min(100, initial_player + 20))
+        self.assertEqual(updated_actor, initial_actor)
 
     @patch("rpg.game_state.random.uniform", return_value=0)
     def test_record_action_penalises_targets_with_triplet(self, mock_uniform):
         character = DummyCharacter("Alice", "Governments")
         state = GameState([character])
-        initial = state.credibility.value("Governments", "Regulators")
+        initial_player = state.credibility.value(PLAYER_FACTION, "Regulators")
+        initial_actor = state.credibility.value("Governments", "Regulators")
         action = ActionOption(text="Enforce compute caps", related_triplet=1)
         state.record_action(character, action, targets=["Regulators"])
-        updated = state.credibility.value("Governments", "Regulators")
-        self.assertEqual(updated, max(0, initial - 20))
+        updated_player = state.credibility.value(PLAYER_FACTION, "Regulators")
+        updated_actor = state.credibility.value("Governments", "Regulators")
+        self.assertEqual(updated_player, max(0, initial_player - 20))
+        self.assertEqual(updated_actor, initial_actor)
 
     @patch("rpg.game_state.random.uniform", return_value=0)
     def test_record_action_without_targets_applies_penalty(self, mock_uniform):
         character = DummyCharacter("Alice", "Governments")
         state = GameState([character])
-        initial = state.credibility.value("Governments", "Corporations")
+        initial_player = state.credibility.value(PLAYER_FACTION, "Corporations")
+        initial_actor = state.credibility.value("Governments", "Corporations")
         action = ActionOption(text="Limit compute", related_triplet=1)
         state.record_action(character, action)
-        updated = state.credibility.value("Governments", "Corporations")
-        self.assertEqual(updated, max(0, initial - 20))
+        updated_player = state.credibility.value(PLAYER_FACTION, "Corporations")
+        updated_actor = state.credibility.value("Governments", "Corporations")
+        self.assertEqual(updated_player, max(0, initial_player - 20))
+        self.assertEqual(updated_actor, initial_actor)
 
     @patch("rpg.game_state.random.uniform", return_value=0)
     def test_unknown_faction_initialises_defaults(self, mock_uniform):

@@ -202,14 +202,73 @@ class CredibilityMatrix:
     def adjust(self, source: str | None, target: str | None, delta: int) -> None:
         """Modify credibility from ``source`` to ``target`` by ``delta`` within [0, 100]."""
 
-        if not source or not target or delta == 0:
+        if not source or not target:
+            logger.debug(
+                "Skipping credibility adjustment due to missing source/target: %s -> %s",
+                source,
+                target,
+            )
             return
+        if delta == 0:
+            logger.debug(
+                "Skipping credibility adjustment for %s -> %s because delta is zero",
+                source,
+                target,
+            )
+            return
+        logger.debug(
+            "Processing credibility adjustment for %s -> %s with delta %+d",
+            source,
+            target,
+            delta,
+        )
         self.ensure_faction(source)
         self.ensure_faction(target)
         if source == target:
+            logger.debug(
+                "Skipping credibility adjustment because source and target are identical: %s",
+                source,
+            )
             return
         row = self._values[source]
-        row[target] = _clamp(row[target] + delta)
+        current_value = row[target]
+        logger.debug(
+            "Current credibility value for %s -> %s: %d",
+            source,
+            target,
+            current_value,
+        )
+        proposed_value = current_value + delta
+        logger.debug(
+            "Proposed credibility value after applying delta %+d: %d",
+            delta,
+            proposed_value,
+        )
+        clamped_value = _clamp(proposed_value)
+        if clamped_value != proposed_value:
+            logger.debug(
+                "Clamped credibility value from %d to %d to enforce bounds",
+                proposed_value,
+                clamped_value,
+            )
+        row[target] = clamped_value
+        if clamped_value == current_value:
+            logger.info(
+                "Credibility %s -> %s remained at %d after attempting delta %+d",
+                source,
+                target,
+                current_value,
+                delta,
+            )
+        else:
+            logger.info(
+                "Credibility %s -> %s changed from %d to %d (delta %+d)",
+                source,
+                target,
+                current_value,
+                clamped_value,
+                delta,
+            )
 
     def value(self, source: str, target: str) -> int:
         """Return the credibility value for ``source`` as viewed by ``target``."""

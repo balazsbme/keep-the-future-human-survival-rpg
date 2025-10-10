@@ -9,7 +9,7 @@ import logging
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import Any, List, Tuple
 
 try:  # pragma: no cover - optional dependency
     import google.generativeai as genai
@@ -18,6 +18,44 @@ except ModuleNotFoundError:  # pragma: no cover
 
 
 logger = logging.getLogger(__name__)
+
+
+def _summarize_action_payload(payload: object) -> str:
+    """Return a concise summary of an action payload for logging."""
+
+    def preview_text(text: Any) -> str:
+        text_str = str(text or "")
+        truncated = text_str[:20]
+        if len(text_str) > 20:
+            truncated += "\u2026"
+        return truncated
+
+    def format_attributes(action: dict) -> str:
+        extras = [
+            f"{key}={value!r}" for key, value in action.items() if key != "text"
+        ]
+        return ", ".join(extras) if extras else "no additional fields"
+
+    if isinstance(payload, dict):
+        actions = payload.get("actions")
+        if isinstance(actions, list):
+            action_items = actions
+        else:
+            action_items = [payload]
+    elif isinstance(payload, list):
+        action_items = payload
+    else:
+        return f"Unstructured payload: {payload!r}"
+
+    parts = []
+    for index, action in enumerate(action_items, 1):
+        if isinstance(action, dict):
+            text_preview = preview_text(action.get("text", ""))
+            attrs = format_attributes(action)
+            parts.append(f"{index}. '{text_preview}' ({attrs})")
+        else:
+            parts.append(f"{index}. {action!r}")
+    return "; ".join(parts)
 
 
 @dataclass(frozen=True)
@@ -295,12 +333,11 @@ class YamlCharacter(Character):
         logger.debug("Prompt: %s", prompt)
         response = self._model.generate_content(prompt)
         response_text = getattr(response, "text", "").strip()
-        logger.info("Generated for %s: %s", self.name, response_text[:50])
         logger.debug("Response: %s", response_text)
         actions: List[ResponseOption] = []
         related_triplet_count: int | None = None
         unrelated_triplet_count: int | None = None
-
+        parsed_payload: object | None = None
         if response_text:
             json_candidate = response_text
             if json_candidate.startswith("```"):
@@ -318,40 +355,61 @@ class YamlCharacter(Character):
                         body = body[:closing_index]
                     json_candidate = body.strip()
             try:
-                payload = json.loads(json_candidate)
+                parsed_payload = json.loads(json_candidate)
             except json.JSONDecodeError as exc:
                 logger.warning(
-                    "Failed to parse action JSON for %s: %s", self.name, exc
+                    "Failed to parse action JSON for %s: %s",
+                    self.name,
+                    exc,
                 )
-            else:
-                max_index = len(self.triplets)
+        if parsed_payload is not None:
+            logger.info(
+                "Generated for %s: %s",
+                self.name,
+                _summarize_action_payload(parsed_payload),
+            )
+        else:
+            logger.info(
+                "Generated for %s (raw preview): %s",
+                self.name,
+                response_text[:50],
+            )
+        actions: List[ActionOption] = []
+        related_triplet_count: int | None = None
+        unrelated_triplet_count: int | None = None
 
-                def normalize_related(value: object) -> int | None:
-                    if isinstance(value, str):
-                        cleaned = value.strip()
-                        if cleaned.lower() == "none":
-                            return None
-                        try:
-                            value = int(cleaned)
-                        except ValueError:
-                            return None
-                    if isinstance(value, (int, float)):
-                        candidate = int(value)
-                        if 1 <= candidate <= max_index:
-                            return candidate
+        payload = parsed_payload
+        if payload is not None:
+            max_index = len(self.triplets)
+
+            def normalize_related(value: object) -> int | None:
+                if isinstance(value, str):
+                    cleaned = value.strip()
+                    if cleaned.lower() == "none":
                         return None
+                    try:
+                        value = int(cleaned)
+                    except ValueError:
+                        return None
+                if isinstance(value, (int, float)):
+                    candidate = int(value)
+                    if 1 <= candidate <= max_index:
+                        return candidate
                     return None
+                return None
 
-                def normalize_attribute(value: object) -> str | None:
-                    if isinstance(value, str):
-                        cleaned = value.strip().lower()
-                        if cleaned in self._attribute_scores:
-                            return cleaned
-                    return None
+            def normalize_attribute(value: object) -> str | None:
+                if isinstance(value, str):
+                    cleaned = value.strip().lower()
+                    if cleaned in self._attribute_scores:
+                        return cleaned
+                return None
 
-                if isinstance(payload, dict) and "actions" in payload:
-                    payload = payload["actions"]
+            if isinstance(payload, dict) and "actions" in payload:
+                payload = payload["actions"]
 
+# TODO: finish merging this file
+<<<<<<< HEAD
                 if isinstance(payload, list):
                     related_triplet_count = 0
                     unrelated_triplet_count = 0
@@ -387,7 +445,40 @@ class YamlCharacter(Character):
                         "Unexpected JSON structure for %s actions: %r",
                         self.name,
                         payload,
+=======
+            if isinstance(payload, list):
+                related_triplet_count = 0
+                unrelated_triplet_count = 0
+                for entry in payload:
+                    if not isinstance(entry, dict):
+                        continue
+                    text = str(entry.get("text", "")).strip()
+                    if not text:
+                        continue
+                    related_value = normalize_related(entry.get("related-triplet"))
+                    attribute_value = normalize_attribute(
+                        entry.get("related-attribute")
+>>>>>>> c875c726d9766eaae87a2a997fd3c5e1c29f4c1f
                     )
+                    if related_value is None:
+                        unrelated_triplet_count = (unrelated_triplet_count or 0) + 1
+                    else:
+                        related_triplet_count = (related_triplet_count or 0) + 1
+                    actions.append(
+                        ActionOption(
+                            text=text,
+                            related_triplet=related_value,
+                            related_attribute=attribute_value,
+                        )
+                    )
+                    if len(actions) == 3:
+                        break
+            else:
+                logger.warning(
+                    "Unexpected JSON structure for %s actions: %r",
+                    self.name,
+                    payload,
+                )
 
         if related_triplet_count is not None:
             unrelated_value = unrelated_triplet_count or 0
