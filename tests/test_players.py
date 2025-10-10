@@ -10,10 +10,10 @@ import yaml
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from players import RandomPlayer, GeminiWinPlayer, GeminiGovCorpPlayer
+from players import GeminiGovCorpPlayer, GeminiWinPlayer, RandomPlayer
 from rpg.assessment_agent import AssessmentAgent
 from rpg.game_state import GameState
-from rpg.character import ActionOption, YamlCharacter
+from rpg.character import ResponseOption, YamlCharacter
 
 CHARACTERS_FILE = os.path.join(
     os.path.dirname(__file__), "fixtures", "characters.yaml"
@@ -47,19 +47,22 @@ class PlayerTests(unittest.TestCase):
             text=json.dumps(
                 [
                     {
+                        "text": "Ask status",
+                        "type": "chat",
+                        "related-triplet": "None",
+                        "related-attribute": "None",
+                    },
+                    {
                         "text": "A",
+                        "type": "action",
                         "related-triplet": 1,
                         "related-attribute": "leadership",
                     },
                     {
-                        "text": "B",
+                        "text": "Offer help",
+                        "type": "chat",
                         "related-triplet": "None",
-                        "related-attribute": "technology",
-                    },
-                    {
-                        "text": "C",
-                        "related-triplet": "None",
-                        "related-attribute": "policy",
+                        "related-attribute": "None",
                     },
                 ]
             )
@@ -96,7 +99,11 @@ class PlayerTests(unittest.TestCase):
         char = _load_test_character()
         state = GameState([char])
         player = GeminiWinPlayer()
-        actions = [ActionOption("A"), ActionOption("B"), ActionOption("C")]
+        actions = [
+            ResponseOption(text="A", type="action"),
+            ResponseOption(text="B", type="action"),
+            ResponseOption(text="C", type="action"),
+        ]
         player.select_action(char, actions, state)
         prompt = mock_model.generate_content.call_args[0][0]
         self.assertIn(state.how_to_win.split()[0], prompt)
@@ -113,7 +120,11 @@ class PlayerTests(unittest.TestCase):
         gov_ctx = corp_ctx = "CTX"
         player = GeminiGovCorpPlayer(gov_ctx, corp_ctx)
         state = GameState([char])
-        actions = [ActionOption("A"), ActionOption("B"), ActionOption("C")]
+        actions = [
+            ResponseOption(text="A", type="action"),
+            ResponseOption(text="B", type="action"),
+            ResponseOption(text="C", type="action"),
+        ]
         player.select_action(char, actions, state)
         prompt = mock_model.generate_content.call_args[0][0]
         self.assertIn("CTX", prompt)

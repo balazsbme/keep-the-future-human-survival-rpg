@@ -48,16 +48,19 @@ class PlayerServiceTest(unittest.TestCase):
                         [
                             {
                                 "text": "A",
+                                "type": "action",
                                 "related-triplet": 1,
                                 "related-attribute": "leadership",
                             },
                             {
                                 "text": "B",
+                                "type": "action",
                                 "related-triplet": "None",
                                 "related-attribute": "technology",
                             },
                             {
                                 "text": "C",
+                                "type": "action",
                                 "related-triplet": "None",
                                 "related-attribute": "policy",
                             },
@@ -82,22 +85,23 @@ class PlayerServiceTest(unittest.TestCase):
                     with patch("rpg.game_state.random.uniform", return_value=0):
                         app = create_app(log_dir=tmpdir)
                         client = app.test_client()
-            resp = client.post(
-                "/",
-                data={"player": "random", "rounds": "1", "games": "2"},
-                follow_redirects=True,
-            )
-            page = resp.data.decode()
-            self.assertIn("Player Manager Progress", page)
-            self.assertIn("Game 1", page)
-            self.assertIn("Game 2", page)
-            self.assertIn("10, 20, 30", page)
-            self.assertIn("Download log", page)
-            log_links = re.findall(r"/logs/([^\"']+)", page)
-            self.assertGreaterEqual(len(log_links), 2)
-            log_resp = client.get(f"/logs/{log_links[0]}")
-            self.assertEqual(log_resp.status_code, 200)
-            self.assertTrue(log_resp.data)
+
+                resp = client.post(
+                    "/",
+                    data={"player": "random", "rounds": "1", "games": "2"},
+                    follow_redirects=True,
+                )
+                page = resp.data.decode()
+                self.assertIn("Player Manager Progress", page)
+                self.assertIn("Game 1", page)
+                self.assertIn("Game 2", page)
+                self.assertIn("10, 20, 30", page)
+                self.assertIn("Download log", page)
+                log_links = re.findall(r"/logs/([^\"']+)", page)
+                self.assertGreaterEqual(len(log_links), 2)
+                log_resp = client.get(f"/logs/{log_links[0]}")
+                self.assertEqual(log_resp.status_code, 200)
+                self.assertTrue(log_resp.data)
 
     def test_evaluation_buttons_present(self):
         with patch("player_service.load_characters", return_value=[]), patch(

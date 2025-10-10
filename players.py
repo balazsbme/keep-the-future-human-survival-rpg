@@ -15,7 +15,7 @@ except ModuleNotFoundError:  # pragma: no cover
     genai = None
 
 from rpg.game_state import GameState
-from rpg.character import ActionOption, Character
+from rpg.character import Character, ResponseOption
 from rpg.assessment_agent import AssessmentAgent
 
 
@@ -33,9 +33,9 @@ class Player(ABC):
     def select_action(
         self,
         character: Character,
-        actions: List[ActionOption],
+        actions: List[ResponseOption],
         state: GameState,
-    ) -> ActionOption:
+    ) -> ResponseOption:
         """Return the chosen action for ``character`` from ``actions``."""
 
     def take_turn(self, state: GameState, assessor: AssessmentAgent) -> None:
@@ -43,11 +43,19 @@ class Player(ABC):
         logger.info("Taking turn")
         char = self.select_character(state)
         logger.info("Selected character: %s", char.name)
-        options = char.generate_actions(state.history)
-        if not options:
+        conversation = state.conversation_history(char)
+        partner = state.player_character
+        responses = char.generate_responses(state.history, conversation, partner)
+        actions = [option for option in responses if option.is_action]
+        known_texts = {option.text for option in actions}
+        for stored_option in state.available_npc_actions(char):
+            if stored_option.text not in known_texts:
+                actions.append(stored_option)
+                known_texts.add(stored_option.text)
+        if not actions:
             logger.info("No actions available for %s", char.name)
             return
-        action = self.select_action(char, options, state)
+        action = self.select_action(char, actions, state)
         logger.info("Selected action for %s: %s", char.name, action.text)
         state.record_action(char, action)
         scores = assessor.assess(state.characters, state.how_to_win, state.history)
@@ -66,9 +74,9 @@ class RandomPlayer(Player):
     def select_action(
         self,
         character: Character,
-        actions: List[ActionOption],
+        actions: List[ResponseOption],
         state: GameState,
-    ) -> ActionOption:
+    ) -> ResponseOption:
         action = random.choice(actions)
         logger.info(
             "RandomPlayer chose action '%s' for %s", action.text, character.name
@@ -108,9 +116,9 @@ class GeminiWinPlayer(Player):
     def select_action(
         self,
         character: Character,
-        actions: List[ActionOption],
+        actions: List[ResponseOption],
         state: GameState,
-    ) -> ActionOption:
+    ) -> ResponseOption:
         numbered = "\n".join(
             f"{idx+1}. {act.text}" for idx, act in enumerate(actions)
         )
@@ -184,9 +192,9 @@ class GeminiGovCorpPlayer(Player):
     def select_action(
         self,
         character: Character,
-        actions: List[ActionOption],
+        actions: List[ResponseOption],
         state: GameState,
-    ) -> ActionOption:
+    ) -> ResponseOption:
         numbered = "\n".join(
             f"{idx+1}. {act.text}" for idx, act in enumerate(actions)
         )

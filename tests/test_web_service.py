@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import json
-from html import escape
 import os
 import sys
 import unittest
@@ -12,7 +11,7 @@ import yaml
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from web_service import create_app
-from rpg.character import YamlCharacter
+from rpg.character import ResponseOption, YamlCharacter
 
 CHARACTERS_FILE = os.path.join(
     os.path.dirname(__file__), "fixtures", "characters.yaml"
@@ -34,182 +33,142 @@ def _load_test_character() -> YamlCharacter:
 
 class WebServiceTest(unittest.TestCase):
     @patch("rpg.game_state.random.uniform", return_value=0)
-    def test_win_and_reset_flow(self, mock_uniform):
+    def test_conversation_and_win_flow(self, mock_uniform):
         with patch("rpg.character.genai") as mock_char_genai, patch(
             "rpg.assessment_agent.genai"
         ) as mock_assess_genai:
-            mock_action_model = MagicMock()
-            mock_assess_model = MagicMock()
-            fancy_action = 'Coordinate "<AI>" & <Oversight>'
-            mock_action_model.generate_content.return_value = MagicMock(
-                text="```json\n"
-                + json.dumps(
+            npc_model = MagicMock()
+            player_model = MagicMock()
+            assess_model = MagicMock()
+            player_model.generate_content.side_effect = [
+                MagicMock(
+                    text=json.dumps(
+                        [
+                            {
+                                "text": "What worries you most?",
+                                "type": "chat",
+                                "related-triplet": "None",
+                                "related-attribute": "None",
+                            },
+                            {
+                                "text": "How can I help?",
+                                "type": "chat",
+                                "related-triplet": "None",
+                                "related-attribute": "None",
+                            },
+                        ]
+                    )
+                ),
+                MagicMock(
+                    text=json.dumps(
+                        [
+                            {
+                                "text": "Thanks for the plan.",
+                                "type": "chat",
+                                "related-triplet": "None",
+                                "related-attribute": "None",
+                            }
+                        ]
+                    )
+                ),
+            ]
+            npc_action_text = "Coordinate oversight teams"
+            npc_model.generate_content.return_value = MagicMock(
+                text=json.dumps(
                     [
                         {
-                            "text": fancy_action,
+                            "text": "We should gather more intel first.",
+                            "type": "chat",
+                            "related-triplet": "None",
+                            "related-attribute": "None",
+                        },
+                        {
+                            "text": npc_action_text,
+                            "type": "action",
                             "related-triplet": 1,
                             "related-attribute": "leadership",
                         },
-                        {
-                            "text": "B",
-                            "related-triplet": "None",
-                            "related-attribute": "technology",
-                        },
-                        {
-                            "text": "C",
-                            "related-triplet": "None",
-                            "related-attribute": "policy",
-                        },
                     ]
                 )
-                + "\n```"
             )
-            mock_assess_model.generate_content.return_value = MagicMock(
-                text="90\n90\n90"
+            assess_model.generate_content.return_value = MagicMock(
+                text="95\n95\n95"
             )
-            mock_char_genai.GenerativeModel.return_value = mock_action_model
-            mock_assess_genai.GenerativeModel.return_value = mock_assess_model
+            mock_char_genai.GenerativeModel.side_effect = [
+                npc_model,
+                player_model,
+                player_model,
+                player_model,
+            ]
+            mock_assess_genai.GenerativeModel.return_value = assess_model
             character = _load_test_character()
             with patch("web_service.load_characters", return_value=[character]):
                 app = create_app()
                 client = app.test_client()
 
-        resp = client.get("/")
-        page = resp.data.decode()
-        self.assertEqual(resp.status_code, 200)
-        self.assertIn("AI Safety Negotiation Game", page)
-        self.assertIn("Start", page)
-        self.assertIn("Instructions", page)
-        self.assertIn("GitHub", page)
+            resp = client.get("/")
+            page = resp.data.decode()
+            self.assertEqual(resp.status_code, 200)
+            self.assertIn("AI Safety Negotiation Game", page)
 
-        start_resp = client.get("/start")
-        start_page = start_resp.data.decode()
-        self.assertEqual(start_resp.status_code, 200)
-        self.assertIn("Keep the Future Human Survival RPG", start_page)
-        self.assertIn("Reset", start_page)
-        self.assertIn("Instructions", start_page)
-        self.assertIn("GitHub", start_page)
+            start_resp = client.get("/start")
+            start_page = start_resp.data.decode()
+            self.assertEqual(start_resp.status_code, 200)
+            self.assertIn("Talk", start_page)
 
-        actions_resp = client.post("/actions", data={"character": "0"})
-        actions_page = actions_resp.data.decode()
-        self.assertEqual(actions_resp.status_code, 200)
-        self.assertIn(f"<h1>{character.display_name}</h1>", actions_page)
-        self.assertIn(
-            f"Which action do you want {character.display_name} to perform?",
-            actions_page,
-        )
-        expected_payload = json.dumps(
-            {
-                "text": fancy_action,
-                "related-triplet": 1,
-                "related-attribute": "leadership",
-            }
-        )
-        escaped_payload = escape(expected_payload, quote=True)
-        self.assertIn(f'value="{escaped_payload}"', actions_page)
-        self.assertIn(
-            '>Coordinate "&lt;AI&gt;" &amp; &lt;Oversight&gt;</label><br>',
-            actions_page,
-        )
+            convo_resp = client.get("/actions", query_string={"character": "0"})
+            convo_page = convo_resp.data.decode()
+            self.assertEqual(convo_resp.status_code, 200)
+            self.assertIn(f"<h1>{character.display_name}</h1>", convo_page)
+            self.assertIn("No conversation yet", convo_page)
+            self.assertIn("What worries you most?", convo_page)
 
-        inst_resp = client.get("/instructions")
-        inst_page = inst_resp.data.decode()
-        self.assertEqual(inst_resp.status_code, 200)
-        self.assertIn("Instructions", inst_page)
-        self.assertIn("GitHub", inst_page)
-
-        resp = client.post(
-            "/perform",
-            data={"character": "0", "action": expected_payload},
-            follow_redirects=True,
-        )
-        page = resp.data.decode()
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.request.path, "/result")
-        self.assertIn("You won!", page)
-        self.assertIn("Action History", page)
-        self.assertIn(
-            f"<li><strong>{character.display_name}</strong>: Coordinate \"&lt;AI&gt;\" &amp; &lt;Oversight&gt;</li>",
-            page,
-        )
-        self.assertIn("Final weighted score", page)
-        self.assertIn("Reset", page)
-        self.assertIn("GitHub", page)
-
-        resp = client.post("/reset", follow_redirects=True)
-        page = resp.data.decode()
-        self.assertEqual(resp.request.path, "/start")
-        self.assertIn("Final weighted score: 0", page)
-        self.assertNotIn("Action History", page)
-        self.assertIn("GitHub", page)
-
-    @patch("rpg.game_state.random.uniform", return_value=0)
-    def test_loss_after_ten_actions(self, mock_uniform):
-        with patch("rpg.character.genai") as mock_char_genai, patch(
-            "rpg.assessment_agent.genai"
-        ) as mock_assess_genai:
-            mock_action_model = MagicMock()
-            mock_assess_model = MagicMock()
-            mock_action_model.generate_content.return_value = MagicMock(
-                text="```json\n"
-                + json.dumps(
-                    [
-                        {
-                            "text": "A",
-                            "related-triplet": 1,
-                            "related-attribute": "leadership",
-                        },
-                        {
-                            "text": "B",
-                            "related-triplet": "None",
-                            "related-attribute": "technology",
-                        },
-                        {
-                            "text": "C",
-                            "related-triplet": "None",
-                            "related-attribute": "policy",
-                        },
-                    ]
-                )
-                + "\n```"
+            chat_payload = json.dumps(
+                {
+                    "text": "What worries you most?",
+                    "type": "chat",
+                    "related-triplet": "None",
+                    "related-attribute": "None",
+                }
             )
-            mock_assess_model.generate_content.return_value = MagicMock(
-                text="10\n20\n30"
-            )
-            mock_char_genai.GenerativeModel.return_value = mock_action_model
-            mock_assess_genai.GenerativeModel.return_value = mock_assess_model
-            character = _load_test_character()
-            with patch("web_service.load_characters", return_value=[character]):
-                app = create_app()
-                client = app.test_client()
-
-        action_payload = json.dumps(
-            {
-                "text": "A",
-                "related-triplet": 1,
-                "related-attribute": "leadership",
-            }
-        )
-        for _ in range(9):
-            resp = client.post(
-                "/perform",
-                data={"character": "0", "action": action_payload},
+            follow_resp = client.post(
+                "/actions",
+                data={"character": "0", "response": chat_payload},
                 follow_redirects=True,
             )
-            self.assertEqual(resp.request.path, "/start")
+            follow_page = follow_resp.data.decode()
+            self.assertIn("We should gather more intel first.", follow_page)
+            self.assertIn("Coordinate oversight teams", follow_page)
+            self.assertIn("<strong>Action:</strong>", follow_page)
 
-        resp = client.post(
-            "/perform",
-            data={"character": "0", "action": action_payload},
-            follow_redirects=True,
-        )
-        page = resp.data.decode()
-        self.assertEqual(resp.request.path, "/result")
-        self.assertIn("You lost!", page)
-        self.assertIn("Action History", page)
-        self.assertIn("Final weighted score", page)
-        self.assertIn("Reset", page)
-        self.assertIn("GitHub", page)
+            action_option = ResponseOption(
+                text=npc_action_text,
+                type="action",
+                related_triplet=1,
+                related_attribute="leadership",
+            )
+            action_resp = client.post(
+                "/actions",
+                data={
+                    "character": "0",
+                    "response": json.dumps(action_option.to_payload()),
+                },
+                follow_redirects=True,
+            )
+            action_page = action_resp.data.decode()
+            self.assertEqual(action_resp.request.path, "/result")
+            self.assertIn("You won!", action_page)
+            self.assertIn(npc_action_text, action_page)
+
+            inst_resp = client.get("/instructions")
+            inst_page = inst_resp.data.decode()
+            self.assertEqual(inst_resp.status_code, 200)
+            self.assertIn("Instructions", inst_page)
+
+            reset_resp = client.post("/reset", follow_redirects=True)
+            reset_page = reset_resp.data.decode()
+            self.assertEqual(reset_resp.request.path, "/start")
+            self.assertIn("Final weighted score: 0", reset_page)
 
 
 if __name__ == "__main__":

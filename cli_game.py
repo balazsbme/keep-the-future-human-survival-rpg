@@ -113,15 +113,34 @@ def main() -> None:
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
     state = GameState(load_characters())
     assessor = AssessmentAgent()
+    player = state.player_character
     for idx, char in enumerate(state.characters, 1):
         print(f"{idx}. {char.display_name}")
     choice = int(input("Choose a character: ")) - 1
     char = state.characters[choice]
-    options = char.generate_actions(state.history)
-    for idx, act in enumerate(options, 1):
-        print(f"{idx}. {act.text}")
-    action = options[int(input("Choose an action: ")) - 1]
-    state.record_action(char, action)
+    while True:
+        convo = state.conversation_history(char)
+        for entry in convo:
+            print(f"{entry.speaker}: {entry.text} ({entry.type})")
+        responses = player.generate_responses(state.history, convo, char)
+        actions = {resp.text: resp for resp in state.available_npc_actions(char)}
+        for idx, opt in enumerate(responses, 1):
+            prefix = "Action: " if opt.is_action else ""
+            print(f"{idx}. {prefix}{opt.text}")
+        choice = int(input("Choose a response: ")) - 1
+        option = responses[choice]
+        state.log_player_response(char, option)
+        if option.is_action:
+            state.record_action(char, option)
+            break
+        npc_responses = char.generate_responses(state.history, state.conversation_history(char), player)
+        state.log_npc_responses(char, npc_responses)
+        for action in state.available_npc_actions(char):
+            actions.setdefault(action.text, action)
+        if actions:
+            print("Available actions:")
+            for idx, action in enumerate(actions.values(), 1):
+                print(f"{idx}. {action.text}")
     scores = assessor.assess(state.characters, state.how_to_win, state.history)
     state.update_progress(scores)
 
