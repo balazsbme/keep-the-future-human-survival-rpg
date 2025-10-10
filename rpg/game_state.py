@@ -11,9 +11,10 @@ from dataclasses import dataclass, field
 from html import escape
 from typing import Dict, Iterable, List, Tuple
 
-from .character import ActionOption, Character
+from .character import Character, PlayerCharacter, ResponseOption
 from .credibility import CREDIBILITY_PENALTY, CREDIBILITY_REWARD, CredibilityMatrix
 from .config import GameConfig, load_game_config
+from .conversation import ConversationEntry
 
 
 logger = logging.getLogger(__name__)
@@ -31,12 +32,15 @@ class GameState:
 
     characters: List[Character]
     history: List[Tuple[str, str]] = field(default_factory=list)
+    conversations: Dict[str, List[ConversationEntry]] = field(default_factory=dict)
+    npc_actions: Dict[str, Dict[str, ResponseOption]] = field(default_factory=dict)
     progress: Dict[str, List[int]] = field(init=False)
     weights: Dict[str, List[int]] = field(init=False)
     how_to_win: str = field(init=False)
     faction_labels: Dict[str, str] = field(init=False)
     config: GameConfig = field(init=False)
     credibility: CredibilityMatrix = field(init=False)
+    player_character: PlayerCharacter = field(init=False)
 
     def __post_init__(self) -> None:
         """Initialize progress tracking and load "how to win" instructions.
@@ -51,6 +55,7 @@ class GameState:
         self.config = GAME_CONFIG
         self.credibility = CredibilityMatrix()
         self.credibility.ensure_faction(PLAYER_FACTION)
+        self.player_character = PlayerCharacter()
         for character in self.characters:
             key = character.progress_key
             if key not in self.progress:
@@ -64,10 +69,69 @@ class GameState:
         with open(win_path, "r", encoding="utf-8") as f:
             self.how_to_win = f.read()
 
+    def _conversation_key(self, character: Character) -> str:
+        """Return the key used to store conversation state for ``character``."""
+
+        return character.name
+
+    def conversation_history(self, character: Character) -> List[ConversationEntry]:
+        """Return the stored conversation history for ``character``."""
+
+        key = self._conversation_key(character)
+        return list(self.conversations.get(key, []))
+
+    def log_player_response(
+        self, character: Character, option: ResponseOption
+    ) -> ConversationEntry:
+        """Record the player's chosen option in the conversation log."""
+
+        entry = ConversationEntry(
+            speaker=self.player_character.display_name,
+            text=option.text,
+            type=option.type,
+        )
+        key = self._conversation_key(character)
+        self.conversations.setdefault(key, []).append(entry)
+        logger.debug(
+            "Logged player response for %s: %s (%s)", character.name, option.text, option.type
+        )
+        return entry
+
+    def log_npc_responses(
+        self, character: Character, responses: Iterable[ResponseOption]
+    ) -> List[ConversationEntry]:
+        """Record NPC responses and track proposed actions."""
+
+        key = self._conversation_key(character)
+        history = self.conversations.setdefault(key, [])
+        action_bucket = self.npc_actions.setdefault(key, {})
+        entries: List[ConversationEntry] = []
+        for option in responses:
+            entry = ConversationEntry(
+                speaker=character.display_name,
+                text=option.text,
+                type=option.type,
+            )
+            history.append(entry)
+            entries.append(entry)
+            if option.is_action:
+                action_bucket.setdefault(option.text, option)
+        logger.debug(
+            "Logged %d NPC responses for %s", len(entries), character.name
+        )
+        return entries
+
+    def available_npc_actions(self, character: Character) -> List[ResponseOption]:
+        """Return all unique action proposals made by ``character``."""
+
+        key = self._conversation_key(character)
+        bucket = self.npc_actions.get(key, {})
+        return list(bucket.values())
+
     def record_action(
         self,
         character: Character,
-        action: ActionOption | str,
+        action: ResponseOption | str,
         *,
         targets: Iterable[str] | None = None,
     ) -> bool:
@@ -88,7 +152,13 @@ class GameState:
             ``True`` if the action is recorded as successful, ``False`` otherwise.
         """
 
-        option = action if isinstance(action, ActionOption) else ActionOption(text=str(action))
+        option = (
+            action
+            if isinstance(action, ResponseOption)
+            else ResponseOption(text=str(action), type="action")
+        )
+        if not option.is_action:
+            raise ValueError("record_action requires an action-type ResponseOption")
         logger.info("Evaluating action '%s' for %s", option.text, character.name)
         attribute_name = option.related_attribute
         attribute_score = character.attribute_score(attribute_name)
@@ -123,29 +193,30 @@ class GameState:
     def _apply_credibility_updates(
         self,
         character: Character,
-        action: ActionOption,
+        action: ResponseOption,
         targets: Iterable[str] | None,
     ) -> None:
         """Update credibility values after a successful action."""
 
         actor_faction = getattr(character, "faction", None)
-        if not actor_faction:
-            return
-        self.credibility.ensure_faction(actor_faction)
         self.credibility.ensure_faction(PLAYER_FACTION)
-        target_faction = actor_faction
-        if target_faction == PLAYER_FACTION:
-            return
+        if actor_faction:
+            self.credibility.ensure_faction(actor_faction)
         delta = (
             -CREDIBILITY_PENALTY if action.related_triplet is not None else CREDIBILITY_REWARD
         )
-        logger.debug(
-            "Adjusting credibility for source=%s target=%s by %+d",
-            PLAYER_FACTION,
-            target_faction,
-            delta,
-        )
-        self.credibility.adjust(PLAYER_FACTION, target_faction, delta)
+        target_factions = list(targets or [actor_faction])
+        for target in target_factions:
+            if not target or target == PLAYER_FACTION:
+                continue
+            self.credibility.ensure_faction(target)
+            logger.debug(
+                "Adjusting credibility for source=%s target=%s by %+d",
+                PLAYER_FACTION,
+                target,
+                delta,
+            )
+            self.credibility.adjust(PLAYER_FACTION, target, delta)
 
     def update_progress(self, scores: Dict[str, List[int]]) -> None:
         """Update progress scores for all characters.

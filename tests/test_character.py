@@ -10,7 +10,9 @@ import yaml
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from cli_game import load_characters
-from rpg.character import YamlCharacter
+from types import SimpleNamespace
+
+from rpg.character import PlayerCharacter, ResponseOption, YamlCharacter
 from rpg.assessment_agent import AssessmentAgent
 
 CHARACTERS_FILE = os.path.join(
@@ -35,19 +37,22 @@ class YamlCharacterTest(unittest.TestCase):
             + json.dumps(
                 [
                     {
+                        "text": "Tell me about your readiness.",
+                        "type": "chat",
+                        "related-triplet": "None",
+                        "related-attribute": "None",
+                    },
+                    {
                         "text": "Act1",
+                        "type": "action",
                         "related-triplet": 1,
                         "related-attribute": "leadership",
                     },
                     {
-                        "text": "Act2",
+                        "text": "How could allies help?",
+                        "type": "chat",
                         "related-triplet": "None",
-                        "related-attribute": "technology",
-                    },
-                    {
-                        "text": "Act3",
-                        "related-triplet": "None",
-                        "related-attribute": "policy",
+                        "related-attribute": "None",
                     },
                 ]
             )
@@ -71,7 +76,10 @@ class YamlCharacterTest(unittest.TestCase):
         if isinstance(faction_context, dict) and faction_context.get("MarkdownContext"):
             faction_spec["MarkdownContext"] = faction_context["MarkdownContext"]
         char = YamlCharacter(profile["name"], faction_spec, profile)
-        actions = char.generate_actions([])
+        partner = SimpleNamespace(
+            display_name="Player", faction="CivilSociety", triplets=char.triplets
+        )
+        actions = char.generate_responses([], [], partner)
         prompt_used = mock_action_model.generate_content.call_args_list[0][0][0]
         self.assertIn("end1", prompt_used)
         self.assertIn("size: Small", prompt_used)
@@ -81,31 +89,34 @@ class YamlCharacterTest(unittest.TestCase):
         self.assertIn("Weaknesses: Struggles to prioritize", prompt_used)
         self.assertIn("Return the result as a JSON array", prompt_used)
         self.assertIn("related-attribute", prompt_used)
-        self.assertEqual([action.text for action in actions], ["Act1", "Act2", "Act3"])
-        self.assertEqual(actions[0].related_triplet, 1)
-        self.assertEqual(actions[0].related_attribute, "leadership")
+        self.assertEqual([action.type for action in actions], ["chat", "action", "chat"])
+        self.assertEqual(actions[1].related_triplet, 1)
+        self.assertEqual(actions[1].related_attribute, "leadership")
         assessor = AssessmentAgent()
         scores = assessor.assess([char], "baseline", [])[char.progress_key]
         self.assertEqual(scores, [10, 20, 30])
 
     @patch("rpg.character.genai")
-    def test_generate_actions_warning_for_related_triplets(self, mock_char_genai):
+    def test_generate_responses_warning_for_related_triplets(self, mock_char_genai):
         mock_action_model = MagicMock()
         mock_action_model.generate_content.return_value = MagicMock(
             text=json.dumps(
                 [
                     {
                         "text": "Act1",
+                        "type": "action",
                         "related-triplet": 1,
                         "related-attribute": "leadership",
                     },
                     {
                         "text": "Act2",
+                        "type": "action",
                         "related-triplet": 2,
                         "related-attribute": "technology",
                     },
                     {
                         "text": "Act3",
+                        "type": "action",
                         "related-triplet": 3,
                         "related-attribute": "policy",
                     },
@@ -127,16 +138,47 @@ class YamlCharacterTest(unittest.TestCase):
             faction_spec["MarkdownContext"] = faction_context["MarkdownContext"]
         char = YamlCharacter(profile["name"], faction_spec, profile)
 
+        partner = SimpleNamespace(
+            display_name="Player", faction="CivilSociety", triplets=char.triplets
+        )
         with self.assertLogs("rpg.character", level="WARNING") as log_ctx:
-            actions = char.generate_actions([])
+            actions = char.generate_responses([], [], partner)
 
         self.assertEqual([action.text for action in actions], ["Act1", "Act2", "Act3"])
         self.assertTrue(
-            any(
-                "Expected at least one triplet-related" in msg
-                for msg in log_ctx.output
+            any("Expected at least one chat option" in msg for msg in log_ctx.output)
+        )
+
+    @patch("rpg.character.genai")
+    def test_player_character_generates_responses(self, mock_char_genai):
+        mock_player_model = MagicMock()
+        mock_player_model.generate_content.return_value = MagicMock(
+            text=json.dumps(
+                [
+                    {
+                        "text": "How can you leverage allies?",
+                        "type": "chat",
+                        "related-triplet": "None",
+                        "related-attribute": "None",
+                    },
+                    {
+                        "text": "Coordinate oversight teams",
+                        "type": "action",
+                        "related-triplet": 1,
+                        "related-attribute": "leadership",
+                    },
+                ]
             )
         )
+        mock_char_genai.GenerativeModel.return_value = mock_player_model
+        player = PlayerCharacter()
+        partner = SimpleNamespace(
+            display_name="NPC", faction="Allies", triplets=[(1, 2, 3)]
+        )
+        options = player.generate_responses([], [], partner)
+        self.assertEqual(len(options), 2)
+        self.assertIsInstance(options[0], ResponseOption)
+        self.assertEqual(options[1].type, "action")
 
     @patch("rpg.character.genai")
     def test_load_characters_merges_markdown_context(self, mock_char_genai):
