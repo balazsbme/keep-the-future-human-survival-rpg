@@ -278,6 +278,10 @@ class Character(ABC):
                 responses.append(option)
         if not responses:
             lines = [line.strip() for line in response_text.splitlines() if line.strip()]
+            if lines:
+                logger.info(
+                    "Falling back to line-by-line responses for %s", self.name
+                )
             for line in lines:
                 responses.append(ResponseOption(text=line, type="chat"))
         return responses[:3]
@@ -363,11 +367,13 @@ class YamlCharacter(Character):
     ) -> List[ResponseOption]:
         logger.info("Generating responses for %s", self.name)
         partner_label = partner.display_name
+        faction_focus = self.faction or "your personal priorities"
         base_prompt = (
             f"You are {self.display_name} in the 'Keep the Future Human' survival RPG game. "
             f"You are having a conversation with {partner_label}. "
-            "Discuss potential actions you personally can take to advance your faction's goals.\n"
-            "Your proposed actions MUST be aligned with your motivations and capabilities while staying realistic for your faction.\n"
+            "Respond in a way that prioritizes your own goals or those of your faction before entertaining new requests.\n"
+            "Only propose a concrete action tied to the numbered triplets when the player's arguments convincingly align with what matters most to you.\n"
+            f"Keep your response grounded in {faction_focus}, your motivations, and your capabilities.\n"
             f"Your persona is described below:\n{self._profile_text()}\n"
             "Ground your thinking in this persona and the faction context below before proposing responses.\n"
             f"**MarkdownContext**\n{self.base_context}\n**End of MarkdownContext**\n"
@@ -377,7 +383,7 @@ class YamlCharacter(Character):
             f"{self._history_text(history)}\n"
             "Full conversation history you are now having with the player:\n"
             f"{self._conversation_text(conversation)}\n"
-            "Provide three candidate responses. Exactly one should be an 'action' proposing something concrete you will do. The remaining responses should be of type 'chat' continuing the dialogue."
+            "Provide exactly one JSON response. Default to a 'chat' type reply reinforcing your own or faction priorities unless the player's case persuades you to propose an 'action'."
         )
         prompt = f"{base_prompt}\n{self._format_prompt_instructions()}"
         logger.debug("Prompt for %s: %s", self.name, prompt)
@@ -385,11 +391,16 @@ class YamlCharacter(Character):
         response_text = getattr(response, "text", "").strip()
         logger.debug("Raw response for %s: %s", self.name, response_text)
         options = self._parse_response_payload(response_text, len(self.triplets))
-        if not any(opt.is_action for opt in options):
-            logger.warning("Expected at least one action option for %s", self.name)
-        if not any(opt.type == "chat" for opt in options):
-            logger.warning("Expected at least one chat option for %s", self.name)
-        return options
+        if not options:
+            logger.warning("Model returned no usable responses for %s", self.name)
+            return []
+        if len(options) > 1:
+            logger.info(
+                "Model returned %d options for %s; defaulting to the first",
+                len(options),
+                self.name,
+            )
+        return options[:1]
 
     def perform_action(
         self,
@@ -468,7 +479,15 @@ class PlayerCharacter(Character):
         seen_texts: set[str] = set()
         partner_name = getattr(partner, "name", getattr(partner, "display_name", "partner"))
         for option in options:
-            text = option.text.strip() or "Can you elaborate on that?"
+            raw_text = option.text.strip()
+            if not raw_text:
+                text = "Can you elaborate on that?"
+                logger.info(
+                    "Player model produced blank text; using default prompt for %s",
+                    partner_name,
+                )
+            else:
+                text = raw_text
             if text.lower() in seen_texts:
                 continue
             if option.is_action:
@@ -490,6 +509,10 @@ class PlayerCharacter(Character):
                 "I'd love to hear your priorities right now, {name}.",
                 "Where do you see the biggest opportunity to move forward, {name}?",
             ]
+            logger.info(
+                "Using starter templates for initial conversation with %s",
+                partner_name,
+            )
             return [
                 ResponseOption(text=template.format(name=partner_name), type="chat")
                 for template in starter_templates
@@ -500,6 +523,11 @@ class PlayerCharacter(Character):
             "What support would help you move forward, {name}?",
             "How do you see this unfolding next, {name}?",
         ]
+        if len(chat_options) < 3:
+            logger.info(
+                "Supplementing player options with fallback templates for %s",
+                partner_name,
+            )
         for template in fallback_templates:
             if len(chat_options) >= 3:
                 break
@@ -508,6 +536,11 @@ class PlayerCharacter(Character):
                 continue
             chat_options.append(ResponseOption(text=text, type="chat"))
             seen_texts.add(text.lower())
+            logger.info(
+                "Added fallback chat template response for %s: %s",
+                partner_name,
+                text,
+            )
 
         while len(chat_options) < 3:
             text = f"Tell me more about your priorities, {partner_name}."
@@ -515,5 +548,9 @@ class PlayerCharacter(Character):
                 text = "I'm interested in what you think comes next."
             chat_options.append(ResponseOption(text=text, type="chat"))
             seen_texts.add(text.lower())
+            logger.info(
+                "Added final hardcoded chat prompt for %s to reach three options",
+                partner_name,
+            )
 
         return chat_options[:3]
