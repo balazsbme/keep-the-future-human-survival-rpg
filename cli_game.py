@@ -123,23 +123,28 @@ def main() -> None:
         for entry in convo:
             print(f"{entry.speaker}: {entry.text} ({entry.type})")
         responses = player.generate_responses(state.history, convo, char)
-        actions = {resp.text: resp for resp in state.available_npc_actions(char)}
-        for idx, opt in enumerate(responses, 1):
+        npc_actions = list(state.available_npc_actions(char))
+        combined_options = list(responses)
+        existing_texts = {opt.text for opt in combined_options}
+        for action in npc_actions:
+            if action.text not in existing_texts:
+                combined_options.append(action)
+                existing_texts.add(action.text)
+        for idx, opt in enumerate(combined_options, 1):
             prefix = "Action: " if opt.is_action else ""
             print(f"{idx}. {prefix}{opt.text}")
         choice = int(input("Choose a response: ")) - 1
-        option = responses[choice]
+        option = combined_options[choice]
         state.log_player_response(char, option)
         if option.is_action:
             state.record_action(char, option)
             break
         npc_responses = char.generate_responses(state.history, state.conversation_history(char), player)
         state.log_npc_responses(char, npc_responses)
-        for action in state.available_npc_actions(char):
-            actions.setdefault(action.text, action)
-        if actions:
+        npc_actions = list(state.available_npc_actions(char))
+        if npc_actions:
             print("Available actions:")
-            for idx, action in enumerate(actions.values(), 1):
+            for idx, action in enumerate(npc_actions, 1):
                 print(f"{idx}. {action.text}")
     scores = assessor.assess(state.characters, state.how_to_win, state.history)
     state.update_progress(scores)
