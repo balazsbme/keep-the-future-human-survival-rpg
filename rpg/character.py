@@ -44,7 +44,15 @@ def _summarize_response_payload(payload: object) -> str:
         if isinstance(item, dict):
             text_preview = preview(item.get("text", ""))
             kind = item.get("type", "chat")
-            parts.append(f"{idx}. [{kind}] '{text_preview}'")
+            if str(kind).lower() == "action":
+                triplet = item.get("related-triplet", "None")
+                attribute = item.get("related-attribute", "None")
+                parts.append(
+                    f"{idx}. [action] '{text_preview}' "
+                    f"(triplet={triplet}, attribute={attribute})"
+                )
+            else:
+                parts.append(f"{idx}. [{kind}] '{text_preview}'")
         else:
             parts.append(f"{idx}. {preview(item)}")
     return "; ".join(parts)
@@ -444,7 +452,7 @@ class PlayerCharacter(Character):
             "You are the player in the 'Keep the Future Human' survival RPG. "
             f"You are speaking with {partner.display_name} from the {partner.faction or 'independent'} faction. "
             "Ask questions or acknowledge what they say to encourage them to propose concrete actions aligned with their capabilities. "
-            "Include at most one 'action' option where you explicitly instruct them to carry out a previously suggested action."
+            "Offer exactly three concise 'chat' responses that keep the conversation flowing without proposing new actions yourself."
         )
         prompt = (
             f"{base_prompt}\nPrevious gameplay actions:\n{self._history_text(history)}\n"
@@ -456,12 +464,45 @@ class PlayerCharacter(Character):
         response_text = getattr(response, "text", "").strip()
         logger.debug("Raw player response: %s", response_text)
         options = self._parse_response_payload(response_text, len(partner.triplets))
-        if not options:
-            logger.warning("Player model returned no options; providing fallback")
-            options = [
-                ResponseOption(
-                    text=f"Tell me more about your priorities, {partner.name}.",
-                    type="chat",
+        chat_options: List[ResponseOption] = []
+        seen_texts: set[str] = set()
+        partner_name = getattr(partner, "name", getattr(partner, "display_name", "partner"))
+        for option in options:
+            text = option.text.strip() or "Can you elaborate on that?"
+            if text.lower() in seen_texts:
+                continue
+            if option.is_action:
+                logger.info(
+                    "Player model suggested action '%s'; reclassifying as chat option",
+                    text,
                 )
-            ]
-        return options
+                chat_option = ResponseOption(text=text, type="chat")
+            else:
+                chat_option = ResponseOption(text=text, type="chat")
+            chat_options.append(chat_option)
+            seen_texts.add(text.lower())
+            if len(chat_options) == 3:
+                break
+
+        fallback_templates = [
+            "Could you elaborate on your approach, {name}?",
+            "What support would help you move forward, {name}?",
+            "How do you see this unfolding next, {name}?",
+        ]
+        for template in fallback_templates:
+            if len(chat_options) >= 3:
+                break
+            text = template.format(name=partner_name)
+            if text.lower() in seen_texts:
+                continue
+            chat_options.append(ResponseOption(text=text, type="chat"))
+            seen_texts.add(text.lower())
+
+        while len(chat_options) < 3:
+            text = f"Tell me more about your priorities, {partner_name}."
+            if text.lower() in seen_texts:
+                text = "I'm interested in what you think comes next."
+            chat_options.append(ResponseOption(text=text, type="chat"))
+            seen_texts.add(text.lower())
+
+        return chat_options[:3]

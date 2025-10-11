@@ -176,9 +176,10 @@ class YamlCharacterTest(unittest.TestCase):
             display_name="NPC", faction="Allies", triplets=[(1, 2, 3)]
         )
         options = player.generate_responses([], [], partner)
-        self.assertEqual(len(options), 2)
-        self.assertIsInstance(options[0], ResponseOption)
-        self.assertEqual(options[1].type, "action")
+        self.assertEqual(len(options), 3)
+        self.assertTrue(all(option.type == "chat" for option in options))
+        texts = {option.text for option in options}
+        self.assertEqual(len(texts), 3)
 
     @patch("rpg.character.genai")
     def test_load_characters_merges_markdown_context(self, mock_char_genai):
