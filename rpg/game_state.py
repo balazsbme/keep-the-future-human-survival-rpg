@@ -106,15 +106,17 @@ class GameState:
         history = self.conversations.setdefault(key, [])
         action_bucket = self.npc_actions.setdefault(key, {})
         entries: List[ConversationEntry] = []
+        action_candidate: ResponseOption | None = None
         chat_candidate: ResponseOption | None = None
         fallback_option: ResponseOption | None = None
         for option in responses:
-            if option.is_action:
-                action_bucket.setdefault(option.text, option)
-            else:
-                chat_candidate = chat_candidate or option
+            if option.is_action and action_candidate is None:
+                action_candidate = option
+            elif not option.is_action and chat_candidate is None:
+                chat_candidate = option
             fallback_option = fallback_option or option
-        selected_option = chat_candidate or fallback_option
+
+        selected_option = action_candidate or chat_candidate or fallback_option
         if selected_option is not None:
             entry = ConversationEntry(
                 speaker=character.display_name,
@@ -123,6 +125,12 @@ class GameState:
             )
             history.append(entry)
             entries.append(entry)
+            if selected_option.is_action:
+                action_bucket[selected_option.text] = selected_option
+        # Store any additional unique action proposals for later execution.
+        for option in responses:
+            if option.is_action:
+                action_bucket.setdefault(option.text, option)
         logger.debug(
             "Logged %d NPC responses for %s (stored %d actions)",
             len(entries),

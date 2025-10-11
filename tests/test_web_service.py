@@ -121,15 +121,14 @@ class WebServiceTest(unittest.TestCase):
             self.assertEqual(convo_resp.status_code, 200)
             self.assertIn(f"<h1>{character.display_name}</h1>", convo_page)
             self.assertIn("No conversation yet", convo_page)
-            self.assertIn("What worries you most?", convo_page)
+            starter_text = (
+                "It's good to connect, "
+                f"{character.name}. What's top of mind for you today?"
+            )
+            self.assertIn(starter_text, convo_page)
 
             chat_payload = json.dumps(
-                {
-                    "text": "What worries you most?",
-                    "type": "chat",
-                    "related-triplet": "None",
-                    "related-attribute": "None",
-                }
+                ResponseOption(text=starter_text, type="chat").to_payload()
             )
             follow_resp = client.post(
                 "/actions",
@@ -137,8 +136,8 @@ class WebServiceTest(unittest.TestCase):
                 follow_redirects=True,
             )
             follow_page = follow_resp.data.decode()
-            self.assertIn("We should gather more intel first.", follow_page)
             self.assertIn("Coordinate oversight teams", follow_page)
+            self.assertIn("<em>(action)</em>", follow_page)
             self.assertIn("<strong>Action:</strong>", follow_page)
 
             action_option = ResponseOption(
