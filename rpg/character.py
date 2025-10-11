@@ -484,6 +484,17 @@ class PlayerCharacter(Character):
             if len(chat_options) == 3:
                 break
 
+        if not conversation:
+            starter_templates = [
+                "It's good to connect, {name}. What's top of mind for you today?",
+                "I'd love to hear your priorities right now, {name}.",
+                "Where do you see the biggest opportunity to move forward, {name}?",
+            ]
+            return [
+                ResponseOption(text=template.format(name=partner_name), type="chat")
+                for template in starter_templates
+            ]
+
         fallback_templates = [
             "Could you elaborate on your approach, {name}?",
             "What support would help you move forward, {name}?",
