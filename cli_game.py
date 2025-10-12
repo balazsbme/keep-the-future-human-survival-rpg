@@ -137,7 +137,27 @@ def main() -> None:
         option = combined_options[choice]
         state.log_player_response(char, option)
         if option.is_action:
-            state.record_action(char, option)
+            attempt = state.attempt_action(char, option)
+            if attempt.success:
+                break
+            while True:
+                failure_text = attempt.failure_text or (
+                    f"Failed '{option.text}' (attribute {attempt.attribute or 'none'}: {attempt.effective_score}, roll={attempt.roll:.2f})"
+                )
+                print(failure_text)
+                cost = state.next_reroll_cost(char, option)
+                if cost > 0:
+                    prompt = f"Reroll at a credibility cost of {cost}? (y/n): "
+                else:
+                    prompt = "Reroll for free? (y/n): "
+                reroll = input(prompt).strip().lower()
+                if reroll.startswith("y"):
+                    attempt = state.reroll_action(char, option)
+                    if attempt.success:
+                        break
+                    continue
+                state.finalize_failed_action(char, option)
+                break
             break
         npc_responses = char.generate_responses(state.history, state.conversation_history(char), player)
         state.log_npc_responses(char, npc_responses)
