@@ -67,50 +67,31 @@ def create_app() -> Flask:
         "<style>"
         ".layout-container{display:flex;gap:1.5rem;align-items:flex-start;}"
         ".panel{flex:1;padding:0 1rem;box-sizing:border-box;}"
-        ".player-panel{flex:3;}"
-        ".conversation-panel{flex:4;}"
-        ".partner-panel{flex:3;}"
-        ".panel section{margin-bottom:1.5rem;}"
-        ".panel h2{margin-top:0;}"
-        ".context-block{white-space:pre-line;background:#f7f7f7;padding:0.75rem;border-radius:6px;}"
+        ".player-panel,.partner-panel{flex:1.2;max-width:220px;}"
+        ".conversation-panel{flex:5;}"
         ".options-form ul{list-style:none;padding:0;margin:0;}"
         ".options-form li{margin-bottom:0.75rem;}"
+        ".profile-card{display:flex;flex-direction:column;align-items:center;gap:0.75rem;padding:1rem;border-radius:10px;background:#fafafa;border:1px solid #e2e2e2;}"
+        ".profile-photo{width:120px;height:120px;border-radius:10px;background:linear-gradient(135deg,#ececec,#d5d5d5);display:flex;align-items:center;justify-content:center;color:#666;font-weight:600;font-size:0.9rem;}"
+        ".profile-name{margin:0;font-size:1.1rem;text-align:center;}"
+        ".attribute-list{list-style:none;padding:0;margin:0;width:100%;}"
+        ".attribute-list li{display:flex;justify-content:space-between;padding:0.25rem 0;border-bottom:1px solid #e5e5e5;font-size:0.9rem;}"
+        ".attribute-list li:last-child{border-bottom:none;}"
         "</style>"
     )
 
-    def _profile_sections(character: Character, include_context: bool = False) -> str:
+    def _profile_panel(character: Character) -> str:
         attributes = "".join(
-            f"<li><strong>{label}</strong>: {int(character.attribute_score(label.lower()))}</li>"
+            f"<li><span>{label}</span><span>{int(character.attribute_score(label.lower()))}</span></li>"
             for label in ("Leadership", "Technology", "Policy", "Network")
         )
-        sections = [
-            f"<section><h3>Attributes</h3><ul>{attributes}</ul></section>"
-        ]
-        detail_fields = [
-            ("Faction", getattr(character, "faction", "")),
-            ("Perks", getattr(character, "perks", "")),
-            ("Weaknesses", getattr(character, "weaknesses", "")),
-            ("Motivations", getattr(character, "motivations", "")),
-            ("Background", getattr(character, "background", "")),
-        ]
-        detail_items = [
-            f"<dt>{label}</dt><dd>{escape(str(value), quote=False)}</dd>"
-            for label, value in detail_fields
-            if value
-        ]
-        if detail_items:
-            sections.append(
-                "<section><h3>Profile</h3><dl>" + "".join(detail_items) + "</dl></section>"
-            )
-        if include_context:
-            context = getattr(character, "base_context", "")
-            if context:
-                sections.append(
-                    "<section><h3>Context</h3><div class='context-block'>"
-                    + escape(str(context), quote=False).replace("\n", "<br>")
-                    + "</div></section>"
-                )
-        return "".join(sections)
+        return (
+            "<div class='profile-card'>"
+            "<div class='profile-photo' role='img' aria-label='Portrait placeholder'>Portrait</div>"
+            f"<h2 class='profile-name'>{escape(character.display_name, quote=False)}</h2>"
+            f"<ul class='attribute-list'>{attributes}</ul>"
+            "</div>"
+        )
 
     @app.before_request
     def log_request() -> None:
@@ -335,6 +316,18 @@ def create_app() -> Flask:
                 return list(value), False
             if not event.is_set():
                 return None, True
+            refreshed = pending_npc_responses.get(key)
+            if refreshed is not None and refreshed is not entry:
+                refreshed_event, refreshed_value = refreshed
+                if refreshed_value is not None:
+                    return list(refreshed_value), False
+                if not refreshed_event.is_set():
+                    return None, True
+            return None, True
+        if enable_parallel and entry is None:
+            pending_choice = pending_player_choices.get(char_id)
+            if pending_choice and pending_choice[0] == conversation_length and pending_choice[1] == signature:
+                return None, True
         replies = character.generate_responses(history, conversation, player)
         if enable_parallel:
             event = threading.Event()
@@ -392,14 +385,8 @@ def create_app() -> Flask:
             + f"<section><h2>Responses</h2>{form_html}</section>"
             + "<section><a href='/start'>Back to characters</a></section>"
         )
-        player_panel = (
-            f"<h2>{escape(player.display_name, quote=False)}</h2>"
-            + _profile_sections(player, include_context=True)
-        )
-        partner_panel = (
-            f"<h2>{escape(character.display_name, quote=False)}</h2>"
-            + _profile_sections(character, include_context=True)
-        )
+        player_panel = _profile_panel(player)
+        partner_panel = _profile_panel(character)
         layout = (
             panel_style
             + "<div class='layout-container'>"
@@ -456,14 +443,8 @@ def create_app() -> Flask:
             + "</form></section>"
         )
         conversation_panel = outcome_section + convo_block + forms_section
-        player_panel = (
-            f"<h2>{escape(player.display_name, quote=False)}</h2>"
-            + _profile_sections(player, include_context=True)
-        )
-        partner_panel = (
-            f"<h2>{escape(character.display_name, quote=False)}</h2>"
-            + _profile_sections(character, include_context=True)
-        )
+        player_panel = _profile_panel(player)
+        partner_panel = _profile_panel(character)
         layout = (
             panel_style
             + "<div class='layout-container'>"
@@ -639,15 +620,25 @@ def create_app() -> Flask:
             )
             return Response(body)
         options = options or []
+        chat_options = [opt for opt in options if not opt.is_action]
+        if chat_options:
+            display_options = list(chat_options)
+        else:
+            display_options = list(options)
+            action_texts = {opt.text for opt in display_options if opt.is_action}
+            for action in npc_actions:
+                if action.text not in action_texts:
+                    display_options.append(action)
         _preload_npc_responses(
-            char_id, history, conversation, options, character, player
+            char_id,
+            history,
+            conversation,
+            display_options,
+            character,
+            player,
         )
-        action_texts = {opt.text for opt in options if opt.is_action}
-        for action in npc_actions:
-            if action.text not in action_texts:
-                options.append(action)
         page = _render_conversation(
-            char_id, character, conversation, options, state_html, player
+            char_id, character, conversation, display_options, state_html, player
         )
         return Response(page)
 
