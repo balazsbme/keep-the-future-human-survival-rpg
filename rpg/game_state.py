@@ -27,6 +27,23 @@ PLAYER_FACTION = "CivilSociety"
 
 
 @dataclass
+class ActionAttempt:
+    """Outcome of a single action attempt including roll details."""
+
+    success: bool
+    option: ResponseOption
+    attribute: str | None
+    actor_score: int
+    player_score: int
+    effective_score: int
+    roll: float
+    targets: Tuple[str, ...]
+    credibility_cost: int
+    credibility_gain: int
+    failure_text: str | None = None
+
+
+@dataclass
 class GameState:
     """Store characters, their progress, and a history of actions."""
 
@@ -41,6 +58,10 @@ class GameState:
     config: GameConfig = field(init=False)
     credibility: CredibilityMatrix = field(init=False)
     player_character: PlayerCharacter = field(init=False)
+    pending_failures: Dict[Tuple[str, str], ActionAttempt] = field(
+        default_factory=dict, init=False
+    )
+    reroll_counts: Dict[Tuple[str, str], int] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
         """Initialize progress tracking and load "how to win" instructions.
@@ -153,22 +174,27 @@ class GameState:
         *,
         targets: Iterable[str] | None = None,
     ) -> bool:
-        """Attempt to record an action taken by a character.
+        """Resolve an action and automatically log failures when not rerolled."""
 
-        The action succeeds only if a random draw from a uniform [0, 10]
-        distribution is strictly below the relevant character attribute score.
+        option = (
+            action
+            if isinstance(action, ResponseOption)
+            else ResponseOption(text=str(action), type="action")
+        )
+        attempt = self.attempt_action(character, option, targets=targets)
+        if attempt.success:
+            return True
+        self.finalize_failed_action(character, option)
+        return False
 
-        Args:
-            character: The faction-aligned character performing the action.
-            action: The proposed action or its textual description.
-            targets: Optional iterable of faction names whose interests the
-                action should benefit for credibility adjustments. Currently
-                ignored because credibility updates always apply between the
-                player's faction and the actor's faction.
-
-        Returns:
-            ``True`` if the action is recorded as successful, ``False`` otherwise.
-        """
+    def attempt_action(
+        self,
+        character: Character,
+        action: ResponseOption | str,
+        *,
+        targets: Iterable[str] | None = None,
+    ) -> ActionAttempt:
+        """Attempt an action without immediately logging failure results."""
 
         option = (
             action
@@ -176,10 +202,11 @@ class GameState:
             else ResponseOption(text=str(action), type="action")
         )
         if not option.is_action:
-            raise ValueError("record_action requires an action-type ResponseOption")
+            raise ValueError("attempt_action requires an action-type ResponseOption")
         logger.info("Evaluating action '%s' for %s", option.text, character.name)
         attribute_name = option.related_attribute
         attribute_score = character.attribute_score(attribute_name)
+        player_score = self.player_character.attribute_score(attribute_name)
         if attribute_name:
             logger.info(
                 "Action related attribute for %s: %s", character.name, attribute_name
@@ -189,30 +216,169 @@ class GameState:
                 "Action for %s has no related attribute; defaulting score to 0",
                 character.name,
             )
+        if player_score > attribute_score:
+            logger.info(
+                "Player attribute advantage: using player score %s over %s's %s",
+                player_score,
+                character.name,
+                attribute_score,
+            )
+        effective_score = attribute_score
+        if player_score > attribute_score:
+            effective_score = player_score
         logger.info(
-            "Using attribute score %s for success threshold", attribute_score
+            "Using attribute score %s for success threshold", effective_score
         )
         sampled_value = random.uniform(0, 10)
         logger.info("Sampled %.2f from uniform[0, 10]", sampled_value)
-        success = sampled_value < attribute_score
+        success = sampled_value < effective_score
+        cost, gain = self._credibility_cost_gain(attribute_score, player_score)
+        label = attribute_name or "none"
+        failure_text = (
+            f"Failed '{option.text}' (attribute {label}: {effective_score}, roll={sampled_value:.2f})"
+        )
+        targets_tuple = tuple(targets or [])
+        attempt = ActionAttempt(
+            success=success,
+            option=option,
+            attribute=attribute_name,
+            actor_score=attribute_score,
+            player_score=player_score,
+            effective_score=effective_score,
+            roll=sampled_value,
+            targets=targets_tuple,
+            credibility_cost=cost,
+            credibility_gain=gain,
+            failure_text=None if success else failure_text,
+        )
+        key = (character.name, option.text)
         if success:
             logger.info("Action succeeded; recording in history")
+            self.pending_failures.pop(key, None)
+            self.reroll_counts.pop(key, None)
             self.history.append((character.display_name, option.text))
-            self._apply_credibility_updates(character, option, targets)
-        else:
-            logger.info("Action failed; recording failure entry")
-            label = attribute_name or "none"
-            failure_text = (
-                f"Failed '{option.text}' (attribute {label}: {attribute_score}, roll={sampled_value:.2f})"
+            self._apply_credibility_updates(
+                character,
+                option,
+                targets,
+                cost=cost,
+                gain=gain,
             )
-            self.history.append((character.display_name, failure_text))
-        return success
+        else:
+            logger.info("Action failed; storing failure for potential reroll")
+            self.pending_failures[key] = attempt
+            self.reroll_counts.setdefault(key, 0)
+        return attempt
+
+    def _credibility_cost_gain(self, actor_score: int, player_score: int) -> Tuple[int, int]:
+        base_cost = CREDIBILITY_PENALTY
+        base_gain = CREDIBILITY_REWARD
+        diff = actor_score - player_score
+        if diff < 0:
+            advantage = -diff
+            return max(0, base_cost - advantage), base_gain + advantage
+        if diff > 0:
+            penalty = diff
+            return base_cost + penalty, max(0, base_gain - penalty)
+        return base_cost, base_gain
+
+    def _apply_reroll_penalty(
+        self,
+        character: Character,
+        attempt: ActionAttempt,
+        reroll_count: int,
+    ) -> None:
+        actor_faction = getattr(character, "faction", None)
+        penalty = attempt.credibility_cost * reroll_count
+        if penalty <= 0:
+            return
+        self.credibility.ensure_faction(PLAYER_FACTION)
+        target_factions = list(attempt.targets or [actor_faction])
+        for target in target_factions:
+            if not target or target == PLAYER_FACTION:
+                continue
+            self.credibility.ensure_faction(target)
+            logger.debug(
+                "Applying reroll penalty for source=%s target=%s by -%d (attempt %d)",
+                PLAYER_FACTION,
+                target,
+                penalty,
+                reroll_count,
+            )
+            self.credibility.adjust(PLAYER_FACTION, target, -penalty)
+
+    def finalize_failed_action(
+        self,
+        character: Character,
+        action: ResponseOption | str,
+    ) -> None:
+        option = (
+            action
+            if isinstance(action, ResponseOption)
+            else ResponseOption(text=str(action), type="action")
+        )
+        key = (character.name, option.text)
+        attempt = self.pending_failures.pop(key, None)
+        self.reroll_counts.pop(key, None)
+        if not attempt:
+            logger.info("No pending failure to finalize for %s", option.text)
+            return
+        failure_text = attempt.failure_text or (
+            f"Failed '{option.text}' (attribute {attempt.attribute or 'none'}: {attempt.effective_score}, roll={attempt.roll:.2f})"
+        )
+        logger.info("Recording failed action for %s: %s", character.name, failure_text)
+        self.history.append((character.display_name, failure_text))
+
+    def reroll_action(
+        self,
+        character: Character,
+        action: ResponseOption | str,
+        *,
+        targets: Iterable[str] | None = None,
+    ) -> ActionAttempt:
+        option = (
+            action
+            if isinstance(action, ResponseOption)
+            else ResponseOption(text=str(action), type="action")
+        )
+        key = (character.name, option.text)
+        attempt = self.pending_failures.pop(key, None)
+        if attempt is None:
+            raise ValueError("No pending failed action to reroll")
+        reroll_count = self.reroll_counts.get(key, 0) + 1
+        self.reroll_counts[key] = reroll_count
+        self._apply_reroll_penalty(character, attempt, reroll_count)
+        if targets is not None:
+            targets_tuple = tuple(targets)
+        else:
+            targets_tuple = attempt.targets
+        return self.attempt_action(character, option, targets=targets_tuple)
+
+    def next_reroll_cost(
+        self,
+        character: Character,
+        action: ResponseOption | str,
+    ) -> int:
+        option = (
+            action
+            if isinstance(action, ResponseOption)
+            else ResponseOption(text=str(action), type="action")
+        )
+        key = (character.name, option.text)
+        attempt = self.pending_failures.get(key)
+        if not attempt:
+            return 0
+        reroll_count = self.reroll_counts.get(key, 0) + 1
+        return attempt.credibility_cost * reroll_count
 
     def _apply_credibility_updates(
         self,
         character: Character,
         action: ResponseOption,
         targets: Iterable[str] | None,
+        *,
+        cost: int,
+        gain: int,
     ) -> None:
         """Update credibility values after a successful action."""
 
@@ -220,9 +386,7 @@ class GameState:
         self.credibility.ensure_faction(PLAYER_FACTION)
         if actor_faction:
             self.credibility.ensure_faction(actor_faction)
-        delta = (
-            -CREDIBILITY_PENALTY if action.related_triplet is not None else CREDIBILITY_REWARD
-        )
+        delta = -cost if action.related_triplet is not None else gain
         target_factions = list(targets or [actor_faction])
         for target in target_factions:
             if not target or target == PLAYER_FACTION:

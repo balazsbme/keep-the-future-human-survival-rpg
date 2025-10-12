@@ -18,7 +18,7 @@ from cli_game import load_characters
 from rpg.assessment_agent import AssessmentAgent
 from rpg.character import Character, ResponseOption
 from rpg.conversation import ConversationEntry
-from rpg.game_state import GameState, WIN_THRESHOLD
+from rpg.game_state import ActionAttempt, GameState, WIN_THRESHOLD
 
 
 GITHUB_URL = "https://github.com/balazsbme/keep-the-future-human-survival-rpg"
@@ -63,6 +63,54 @@ def create_app() -> Flask:
         "<p><a href='/instructions'>Instructions</a> | "
         f"<a href='{GITHUB_URL}'>GitHub</a></p>"
     )
+    panel_style = (
+        "<style>"
+        ".layout-container{display:flex;gap:1.5rem;align-items:flex-start;}"
+        ".panel{flex:1;padding:0 1rem;box-sizing:border-box;}"
+        ".player-panel{flex:3;}"
+        ".conversation-panel{flex:4;}"
+        ".partner-panel{flex:3;}"
+        ".panel section{margin-bottom:1.5rem;}"
+        ".panel h2{margin-top:0;}"
+        ".context-block{white-space:pre-line;background:#f7f7f7;padding:0.75rem;border-radius:6px;}"
+        ".options-form ul{list-style:none;padding:0;margin:0;}"
+        ".options-form li{margin-bottom:0.75rem;}"
+        "</style>"
+    )
+
+    def _profile_sections(character: Character, include_context: bool = False) -> str:
+        attributes = "".join(
+            f"<li><strong>{label}</strong>: {int(character.attribute_score(label.lower()))}</li>"
+            for label in ("Leadership", "Technology", "Policy", "Network")
+        )
+        sections = [
+            f"<section><h3>Attributes</h3><ul>{attributes}</ul></section>"
+        ]
+        detail_fields = [
+            ("Faction", getattr(character, "faction", "")),
+            ("Perks", getattr(character, "perks", "")),
+            ("Weaknesses", getattr(character, "weaknesses", "")),
+            ("Motivations", getattr(character, "motivations", "")),
+            ("Background", getattr(character, "background", "")),
+        ]
+        detail_items = [
+            f"<dt>{label}</dt><dd>{escape(str(value), quote=False)}</dd>"
+            for label, value in detail_fields
+            if value
+        ]
+        if detail_items:
+            sections.append(
+                "<section><h3>Profile</h3><dl>" + "".join(detail_items) + "</dl></section>"
+            )
+        if include_context:
+            context = getattr(character, "base_context", "")
+            if context:
+                sections.append(
+                    "<section><h3>Context</h3><div class='context-block'>"
+                    + escape(str(context), quote=False).replace("\n", "<br>")
+                    + "</div></section>"
+                )
+        return "".join(sections)
 
     @app.before_request
     def log_request() -> None:
@@ -300,44 +348,131 @@ def create_app() -> Flask:
         conversation: Sequence[ConversationEntry],
         options: Sequence[ResponseOption],
         state_html: str,
+        player: Character,
     ) -> str:
         logger.debug(
             "Rendering conversation for %s with %d history items",
             character.name,
             len(conversation),
         )
-        radios = "".join(
-            f'<input type="radio" name="response" value="{escape(json.dumps(option.to_payload()), quote=True)}" id="opt{idx}">'  # noqa: E501
-            + (
-                f"<label for='opt{idx}'><strong>Action:</strong> {escape(option.text, quote=False)}</label><br>"
-                if option.is_action
-                else f"<label for='opt{idx}'>{escape(option.text, quote=False)}</label><br>"
+        option_items = []
+        for idx, option in enumerate(options):
+            payload = escape(json.dumps(option.to_payload()), quote=True)
+            label_text = escape(option.text, quote=False)
+            if option.is_action:
+                label_html = f"<strong>Action:</strong> {label_text}"
+            else:
+                label_html = label_text
+            option_items.append(
+                f"<li><input type='radio' name='response' value='{payload}' id='opt{idx}'>"
+                f"<label for='opt{idx}'>{label_html}</label></li>"
             )
-            for idx, option in enumerate(options)
+        if option_items:
+            options_html = "<ul>" + "".join(option_items) + "</ul>"
+        else:
+            options_html = "<p>No options available.</p>"
+        form_html = (
+            "<form class='options-form' method='post' action='/actions'>"
+            + options_html
+            + f"<input type='hidden' name='character' value='{char_id}'>"
+            + "<button type='submit'>Send</button>"
+            + "</form>"
         )
-        options_html = radios if radios else "<p>No options available.</p>"
         if conversation:
             convo_items = "".join(
-                f"<li><strong>{escape(entry.speaker, quote=False)}</strong>: {escape(entry.text, quote=False)}"
-                f" <em>({entry.type})</em></li>"
+                f"<li><strong>{escape(entry.speaker, quote=False)}</strong>: {escape(entry.text, quote=False)} "
+                f"<em>({entry.type})</em></li>"
                 for entry in conversation
             )
-            convo_block = f"<h2>Conversation</h2><ol>{convo_items}</ol>"
+            convo_block = f"<ol>{convo_items}</ol>"
         else:
             convo_block = "<p>No conversation yet. Start by greeting the character.</p>"
-        return (
-            f"<h1>{escape(character.display_name, quote=False)}</h1>"
-            f"{convo_block}"
-            "<form method='post' action='/actions'>"
-            f"{options_html}"
-            f"<input type='hidden' name='character' value='{char_id}'>"
-            "<button type='submit'>Send</button>"
-            "</form>"
-            "<a href='/start'>Back to characters</a>"
-            f"{state_html}"
-            f"{footer}"
+        conversation_panel = (
+            f"<section><h2>Conversation with {escape(character.display_name, quote=False)}</h2>{convo_block}</section>"
+            + f"<section><h2>Responses</h2>{form_html}</section>"
+            + "<section><a href='/start'>Back to characters</a></section>"
         )
+        player_panel = (
+            f"<h2>{escape(player.display_name, quote=False)}</h2>"
+            + _profile_sections(player, include_context=True)
+        )
+        partner_panel = (
+            f"<h2>{escape(character.display_name, quote=False)}</h2>"
+            + _profile_sections(character, include_context=True)
+        )
+        layout = (
+            panel_style
+            + "<div class='layout-container'>"
+            + f"<div class='panel player-panel'>{player_panel}</div>"
+            + f"<div class='panel conversation-panel'>{conversation_panel}</div>"
+            + f"<div class='panel partner-panel'>{partner_panel}</div>"
+            + "</div>"
+        )
+        return layout + state_html + footer
 
+    def _render_failure_page(
+        char_id: int,
+        character: Character,
+        attempt: ActionAttempt,
+        conversation: Sequence[ConversationEntry],
+        state_html: str,
+        player: Character,
+        next_cost: int,
+    ) -> str:
+        failure_text = attempt.failure_text or (
+            f"Failed '{attempt.option.text}' (attribute {attempt.attribute or 'none'}: {attempt.effective_score}, roll={attempt.roll:.2f})"
+        )
+        outcome_section = (
+            f"<section><h2>Action Outcome</h2><p>{escape(failure_text, quote=False)}</p></section>"
+        )
+        if conversation:
+            convo_items = "".join(
+                f"<li><strong>{escape(entry.speaker, quote=False)}</strong>: {escape(entry.text, quote=False)} <em>({entry.type})</em></li>"
+                for entry in conversation
+            )
+            convo_block = f"<section><h2>Conversation So Far</h2><ol>{convo_items}</ol></section>"
+        else:
+            convo_block = (
+                "<section><h2>Conversation So Far</h2><p>No conversation yet.</p></section>"
+            )
+        payload = escape(json.dumps(attempt.option.to_payload()), quote=True)
+        if next_cost > 0:
+            reroll_note = f"Reroll will cost {next_cost} credibility."
+            reroll_label = f"Reroll (-{next_cost} credibility)"
+        else:
+            reroll_note = "Reroll will not cost additional credibility."
+            reroll_label = "Reroll (no cost)"
+        forms_section = (
+            f"<section><p>{reroll_note}</p>"
+            + "<form method='post' action='/reroll'>"
+            + f"<input type='hidden' name='character' value='{char_id}'>"
+            + f"<input type='hidden' name='action' value='{payload}'>"
+            + f"<button type='submit'>{reroll_label}</button>"
+            + "</form>"
+            + "<form method='post' action='/finalize_failure'>"
+            + f"<input type='hidden' name='character' value='{char_id}'>"
+            + f"<input type='hidden' name='action' value='{payload}'>"
+            + "<button type='submit'>Accept Failure</button>"
+            + "</form></section>"
+        )
+        conversation_panel = outcome_section + convo_block + forms_section
+        player_panel = (
+            f"<h2>{escape(player.display_name, quote=False)}</h2>"
+            + _profile_sections(player, include_context=True)
+        )
+        partner_panel = (
+            f"<h2>{escape(character.display_name, quote=False)}</h2>"
+            + _profile_sections(character, include_context=True)
+        )
+        layout = (
+            panel_style
+            + "<div class='layout-container'>"
+            + f"<div class='panel player-panel'>{player_panel}</div>"
+            + f"<div class='panel conversation-panel'>{conversation_panel}</div>"
+            + f"<div class='panel partner-panel'>{partner_panel}</div>"
+            + "</div>"
+        )
+        return layout + state_html + footer
     @app.route("/actions", methods=["GET", "POST"])
     def character_actions() -> Response:
         char_id = int(request.values["character"])
@@ -354,52 +489,68 @@ def create_app() -> Flask:
             if option.is_action:
                 with state_lock:
                     game_state.log_player_response(character, option)
-                    game_state.record_action(character, option)
+                    attempt = game_state.attempt_action(character, option)
                     chars_snapshot = list(game_state.characters)
                     history_snapshot = list(game_state.history)
                     how_to_win = game_state.how_to_win
+                    conversation_snapshot = game_state.conversation_history(character)
+                    player_snapshot = game_state.player_character
+                    state_html = game_state.render_state()
+                    next_cost = game_state.next_reroll_cost(character, option)
                 pending_player_options.pop(char_id, None)
                 pending_player_choices.pop(char_id, None)
                 _clear_pending_npc_entries(char_id)
 
-                if enable_parallel:
+                if attempt.success:
+                    if enable_parallel:
 
-                    def run_assessment(
-                        chars: List[Character],
-                        instructions: str,
-                        hist: List[Tuple[str, str]],
-                    ) -> None:
-                        try:
-                            scores = assessor.assess(
-                                chars,
-                                instructions,
-                                hist,
-                                parallel=True,
-                            )
-                            with state_lock:
-                                game_state.update_progress(scores)
-                        finally:
-                            with assessment_lock:
-                                try:
-                                    assessment_threads.remove(threading.current_thread())
-                                except ValueError:
-                                    pass
+                        def run_assessment(
+                            chars: List[Character],
+                            instructions: str,
+                            hist: List[Tuple[str, str]],
+                        ) -> None:
+                            try:
+                                scores = assessor.assess(
+                                    chars,
+                                    instructions,
+                                    hist,
+                                    parallel=True,
+                                )
+                                with state_lock:
+                                    game_state.update_progress(scores)
+                            finally:
+                                with assessment_lock:
+                                    try:
+                                        assessment_threads.remove(threading.current_thread())
+                                    except ValueError:
+                                        pass
 
-                    t = threading.Thread(
-                        target=run_assessment,
-                        args=(chars_snapshot, how_to_win, history_snapshot),
-                        daemon=True,
-                    )
-                    with assessment_lock:
-                        assessment_threads.append(t)
-                    t.start()
-                else:
-                    scores = assessor.assess(
-                        chars_snapshot, how_to_win, history_snapshot
-                    )
-                    with state_lock:
-                        game_state.update_progress(scores)
-                return redirect("/start")
+                        t = threading.Thread(
+                            target=run_assessment,
+                            args=(chars_snapshot, how_to_win, history_snapshot),
+                            daemon=True,
+                        )
+                        with assessment_lock:
+                            assessment_threads.append(t)
+                        t.start()
+                    else:
+                        scores = assessor.assess(
+                            chars_snapshot, how_to_win, history_snapshot
+                        )
+                        with state_lock:
+                            game_state.update_progress(scores)
+                    return redirect("/start")
+
+                failure_page = _render_failure_page(
+                    char_id,
+                    character,
+                    attempt,
+                    conversation_snapshot,
+                    state_html,
+                    player_snapshot,
+                    next_cost,
+                )
+                return Response(failure_page)
 
             with state_lock:
                 history_snapshot = list(game_state.history)
@@ -496,9 +647,123 @@ def create_app() -> Flask:
             if action.text not in action_texts:
                 options.append(action)
         page = _render_conversation(
-            char_id, character, conversation, options, state_html
+            char_id, character, conversation, options, state_html, player
         )
         return Response(page)
+
+    @app.route("/reroll", methods=["POST"])
+    def reroll_action_route() -> Response:
+        char_id = int(request.form["character"])
+        option = _option_from_payload(request.form["action"])
+        with state_lock:
+            character = game_state.characters[char_id]
+            attempt = game_state.reroll_action(character, option)
+            chars_snapshot = list(game_state.characters)
+            history_snapshot = list(game_state.history)
+            how_to_win = game_state.how_to_win
+            conversation_snapshot = game_state.conversation_history(character)
+            player_snapshot = game_state.player_character
+            state_html = game_state.render_state()
+            next_cost = game_state.next_reroll_cost(character, option)
+        if attempt.success:
+            if enable_parallel:
+
+                def run_assessment(
+                    chars: List[Character],
+                    instructions: str,
+                    hist: List[Tuple[str, str]],
+                ) -> None:
+                    try:
+                        scores = assessor.assess(
+                            chars,
+                            instructions,
+                            hist,
+                            parallel=True,
+                        )
+                        with state_lock:
+                            game_state.update_progress(scores)
+                    finally:
+                        with assessment_lock:
+                            try:
+                                assessment_threads.remove(threading.current_thread())
+                            except ValueError:
+                                pass
+
+                t = threading.Thread(
+                    target=run_assessment,
+                    args=(chars_snapshot, how_to_win, history_snapshot),
+                    daemon=True,
+                )
+                with assessment_lock:
+                    assessment_threads.append(t)
+                t.start()
+            else:
+                scores = assessor.assess(
+                    chars_snapshot, how_to_win, history_snapshot
+                )
+                with state_lock:
+                    game_state.update_progress(scores)
+            return redirect("/start")
+
+        failure_page = _render_failure_page(
+            char_id,
+            character,
+            attempt,
+            conversation_snapshot,
+            state_html,
+            player_snapshot,
+            next_cost,
+        )
+        return Response(failure_page)
+
+    @app.route("/finalize_failure", methods=["POST"])
+    def finalize_failure_route() -> Response:
+        char_id = int(request.form["character"])
+        option = _option_from_payload(request.form["action"])
+        with state_lock:
+            character = game_state.characters[char_id]
+            game_state.finalize_failed_action(character, option)
+            chars_snapshot = list(game_state.characters)
+            history_snapshot = list(game_state.history)
+            how_to_win = game_state.how_to_win
+        if enable_parallel:
+
+            def run_assessment(
+                chars: List[Character],
+                instructions: str,
+                hist: List[Tuple[str, str]],
+            ) -> None:
+                try:
+                    scores = assessor.assess(
+                        chars,
+                        instructions,
+                        hist,
+                        parallel=True,
+                    )
+                    with state_lock:
+                        game_state.update_progress(scores)
+                finally:
+                    with assessment_lock:
+                        try:
+                            assessment_threads.remove(threading.current_thread())
+                        except ValueError:
+                            pass
+
+            t = threading.Thread(
+                target=run_assessment,
+                args=(chars_snapshot, how_to_win, history_snapshot),
+                daemon=True,
+            )
+            with assessment_lock:
+                assessment_threads.append(t)
+            t.start()
+        else:
+            scores = assessor.assess(
+                chars_snapshot, how_to_win, history_snapshot
+            )
+            with state_lock:
+                game_state.update_progress(scores)
+        return redirect("/start")
 
     @app.route("/reset", methods=["POST"])
     def reset() -> Response:

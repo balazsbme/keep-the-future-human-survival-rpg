@@ -39,7 +39,7 @@ class CredibilityMatrixTests(unittest.TestCase):
         )
         state.record_action(character, action, targets=["Regulators"])
         updated_player = state.credibility.value(PLAYER_FACTION, "Regulators")
-        self.assertEqual(updated_player, min(100, initial_player + 20))
+        self.assertEqual(updated_player, min(100, initial_player + 10))
 
     @patch("rpg.character.genai")
     @patch("rpg.game_state.random.uniform", return_value=0)
@@ -55,7 +55,7 @@ class CredibilityMatrixTests(unittest.TestCase):
         )
         state.record_action(character, action, targets=["Regulators"])
         updated_player = state.credibility.value(PLAYER_FACTION, "Regulators")
-        self.assertEqual(updated_player, max(0, initial_player - 20))
+        self.assertEqual(updated_player, max(0, initial_player - 30))
 
     @patch("rpg.character.genai")
     @patch("rpg.game_state.random.uniform", return_value=0)
@@ -69,7 +69,7 @@ class CredibilityMatrixTests(unittest.TestCase):
         action = ResponseOption(text="Limit compute", type="action", related_triplet=1)
         state.record_action(character, action)
         updated_player = state.credibility.value(PLAYER_FACTION, "Governments")
-        self.assertEqual(updated_player, max(0, initial_player - 20))
+        self.assertEqual(updated_player, max(0, initial_player - 30))
 
     @patch("rpg.character.genai")
     @patch("rpg.game_state.random.uniform", return_value=0)
@@ -79,7 +79,7 @@ class CredibilityMatrixTests(unittest.TestCase):
         state = GameState([outsider])
         action = ResponseOption(text="Build bridges", type="action", related_triplet=None)
         state.record_action(outsider, action, targets=["Governments"])
-        self.assertEqual(state.credibility.value(PLAYER_FACTION, "Governments"), 70)
+        self.assertEqual(state.credibility.value(PLAYER_FACTION, "Governments"), 60)
         self.assertEqual(state.credibility.value("Governments", "NewFaction"), 50)
 
 

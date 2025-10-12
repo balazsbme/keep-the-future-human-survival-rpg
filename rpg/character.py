@@ -9,9 +9,13 @@ import logging
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, List, Sequence, Tuple
 
 from .conversation import ConversationEntry, ConversationType
+from .config import load_game_config
+
+import yaml
 
 try:  # pragma: no cover - optional dependency
     import google.generativeai as genai
@@ -439,18 +443,95 @@ class PlayerCharacter(Character):
     """Representation of the human player as a character."""
 
     def __init__(self, model: str = "gemini-2.5-flash") -> None:
-        persona = (
-            "You are the human negotiator guiding factions toward safe AI outcomes. "
-            "You seek information that will help persuade them to take effective actions."
-        )
+        base_dir = Path(__file__).resolve().parent
+        profile_path = base_dir / "player_character.yaml"
+        profile_entries = _character_entries(_load_yaml(profile_path))
+        if not profile_entries:
+            raise ValueError("player_character.yaml must define at least one character entry")
+        profile = dict(profile_entries[0])
+        faction = str(profile.get("faction", "CivilSociety")) or "CivilSociety"
+        name = str(profile.get("name", "Player")) or "Player"
+
+        config = load_game_config()
+        scenario_path = base_dir.parent / "scenarios" / f"{config.scenario}.yaml"
+        try:
+            scenario_specs = _mapping_from_payload(_load_yaml(scenario_path))
+        except FileNotFoundError:
+            logger.warning("Scenario file %s not found; player triplets unavailable", scenario_path)
+            scenario_specs = {}
+        context_path = base_dir.parent / "factions.yaml"
+        try:
+            context_specs = _mapping_from_payload(_load_yaml(context_path))
+        except FileNotFoundError:
+            logger.warning("Faction context file %s not found; using empty context", context_path)
+            context_specs = {}
+
+        faction_spec = scenario_specs.get(faction, {})
+        context_spec = context_specs.get(faction, {})
+        if isinstance(context_spec, dict) and context_spec.get("MarkdownContext"):
+            faction_spec = dict(faction_spec)
+            faction_spec["MarkdownContext"] = context_spec["MarkdownContext"]
+        base_context = str(faction_spec.get("MarkdownContext", "")).strip()
+
+        end_states = faction_spec.get("end_states", [])
+        initial_states = faction_spec.get("initial_states", [])
+        gaps = faction_spec.get("gaps", [])
+        if not all(isinstance(lst, list) for lst in (end_states, initial_states, gaps)):
+            end_states, initial_states, gaps = [], [], []
+        self.initial_states = list(initial_states)
+        self.end_states = list(end_states)
+        self.gaps = list(gaps)
+        self.triplets = list(zip(self.initial_states, self.end_states, self.gaps))
+        weight_map = {"Critical": 4, "Large": 3, "Moderate": 2, "Small": 1}
+        self.weights = []
+        for gap in self.gaps:
+            if isinstance(gap, dict):
+                sev = gap.get("severity") or gap.get("size")
+                self.weights.append(weight_map.get(sev, 1))
+            else:
+                self.weights.append(1)
+
+        persona_lines = [
+            f"You are {name}, a civil society strategist navigating AI governance negotiations.",
+            str(profile.get("background", "")),
+            "Use your coalition-building strengths to elicit concrete commitments from partners.",
+        ]
+        if base_context:
+            persona_lines.append("Ground yourself in the detailed civil society context provided.")
+        persona = " ".join(line for line in persona_lines if line)
+
         super().__init__(
-            name="Player",
+            name=name,
             context=persona,
             model=model,
-            faction=None,
-            perks="Skilled mediator",
-            motivations="Keep the future human",
+            faction=faction,
+            perks=str(profile.get("perks", "") or ""),
+            motivations=str(profile.get("motivations", "") or ""),
+            background=str(profile.get("background", "") or ""),
+            weaknesses=str(profile.get("weaknesses", "") or ""),
         )
+        self.profile = profile
+        self.base_context = base_context
+        self._attribute_scores: dict[str, int] = {}
+        for attr in ("leadership", "technology", "policy", "network"):
+            raw_value = profile.get(attr)
+            if raw_value is None and attr.capitalize() in profile:
+                raw_value = profile.get(attr.capitalize())
+            try:
+                numeric = int(raw_value)
+            except (TypeError, ValueError):
+                numeric = 0
+            self._attribute_scores[attr] = max(0, min(10, numeric))
+
+    def attribute_score(self, attribute: str | None) -> int:
+        if not attribute:
+            return 0
+        return self._attribute_scores.get(attribute.lower(), 0)
+
+    def _civil_society_context(self) -> str:
+        if not self.base_context:
+            return "No additional civil society context provided."
+        return self.base_context
 
     def generate_responses(
         self,
@@ -459,15 +540,27 @@ class PlayerCharacter(Character):
         partner: Character,
     ) -> List[ResponseOption]:
         logger.info("Generating player responses against %s", partner.display_name)
+        partner_label = partner.display_name
+        attribute_summary = ", ".join(
+            f"{key.title()}: {value}" for key, value in self._attribute_scores.items()
+        )
         base_prompt = (
-            "You are the player in the 'Keep the Future Human' survival RPG. "
-            f"You are speaking with {partner.display_name} from the {partner.faction or 'independent'} faction. "
-            "Ask questions or acknowledge what they say to encourage them to propose concrete actions aligned with their capabilities. "
-            "Offer exactly three concise 'chat' responses that keep the conversation flowing without proposing new actions yourself."
+            "You are the civil society player in the 'Keep the Future Human' survival RPG. "
+            f"You are speaking with {partner_label} from the {partner.faction or 'independent'} faction. "
+            "Draw on your coalition strengths to encourage them to state concrete actions they can take. "
+            "Offer exactly three concise 'chat' responses that keep the conversation moving without proposing actions yourself."
+        )
+        context_prompt = (
+            f"\n### Your Civil Society Context\n{self._civil_society_context()}\n"
+            if self.base_context
+            else ""
         )
         prompt = (
-            f"{base_prompt}\nPrevious gameplay actions:\n{self._history_text(history)}\n"
+            f"{base_prompt}{context_prompt}\n"
+            f"Your capabilities: {attribute_summary}.\n"
+            f"Previous gameplay actions:\n{self._history_text(history)}\n"
             f"Conversation so far:\n{self._conversation_text(conversation)}\n"
+            f"Your profile:\n{self._profile_text()}\n"
             f"{self._format_prompt_instructions()}"
         )
         logger.debug("Player prompt: %s", prompt)
@@ -518,6 +611,18 @@ class PlayerCharacter(Character):
                 for template in starter_templates
             ]
 
+        if not chat_options:
+            logger.warning("No chat options generated for player; using fallback prompts")
+            return [
+                ResponseOption(
+                    text="Could you share more about your priorities?", type="chat"
+                ),
+                ResponseOption(text="What support do you need next?", type="chat"),
+                ResponseOption(
+                    text="How can civil society back you up right now?", type="chat"
+                ),
+            ]
+
         fallback_templates = [
             "Could you elaborate on your approach, {name}?",
             "What support would help you move forward, {name}?",
@@ -554,3 +659,32 @@ class PlayerCharacter(Character):
             )
 
         return chat_options[:3]
+
+
+def _load_yaml(path: Path) -> object:
+    with path.open("r", encoding="utf-8") as handle:
+        return yaml.safe_load(handle) or {}
+
+
+def _character_entries(payload: object) -> Sequence[dict]:
+    if isinstance(payload, dict):
+        if "Characters" in payload and isinstance(payload["Characters"], list):
+            return [entry for entry in payload["Characters"] if isinstance(entry, dict)]
+        return [
+            dict({"name": name}, **profile)
+            for name, profile in payload.items()
+            if isinstance(profile, dict)
+        ]
+    if isinstance(payload, list):
+        return [entry for entry in payload if isinstance(entry, dict)]
+    return []
+
+
+def _mapping_from_payload(payload: object) -> dict:
+    if isinstance(payload, dict):
+        factions = payload.get("factions")
+        if isinstance(factions, dict):
+            return {k: v for k, v in factions.items() if isinstance(v, dict)}
+        return {k: v for k, v in payload.items() if isinstance(v, dict)}
+    return {}
+
