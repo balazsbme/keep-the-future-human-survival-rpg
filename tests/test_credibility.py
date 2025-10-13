@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from rpg.character import ResponseOption
+from rpg.credibility import CredibilityMatrix
 from rpg.game_state import GameState
 
 
@@ -85,6 +86,12 @@ class CredibilityMatrixTests(unittest.TestCase):
         player_faction = state.player_faction
         self.assertEqual(state.credibility.value(player_faction, "Governments"), 60)
         self.assertEqual(state.credibility.value("Governments", "NewFaction"), 50)
+
+    def test_same_faction_adjustments_persist(self) -> None:
+        matrix = CredibilityMatrix()
+        baseline = matrix.value("CivilSociety", "CivilSociety")
+        matrix.adjust("CivilSociety", "CivilSociety", -18)
+        self.assertEqual(matrix.value("CivilSociety", "CivilSociety"), max(0, baseline - 18))
 
 
 if __name__ == "__main__":

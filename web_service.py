@@ -83,6 +83,42 @@ def create_app() -> Flask:
         "</style>"
     )
 
+    summary_style = (
+        "<style>"
+        ".scenario-summary{margin:1.5rem 0;padding:1rem;border:1px solid #dcdcdc;"
+        "border-radius:10px;background:#f8f8f8;}"
+        ".scenario-summary h2{margin:0 0 0.5rem 0;font-size:1.2rem;}"
+        ".scenario-summary p{margin:0.5rem 0;line-height:1.5;}"
+        "</style>"
+    )
+
+    def _format_summary_html(text: str) -> str:
+        stripped = (text or "").strip()
+        if not stripped:
+            return ""
+        paragraphs: List[str] = []
+        blocks = [block.strip() for block in stripped.split("\n\n")]
+        for block in blocks:
+            if not block:
+                continue
+            safe_block = escape(block, quote=False).replace("\n", "<br>")
+            paragraphs.append(f"<p>{safe_block}</p>")
+        if not paragraphs:
+            safe_text = escape(stripped, quote=False).replace("\n", "<br>")
+            return f"<p>{safe_text}</p>"
+        return "".join(paragraphs)
+
+    def _scenario_summary_section(text: str) -> str:
+        formatted = _format_summary_html(text)
+        if not formatted:
+            return ""
+        return (
+            summary_style
+            + "<section class='scenario-summary'><h2>Scenario Overview</h2>"
+            + formatted
+            + "</section>"
+        )
+
     def _profile_panel(character: Character, *, credibility: int | None = None) -> str:
         attributes = "".join(
             f"<li><span>{label}</span><span>{int(character.attribute_score(label.lower()))}</span></li>"
@@ -112,9 +148,13 @@ def create_app() -> Flask:
     @app.route("/", methods=["GET"])
     def main_page() -> str:
         turns = game_state.config.max_rounds
+        summary_section = _scenario_summary_section(
+            getattr(game_state, "scenario_summary", "")
+        )
         return (
             "<h1>AI Safety Negotiation Game</h1>"
-            "<p>You are an expert negotiator with connections to every major faction shaping AI governance. You can persuade their key representatives to propose and take actions. Your objective is to ensure AI is developed in humanity's best interest and keep the future human.</p>"
+            + summary_section
+            + "<p>You are an expert negotiator with connections to every major faction shaping AI governance. You can persuade their key representatives to propose and take actions. Your objective is to ensure AI is developed in humanity's best interest and keep the future human.</p>"
             f"<p>You have {turns} turns to reach a final weighted score of {WIN_THRESHOLD} or higher to win.</p>"
             "<a href='/start'>Start</a>"
             f"{footer}"
@@ -207,9 +247,13 @@ def create_app() -> Flask:
                 + "</label></div>"
             )
         options = "".join(option_items)
+        summary_section = _scenario_summary_section(
+            getattr(game_state, "scenario_summary", "")
+        )
         body = (
             "<h1>Keep the Future Human Survival RPG</h1>"
-            "<form method='get' action='/actions'>"
+            + summary_section
+            + "<form method='get' action='/actions'>"
             f"{options}"
             "<button type='submit'>Talk</button>"
             "</form>"

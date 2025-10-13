@@ -56,6 +56,7 @@ class GameState:
     progress: Dict[str, List[int]] = field(init=False)
     weights: Dict[str, List[int]] = field(init=False)
     how_to_win: str = field(init=False)
+    scenario_summary: str = field(init=False, default="")
     faction_labels: Dict[str, str] = field(init=False)
     config: GameConfig = field(init=False)
     credibility: CredibilityMatrix = field(init=False)
@@ -82,6 +83,7 @@ class GameState:
         self.config = GAME_CONFIG
         self.credibility = CredibilityMatrix()
         self.player_character = PlayerCharacter()
+        self.scenario_summary = getattr(self.player_character, "scenario_summary", "")
         self.player_faction = self.player_character.faction or PLAYER_FACTION
         self.credibility.ensure_faction(self.player_faction)
         for character in self.characters:
