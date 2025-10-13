@@ -1,0 +1,57 @@
+ScenarioSummary: |
+  With the Gates secured, humanity turns to building Tool AI — systems that empower rather than replace.
+  Power is redistributed through democratic oversight, scientific integrity, and responsible technology design.
+
+Governments:
+  initial_states:
+    - Export controls exist but no international treaties on AI compute
+  end_states:
+    - Negotiate international agreements for verification and enforcement
+  gaps:
+    - severity: Critical
+      explanation: No international treaties or institutions; rivalry (e.g., US–China) intensifies
+
+Corporations:
+  initial_states:
+    - Employee dissent exists but leadership remains committed to AGI race
+  end_states:
+    - Respond to cultural and social pressure to change mission
+  gaps:
+    - severity: Large
+      explanation: Some cultural dissent, but weak relative to leadership and profit incentives
+
+HardwareManufacturers:
+  initial_states:
+    - No global harmonized standards; unilateral controls create loopholes
+  end_states:
+    - Support global standards without loopholes
+  gaps:
+    - severity: Large
+      explanation: Global standards absent due to geopolitical rivalry
+
+Regulators:
+  initial_states:
+    - No global AI governance body exists; only proposals for CERN/IAEA-style institutions
+  end_states:
+    - Create legitimate global governance institutions
+  gaps:
+    - severity: Critical
+      explanation: No international enforcement mechanisms; rival governments do not cooperate
+
+CivilSociety:
+  initial_states:
+    - Public polls show opposition to AGI but understanding of risks is shallow
+  end_states:
+    - Be well-informed on AGI risks and Tool AI alternatives
+  gaps:
+    - severity: Moderate
+      explanation: Public instincts align but education and awareness are lacking
+
+ScientificCommunity:
+  initial_states:
+    - Prominent researchers (Hinton, Bengio) actively warn of extinction risks
+  end_states:
+    - Engage public and policymakers with credible advocacy
+  gaps:
+    - severity: Small
+      explanation: Advocacy growing and aligned, but not yet mainstreamed

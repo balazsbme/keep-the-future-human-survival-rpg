@@ -1,0 +1,58 @@
+ScenarioSummary: |
+  After the dangers become undeniable, governments and regulators attempt to institutionalize 
+  oversight — enforcing compute limits, liability laws, and chip-based governance while fighting 
+  corporate capture and geopolitical fragmentation.
+
+Governments:
+  initial_states:
+    - Oversight agencies limited or nonexistent
+  end_states:
+    - Create empowered AI oversight agencies
+  gaps:
+    - severity: Large
+      explanation: Oversight agencies lack authority and speed; regulation lags industry progress
+
+Corporations:
+  initial_states:
+    - Corporations resist regulation, opposing liability frameworks such as California’s SB1047
+  end_states:
+    - Accept strict liability for dangerous systems
+  gaps:
+    - severity: Critical
+      explanation: Strong resistance to liability threatens public accountability
+
+HardwareManufacturers:
+  initial_states:
+    - Highly concentrated supply chain (TSMC, ASML, NVIDIA, AMD) makes oversight feasible
+  end_states:
+    - Embed governance features in chips (cryptographic locks, metering, geolocation)
+  gaps:
+    - severity: Moderate
+      explanation: Technical feasibility proven, but dependent on government mandates
+
+Regulators:
+  initial_states:
+    - Early standards like Frontier Model Forum exist but lack enforcement
+  end_states:
+    - Develop clear technical standards for compute reporting and accounting
+  gaps:
+    - severity: Moderate
+      explanation: Groundwork exists but technical standards lack precision and enforcement
+
+CivilSociety:
+  initial_states:
+    - NGOs exist (Future of Life Institute, alignment groups) but fragmented and weak relative to corporations
+  end_states:
+    - Build broad coalitions across NGOs, labor, and media
+  gaps:
+    - severity: Large
+      explanation: Coalitions fragmented; need stronger coordination
+
+ScientificCommunity:
+  initial_states:
+    - Some collaboration among AI safety networks but fragmented
+  end_states:
+    - Coordinate globally to prevent 'safety tourism'
+  gaps:
+    - severity: Moderate
+      explanation: Global coordination exists but fragmented and underpowered

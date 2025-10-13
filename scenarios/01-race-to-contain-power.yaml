@@ -1,0 +1,58 @@
+ScenarioSummary: |
+  Global powers and corporations escalate an AGI arms race under economic and security pressures. 
+  To survive, they must recognize that the race itself is unwinnable — only containment, cooperation, 
+  and restraint can prevent catastrophic loss of control.
+
+Governments:
+  initial_states:
+    - Political focus on economic growth and national security competition
+  end_states:
+    - Shift national security framing from AGI race to Tool AI programs
+  gaps:
+    - severity: Critical
+      explanation: National security establishments view AGI race as winnable, opposite of the plan
+
+Corporations:
+  initial_states:
+    - Business incentives favor labor-replacing AGI systems
+  end_states:
+    - Pivot business models from AGI toward Tool AI
+  gaps:
+    - severity: Critical
+      explanation: Pivot to Tool AI conflicts with profit logic of automation
+
+HardwareManufacturers:
+  initial_states:
+    - Firms profit from maximizing demand; no incentives to restrain sales
+  end_states:
+    - Accept reduced sales in exchange for stability and safety
+  gaps:
+    - severity: Large
+      explanation: Commercial incentives oppose restraint; alignment requires regulation
+
+Regulators:
+  initial_states:
+    - Industry lobbying strongly influences rulemaking; EU AI Act exempts military AI and does not prohibit AGI
+  end_states:
+    - Stay independent from corporate and national capture
+  gaps:
+    - severity: Large
+      explanation: Regulators heavily influenced by corporate lobbying and national agendas
+
+CivilSociety:
+  initial_states:
+    - Institutions weak; lobbying power of corporations outweighs public preference
+  end_states:
+    - Exert democratic leverage early to influence policy
+  gaps:
+    - severity: Large
+      explanation: Democratic pressure weak compared to corporate lobbying and declining institutional trust
+
+ScientificCommunity:
+  initial_states:
+    - Many researchers absorbed by big tech labs; independent research underfunded
+  end_states:
+    - Resist corporate funding capture
+  gaps:
+    - severity: Large
+      explanation: Corporate incentives dominate research directions
