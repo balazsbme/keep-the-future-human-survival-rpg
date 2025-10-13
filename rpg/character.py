@@ -454,11 +454,16 @@ class PlayerCharacter(Character):
 
         config = load_game_config()
         scenario_path = base_dir.parent / "scenarios" / f"{config.scenario}.yaml"
+        scenario_payload: object = {}
         try:
-            scenario_specs = _mapping_from_payload(_load_yaml(scenario_path))
+            scenario_payload = _load_yaml(scenario_path)
         except FileNotFoundError:
-            logger.warning("Scenario file %s not found; player triplets unavailable", scenario_path)
-            scenario_specs = {}
+            logger.warning(
+                "Scenario file %s not found; player triplets unavailable",
+                scenario_path,
+            )
+            scenario_payload = {}
+        scenario_specs = _mapping_from_payload(scenario_payload)
         context_path = base_dir.parent / "factions.yaml"
         try:
             context_specs = _mapping_from_payload(_load_yaml(context_path))
@@ -518,6 +523,25 @@ class PlayerCharacter(Character):
         self.base_context = base_context
         self._attribute_scores: dict[str, int] = {}
         self._faction_descriptor = faction_descriptor
+        summary_text = ""
+        if isinstance(scenario_payload, dict):
+            summary_value: object | None = None
+            for key in ("summary", "Summary"):
+                if key in scenario_payload:
+                    summary_value = scenario_payload.get(key)
+                    break
+            if summary_value is None:
+                metadata = scenario_payload.get("metadata")
+                if isinstance(metadata, dict):
+                    summary_value = metadata.get("summary") or metadata.get("Summary")
+            if isinstance(summary_value, str):
+                summary_text = summary_value.strip()
+            elif isinstance(summary_value, list):
+                summary_parts = [
+                    str(item).strip() for item in summary_value if str(item).strip()
+                ]
+                summary_text = "\n".join(summary_parts)
+        self.scenario_summary = summary_text
         for attr in ("leadership", "technology", "policy", "network"):
             raw_value = profile.get(attr)
             if raw_value is None and attr.capitalize() in profile:

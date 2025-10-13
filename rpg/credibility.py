@@ -195,7 +195,7 @@ class CredibilityMatrix:
             row = self._values.setdefault(source, {})
             for target in self._order:
                 if source == target:
-                    row[target] = DIAGONAL_CREDIBILITY
+                    row.setdefault(target, DIAGONAL_CREDIBILITY)
                 else:
                     row.setdefault(target, DEFAULT_BASE_CREDIBILITY)
 

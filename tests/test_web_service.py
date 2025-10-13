@@ -110,11 +110,15 @@ class WebServiceTest(unittest.TestCase):
             page = resp.data.decode()
             self.assertEqual(resp.status_code, 200)
             self.assertIn("AI Safety Negotiation Game", page)
+            self.assertIn("Scenario Overview", page)
+            self.assertIn("Test scenario summary.", page)
 
             start_resp = client.get("/start")
             start_page = start_resp.data.decode()
             self.assertEqual(start_resp.status_code, 200)
             self.assertIn("Talk", start_page)
+            self.assertIn("Scenario Overview", start_page)
+            self.assertIn("Test scenario summary.", start_page)
 
             convo_resp = client.get("/actions", query_string={"character": "0"})
             convo_page = convo_resp.data.decode()

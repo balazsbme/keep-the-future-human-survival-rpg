@@ -1,3 +1,5 @@
+summary: "Test scenario summary."
+
 test_character:
   end_states:
     - end1
