@@ -400,11 +400,11 @@ class YamlCharacter(Character):
             return []
         if len(options) > 1:
             logger.info(
-                "Model returned %d options for %s; defaulting to the first",
+                "Model returned %d options for %s; using top suggestions",
                 len(options),
                 self.name,
             )
-        return options[:1]
+        return options[:3]
 
     def perform_action(
         self,
@@ -596,44 +596,36 @@ class PlayerCharacter(Character):
             if len(chat_options) == 3:
                 break
 
-        if not conversation:
-            starter_templates = [
-                "It's good to connect, {name}. What's top of mind for you today?",
-                "I'd love to hear your priorities right now, {name}.",
-                "Where do you see the biggest opportunity to move forward, {name}?",
-            ]
-            logger.info(
-                "Using starter templates for initial conversation with %s",
-                partner_name,
-            )
-            return [
-                ResponseOption(text=template.format(name=partner_name), type="chat")
-                for template in starter_templates
-            ]
-
-        if not chat_options:
-            logger.warning("No chat options generated for player; using fallback prompts")
-            return [
-                ResponseOption(
-                    text="Could you share more about your priorities?", type="chat"
-                ),
-                ResponseOption(text="What support do you need next?", type="chat"),
-                ResponseOption(
-                    text="How can civil society back you up right now?", type="chat"
-                ),
-            ]
-
+        starter_templates = [
+            "It's good to connect, {name}. What's top of mind for you today?",
+            "I'd love to hear your priorities right now, {name}.",
+            "Where do you see the biggest opportunity to move forward, {name}?",
+        ]
         fallback_templates = [
             "Could you elaborate on your approach, {name}?",
             "What support would help you move forward, {name}?",
             "How do you see this unfolding next, {name}?",
         ]
+        supplemental_templates = list(starter_templates if not conversation else [])
+        supplemental_templates.extend(fallback_templates)
+
+        if not chat_options:
+            if not conversation:
+                logger.info(
+                    "No generated starters for %s; using fallback templates",
+                    partner_name,
+                )
+            else:
+                logger.warning(
+                    "No chat options generated for player; using fallback prompts"
+                )
+
         if len(chat_options) < 3:
             logger.info(
                 "Supplementing player options with fallback templates for %s",
                 partner_name,
             )
-        for template in fallback_templates:
+        for template in supplemental_templates:
             if len(chat_options) >= 3:
                 break
             text = template.format(name=partner_name)
