@@ -148,16 +148,11 @@ class GameState:
         chat_candidate: ResponseOption | None = None
         fallback_option: ResponseOption | None = None
         for option in responses:
-            if option.is_action:
-                action_bucket.setdefault(option.text, option)
             if option.is_action and action_candidate is None:
                 action_candidate = option
             elif not option.is_action and chat_candidate is None:
                 chat_candidate = option
             fallback_option = fallback_option or option
-
-        if action_bucket:
-            self._refresh_action_labels(key)
 
         selected_option = action_candidate or chat_candidate or fallback_option
         if selected_option is not None:
@@ -173,11 +168,7 @@ class GameState:
             )
             history.append(entry)
             entries.append(entry)
-        # Store any additional unique action proposals for later execution.
-        for option in responses:
-            if option.is_action:
-                action_bucket.setdefault(option.text, option)
-        if action_bucket:
+        if selected_option is None and action_bucket:
             self._refresh_action_labels(key)
         logger.debug(
             "Logged %d NPC responses for %s (stored %d actions)",
