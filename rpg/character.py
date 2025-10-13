@@ -490,13 +490,17 @@ class PlayerCharacter(Character):
             else:
                 self.weights.append(1)
 
+        faction_descriptor = re.sub(r"(?<!^)(?=[A-Z])", " ", faction).strip() or faction
+        faction_lower = faction_descriptor.lower()
         persona_lines = [
-            f"You are {name}, a civil society strategist navigating AI governance negotiations.",
+            f"You are {name}, a {faction_lower} strategist navigating AI governance negotiations.",
             str(profile.get("background", "")),
             "Use your coalition-building strengths to elicit concrete commitments from partners.",
         ]
         if base_context:
-            persona_lines.append("Ground yourself in the detailed civil society context provided.")
+            persona_lines.append(
+                f"Ground yourself in the detailed {faction_lower} context provided."
+            )
         persona = " ".join(line for line in persona_lines if line)
 
         super().__init__(
@@ -512,6 +516,7 @@ class PlayerCharacter(Character):
         self.profile = profile
         self.base_context = base_context
         self._attribute_scores: dict[str, int] = {}
+        self._faction_descriptor = faction_descriptor
         for attr in ("leadership", "technology", "policy", "network"):
             raw_value = profile.get(attr)
             if raw_value is None and attr.capitalize() in profile:
@@ -527,9 +532,9 @@ class PlayerCharacter(Character):
             return 0
         return self._attribute_scores.get(attribute.lower(), 0)
 
-    def _civil_society_context(self) -> str:
+    def _faction_context(self) -> str:
         if not self.base_context:
-            return "No additional civil society context provided."
+            return f"No additional {self._faction_descriptor.lower()} context provided."
         return self.base_context
 
     def generate_responses(
@@ -544,13 +549,13 @@ class PlayerCharacter(Character):
             f"{key.title()}: {value}" for key, value in self._attribute_scores.items()
         )
         base_prompt = (
-            "You are the civil society player in the 'Keep the Future Human' survival RPG. "
+            f"You are the {self._faction_descriptor.lower()} player in the 'Keep the Future Human' survival RPG. "
             f"You are speaking with {partner_label} from the {partner.faction or 'independent'} faction. "
             "Draw on your coalition strengths to encourage them to state concrete actions they can take. "
             "Offer exactly three concise 'chat' responses that keep the conversation moving without proposing actions yourself."
         )
         context_prompt = (
-            f"\n### Your Civil Society Context\n{self._civil_society_context()}\n"
+            f"\n### Your {self._faction_descriptor} Context\n{self._faction_context()}\n"
             if self.base_context
             else ""
         )

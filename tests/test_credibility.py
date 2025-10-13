@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from rpg.character import ResponseOption
-from rpg.game_state import PLAYER_FACTION, GameState
+from rpg.game_state import GameState
 
 
 class DummyCharacter:
@@ -33,12 +33,13 @@ class CredibilityMatrixTests(unittest.TestCase):
         mock_genai.GenerativeModel.return_value = MagicMock()
         character = DummyCharacter("Alice", "Governments")
         state = GameState([character])
-        initial_player = state.credibility.value(PLAYER_FACTION, "Regulators")
+        player_faction = state.player_faction
+        initial_player = state.credibility.value(player_faction, "Regulators")
         action = ResponseOption(
             text="Coordinate with regulators", type="action", related_triplet=None
         )
         state.record_action(character, action, targets=["Regulators"])
-        updated_player = state.credibility.value(PLAYER_FACTION, "Regulators")
+        updated_player = state.credibility.value(player_faction, "Regulators")
         self.assertEqual(updated_player, min(100, initial_player + 10))
 
     @patch("rpg.character.genai")
@@ -49,12 +50,13 @@ class CredibilityMatrixTests(unittest.TestCase):
         mock_genai.GenerativeModel.return_value = MagicMock()
         character = DummyCharacter("Alice", "Governments")
         state = GameState([character])
-        initial_player = state.credibility.value(PLAYER_FACTION, "Regulators")
+        player_faction = state.player_faction
+        initial_player = state.credibility.value(player_faction, "Regulators")
         action = ResponseOption(
             text="Enforce compute caps", type="action", related_triplet=1
         )
         state.record_action(character, action, targets=["Regulators"])
-        updated_player = state.credibility.value(PLAYER_FACTION, "Regulators")
+        updated_player = state.credibility.value(player_faction, "Regulators")
         self.assertEqual(updated_player, max(0, initial_player - 30))
 
     @patch("rpg.character.genai")
@@ -65,10 +67,11 @@ class CredibilityMatrixTests(unittest.TestCase):
         mock_genai.GenerativeModel.return_value = MagicMock()
         character = DummyCharacter("Alice", "Governments")
         state = GameState([character])
-        initial_player = state.credibility.value(PLAYER_FACTION, "Governments")
+        player_faction = state.player_faction
+        initial_player = state.credibility.value(player_faction, "Governments")
         action = ResponseOption(text="Limit compute", type="action", related_triplet=1)
         state.record_action(character, action)
-        updated_player = state.credibility.value(PLAYER_FACTION, "Governments")
+        updated_player = state.credibility.value(player_faction, "Governments")
         self.assertEqual(updated_player, max(0, initial_player - 30))
 
     @patch("rpg.character.genai")
@@ -79,7 +82,8 @@ class CredibilityMatrixTests(unittest.TestCase):
         state = GameState([outsider])
         action = ResponseOption(text="Build bridges", type="action", related_triplet=None)
         state.record_action(outsider, action, targets=["Governments"])
-        self.assertEqual(state.credibility.value(PLAYER_FACTION, "Governments"), 60)
+        player_faction = state.player_faction
+        self.assertEqual(state.credibility.value(player_faction, "Governments"), 60)
         self.assertEqual(state.credibility.value("Governments", "NewFaction"), 50)
 
 
