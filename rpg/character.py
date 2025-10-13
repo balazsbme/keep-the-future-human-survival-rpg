@@ -376,7 +376,6 @@ class YamlCharacter(Character):
             f"You are {self.display_name} in the 'Keep the Future Human' survival RPG game. "
             f"You are having a conversation with {partner_label}. "
             "Respond in a way that prioritizes your own goals or those of your faction before entertaining new requests.\n"
-            "Only propose a concrete action tied to the numbered triplets when the player's arguments convincingly align with what matters most to you.\n"
             f"Keep your response grounded in {faction_focus}, your motivations, and your capabilities.\n"
             f"Your persona is described below:\n{self._profile_text()}\n"
             "Ground your thinking in this persona and the faction context below before proposing responses.\n"
@@ -387,7 +386,7 @@ class YamlCharacter(Character):
             f"{self._history_text(history)}\n"
             "Full conversation history you are now having with the player:\n"
             f"{self._conversation_text(conversation)}\n"
-            "Provide exactly one JSON response. Default to a 'chat' type reply reinforcing your own or faction priorities unless the player's case persuades you to propose an 'action'."
+            "Provide exactly one JSON response. Default to a 'chat' and 'action' type replies reinforcing your own or faction priorities unless the player's case persuades you to propose an 'action' related to the numbered triplets."
         )
         prompt = f"{base_prompt}\n{self._format_prompt_instructions()}"
         logger.debug("Prompt for %s: %s", self.name, prompt)
