@@ -282,11 +282,12 @@ class Character(ABC):
                 responses.append(option)
         if not responses:
             lines = [line.strip() for line in response_text.splitlines() if line.strip()]
-            if lines:
+            cleaned_lines = [line for line in lines if not line.startswith("```")]
+            if cleaned_lines:
                 logger.info(
                     "Falling back to line-by-line responses for %s", self.name
                 )
-            for line in lines:
+            for line in cleaned_lines:
                 responses.append(ResponseOption(text=line, type="chat"))
         return responses[:3]
 
