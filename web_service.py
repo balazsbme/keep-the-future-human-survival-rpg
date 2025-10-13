@@ -7,7 +7,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import queue
 import threading
 from html import escape
 from typing import Dict, List, Sequence, Tuple
@@ -50,7 +49,7 @@ def create_app() -> Flask:
     assessor = AssessmentAgent()
     enable_parallel = os.environ.get("ENABLE_PARALLELISM") == "1"
     pending_player_options: Dict[
-        int, queue.Queue[List[ResponseOption]] | List[ResponseOption]
+        Tuple[int, int], Tuple[threading.Event, List[ResponseOption] | None]
     ] = {}
     pending_npc_responses: Dict[
         Tuple[int, int, str], Tuple[threading.Event, List[ResponseOption] | None]
@@ -131,24 +130,45 @@ def create_app() -> Flask:
             def launch(idx: int, char: Character, convo: Sequence[ConversationEntry]) -> None:
                 if convo:
                     return
-                q: queue.Queue[List[ResponseOption]] = queue.Queue()
-                pending_player_options[idx] = q
+                key = _player_pending_key(idx, len(convo))
+                event = threading.Event()
+                pending_player_options[key] = (event, None)
 
                 def worker(
                     hist: Sequence[Tuple[str, str]],
                     partner: Character,
                     snapshots: Sequence[ConversationEntry],
+                    pending_key: Tuple[int, int],
+                    pending_event: threading.Event,
                 ) -> None:
                     try:
                         options = player.generate_responses(hist, snapshots, partner)
                     except Exception:  # pragma: no cover - defensive logging
                         logger.exception("Failed to generate player responses in background")
                         options = []
-                    q.put(list(options))
+                    current = pending_player_options.get(pending_key)
+                    if current is None:
+                        pending_event.set()
+                        return
+                    current_event, _ = current
+                    if current_event is not pending_event:
+                        pending_event.set()
+                        return
+                    pending_player_options[pending_key] = (
+                        pending_event,
+                        list(options),
+                    )
+                    pending_event.set()
 
                 threading.Thread(
                     target=worker,
-                    args=(tuple(history_snapshot), char, tuple(convo)),
+                    args=(
+                        tuple(history_snapshot),
+                        char,
+                        tuple(convo),
+                        key,
+                        event,
+                    ),
                     daemon=True,
                 ).start()
 
@@ -200,26 +220,77 @@ def create_app() -> Flask:
         character: Character,
         player: Character,
     ) -> Tuple[List[ResponseOption] | None, bool]:
-        if conversation and enable_parallel:
-            pending_player_options.pop(char_id, None)
-        if enable_parallel and not conversation:
-            entry = pending_player_options.get(char_id)
-            if isinstance(entry, list):
-                return list(entry), False
-            if isinstance(entry, queue.Queue):
-                if entry.empty():
-                    return None, True
-                options = entry.get()
-                pending_player_options[char_id] = list(options)
-                return list(options), False
-        options = player.generate_responses(history, conversation, character)
-        if enable_parallel and not conversation:
-            pending_player_options[char_id] = list(options)
-        return list(options), False
+        conversation_length = len(conversation)
+        key = _player_pending_key(char_id, conversation_length)
+        entry = pending_player_options.get(key)
+        if entry is not None:
+            event, value = entry
+            if value is not None:
+                _clear_player_option_entries(char_id, keep_length=conversation_length)
+                return list(value), False
+            if not event.is_set():
+                return None, True
+            _clear_player_option_entries(char_id, keep_length=conversation_length)
+            return [], False
+
+        if not enable_parallel:
+            options = player.generate_responses(history, conversation, character)
+            event = threading.Event()
+            event.set()
+            pending_player_options[key] = (event, list(options))
+            _clear_player_option_entries(char_id, keep_length=conversation_length)
+            return list(options), False
+
+        event = threading.Event()
+        pending_player_options[key] = (event, None)
+
+        def worker(
+            hist: Sequence[Tuple[str, str]],
+            convo: Sequence[ConversationEntry],
+            partner: Character,
+            pending_key: Tuple[int, int],
+        ) -> None:
+            try:
+                options = player.generate_responses(hist, convo, partner)
+            except Exception:  # pragma: no cover - defensive logging
+                logger.exception("Failed to generate player responses in background")
+                options = []
+            current = pending_player_options.get(pending_key)
+            if current is None:
+                event.set()
+                return
+            current_event, _ = current
+            if current_event is not event:
+                event.set()
+                return
+            pending_player_options[pending_key] = (event, list(options))
+            event.set()
+
+        threading.Thread(
+            target=worker,
+            args=(tuple(history), tuple(conversation), character, key),
+            daemon=True,
+        ).start()
+        _clear_player_option_entries(char_id, keep_length=conversation_length)
+        return None, True
 
     def _option_signature(option: ResponseOption) -> str:
         payload = option.to_payload()
         return json.dumps(payload, sort_keys=True, default=str)
+
+    def _player_pending_key(char_id: int, conversation_length: int) -> Tuple[int, int]:
+        return (char_id, conversation_length)
+
+    def _clear_player_option_entries(
+        char_id: int, keep_length: int | None = None
+    ) -> None:
+        removable = [
+            key
+            for key in pending_player_options
+            if key[0] == char_id and (keep_length is None or key[1] != keep_length)
+        ]
+        for key in removable:
+            pending_player_options.pop(key, None)
 
     def _npc_pending_key(
         char_id: int, conversation_length: int, signature: str
@@ -339,31 +410,46 @@ def create_app() -> Flask:
         char_id: int,
         character: Character,
         conversation: Sequence[ConversationEntry],
-        options: Sequence[ResponseOption],
+        chat_options: Sequence[ResponseOption],
+        action_options: Sequence[ResponseOption],
         state_html: str,
         player: Character,
+        *,
+        loading_chat: bool = False,
     ) -> str:
         logger.debug(
             "Rendering conversation for %s with %d history items",
             character.name,
             len(conversation),
         )
-        option_items = []
-        for idx, option in enumerate(options):
+        option_items: List[str] = []
+        option_counter = 0
+        for option in chat_options:
             payload = escape(json.dumps(option.to_payload()), quote=True)
-            label_text = escape(option.text, quote=False)
-            if option.is_action:
-                label_html = f"<strong>Action:</strong> {label_text}"
-            else:
-                label_html = label_text
+            label_html = escape(option.text, quote=False)
             option_items.append(
-                f"<li><input type='radio' name='response' value='{payload}' id='opt{idx}'>"
-                f"<label for='opt{idx}'>{label_html}</label></li>"
+                f"<li><input type='radio' name='response' value='{payload}' id='opt{option_counter}'>"
+                f"<label for='opt{option_counter}'>{label_html}</label></li>"
             )
+            option_counter += 1
+        for action_index, option in enumerate(action_options, 1):
+            payload = escape(json.dumps(option.to_payload()), quote=True)
+            attribute = option.related_attribute.title() if option.related_attribute else "None"
+            label_text = f"Action {action_index} [{attribute}]"
+            option_items.append(
+                f"<li><input type='radio' name='response' value='{payload}' id='opt{option_counter}'>"
+                f"<label for='opt{option_counter}' title='{escape(option.text, quote=True)}'>"
+                f"<strong>{escape(label_text, quote=False)}</strong></label></li>"
+            )
+            option_counter += 1
+        options_html_parts: List[str] = []
+        if loading_chat:
+            options_html_parts.append("<p><em>Loading chat responses...</em></p>")
         if option_items:
-            options_html = "<ul>" + "".join(option_items) + "</ul>"
-        else:
-            options_html = "<p>No options available.</p>"
+            options_html_parts.append("<ul>" + "".join(option_items) + "</ul>")
+        elif not loading_chat:
+            options_html_parts.append("<p>No options available.</p>")
+        options_html = "".join(options_html_parts)
         form_html = (
             "<form class='options-form' method='post' action='/actions'>"
             + options_html
@@ -478,7 +564,7 @@ def create_app() -> Flask:
                     player_snapshot = game_state.player_character
                     state_html = game_state.render_state()
                     next_cost = game_state.next_reroll_cost(character, option)
-                pending_player_options.pop(char_id, None)
+                _clear_player_option_entries(char_id)
                 pending_player_choices.pop(char_id, None)
                 _clear_pending_npc_entries(char_id)
 
@@ -566,7 +652,7 @@ def create_app() -> Flask:
                 game_state.log_npc_responses(character, replies)
             pending_player_choices.pop(char_id, None)
             _clear_pending_npc_entries(char_id, signature)
-            pending_player_options.pop(char_id, None)
+            _clear_player_option_entries(char_id)
             return redirect(f"/actions?character={char_id}")
 
         character, history, conversation, npc_actions, state_html, player = (
@@ -605,41 +691,47 @@ def create_app() -> Flask:
                     state_html = game_state.render_state()
                 pending_player_choices.pop(char_id, None)
                 _clear_pending_npc_entries(char_id, signature)
+                _clear_player_option_entries(char_id)
             else:
                 pending_player_choices.pop(char_id, None)
                 _clear_pending_npc_entries(char_id, signature)
+                _clear_player_option_entries(char_id)
 
         options, loading = _resolve_player_options(
             char_id, history, conversation, character, player
         )
-        if loading:
-            body = (
-                "<p>Loading...</p>"
-                f"<meta http-equiv='refresh' content='1;url=/actions?character={char_id}'>"
-                f"{footer}"
+        resolved_options = options or []
+        chat_options = [opt for opt in resolved_options if not opt.is_action]
+        action_bucket: Dict[str, ResponseOption] = {
+            action.text: action for action in npc_actions
+        }
+        for opt in resolved_options:
+            if opt.is_action and opt.text not in action_bucket:
+                action_bucket[opt.text] = opt
+        action_options = list(action_bucket.values())
+        if not loading:
+            _preload_npc_responses(
+                char_id,
+                history,
+                conversation,
+                list(chat_options) + action_options,
+                character,
+                player,
             )
-            return Response(body)
-        options = options or []
-        chat_options = [opt for opt in options if not opt.is_action]
-        if chat_options:
-            display_options = list(chat_options)
-        else:
-            display_options = list(options)
-            action_texts = {opt.text for opt in display_options if opt.is_action}
-            for action in npc_actions:
-                if action.text not in action_texts:
-                    display_options.append(action)
-        _preload_npc_responses(
-            char_id,
-            history,
-            conversation,
-            display_options,
-            character,
-            player,
-        )
         page = _render_conversation(
-            char_id, character, conversation, display_options, state_html, player
+            char_id,
+            character,
+            conversation,
+            list(chat_options),
+            action_options,
+            state_html,
+            player,
+            loading_chat=loading,
         )
+        if loading:
+            page += (
+                f"<meta http-equiv='refresh' content='1;url=/actions?character={char_id}'>"
+            )
         return Response(page)
 
     @app.route("/reroll", methods=["POST"])
