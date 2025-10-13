@@ -761,7 +761,7 @@ def create_app() -> Flask:
         else:
             pending_player_choices.pop(char_id, None)
             _clear_pending_npc_entries(char_id)
-            _clear_player_option_entries(char_id)
+            _clear_player_option_entries(char_id, keep_length=len(conversation))
 
         options, loading = _resolve_player_options(
             char_id, history, conversation, character, player
