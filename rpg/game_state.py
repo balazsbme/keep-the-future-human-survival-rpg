@@ -32,6 +32,7 @@ class ActionAttempt:
 
     success: bool
     option: ResponseOption
+    label: str
     attribute: str | None
     actor_score: int
     player_score: int
@@ -51,6 +52,7 @@ class GameState:
     history: List[Tuple[str, str]] = field(default_factory=list)
     conversations: Dict[str, List[ConversationEntry]] = field(default_factory=dict)
     npc_actions: Dict[str, Dict[str, ResponseOption]] = field(default_factory=dict)
+    action_labels: Dict[str, Dict[str, str]] = field(default_factory=dict)
     progress: Dict[str, List[int]] = field(init=False)
     weights: Dict[str, List[int]] = field(init=False)
     how_to_win: str = field(init=False)
@@ -58,10 +60,14 @@ class GameState:
     config: GameConfig = field(init=False)
     credibility: CredibilityMatrix = field(init=False)
     player_character: PlayerCharacter = field(init=False)
+    player_faction: str = field(init=False)
     pending_failures: Dict[Tuple[str, str], ActionAttempt] = field(
         default_factory=dict, init=False
     )
     reroll_counts: Dict[Tuple[str, str], int] = field(default_factory=dict, init=False)
+    player_action_records: Dict[str, Dict[int, ResponseOption]] = field(
+        default_factory=dict, init=False
+    )
 
     def __post_init__(self) -> None:
         """Initialize progress tracking and load "how to win" instructions.
@@ -75,8 +81,9 @@ class GameState:
         self.faction_labels = {}
         self.config = GAME_CONFIG
         self.credibility = CredibilityMatrix()
-        self.credibility.ensure_faction(PLAYER_FACTION)
         self.player_character = PlayerCharacter()
+        self.player_faction = self.player_character.faction or PLAYER_FACTION
+        self.credibility.ensure_faction(self.player_faction)
         for character in self.characters:
             key = character.progress_key
             if key not in self.progress:
@@ -106,15 +113,25 @@ class GameState:
     ) -> ConversationEntry:
         """Record the player's chosen option in the conversation log."""
 
+        key = self._conversation_key(character)
+        history = self.conversations.setdefault(key, [])
+        entry_text = option.text
+        if option.is_action:
+            label = self._resolve_action_label(character, option)
+            entry_text = f"Agreed on performing action {label}"
+            record = self.player_action_records.setdefault(key, {})
+            record[len(history)] = option
         entry = ConversationEntry(
             speaker=self.player_character.display_name,
-            text=option.text,
+            text=entry_text,
             type=option.type,
         )
-        key = self._conversation_key(character)
-        self.conversations.setdefault(key, []).append(entry)
+        history.append(entry)
         logger.debug(
-            "Logged player response for %s: %s (%s)", character.name, option.text, option.type
+            "Logged player response for %s: %s (%s)",
+            character.name,
+            entry_text,
+            option.type,
         )
         return entry
 
@@ -131,27 +148,37 @@ class GameState:
         chat_candidate: ResponseOption | None = None
         fallback_option: ResponseOption | None = None
         for option in responses:
+            if option.is_action:
+                action_bucket.setdefault(option.text, option)
             if option.is_action and action_candidate is None:
                 action_candidate = option
             elif not option.is_action and chat_candidate is None:
                 chat_candidate = option
             fallback_option = fallback_option or option
 
+        if action_bucket:
+            self._refresh_action_labels(key)
+
         selected_option = action_candidate or chat_candidate or fallback_option
         if selected_option is not None:
+            if selected_option.is_action:
+                label = self._resolve_action_label(character, selected_option)
+                text = f"{label}: {selected_option.text}"
+            else:
+                text = selected_option.text
             entry = ConversationEntry(
                 speaker=character.display_name,
-                text=selected_option.text,
+                text=text,
                 type=selected_option.type,
             )
             history.append(entry)
             entries.append(entry)
-            if selected_option.is_action:
-                action_bucket[selected_option.text] = selected_option
         # Store any additional unique action proposals for later execution.
         for option in responses:
             if option.is_action:
                 action_bucket.setdefault(option.text, option)
+        if action_bucket:
+            self._refresh_action_labels(key)
         logger.debug(
             "Logged %d NPC responses for %s (stored %d actions)",
             len(entries),
@@ -166,6 +193,46 @@ class GameState:
         key = self._conversation_key(character)
         bucket = self.npc_actions.get(key, {})
         return list(bucket.values())
+
+    def _format_action_label(self, index: int, option: ResponseOption) -> str:
+        attribute = option.related_attribute.title() if option.related_attribute else "None"
+        return f"Action {index} [{attribute}]"
+
+    def _refresh_action_labels(self, key: str) -> None:
+        bucket = self.npc_actions.get(key, {})
+        labels = self.action_labels.setdefault(key, {})
+        labels.clear()
+        for idx, option in enumerate(bucket.values(), 1):
+            labels[option.text] = self._format_action_label(idx, option)
+
+    def _resolve_action_label(self, character: Character, option: ResponseOption) -> str:
+        key = self._conversation_key(character)
+        bucket = self.npc_actions.setdefault(key, {})
+        if option.text not in bucket:
+            bucket[option.text] = option
+        self._refresh_action_labels(key)
+        labels = self.action_labels.setdefault(key, {})
+        return labels.get(option.text) or self._format_action_label(len(bucket), option)
+
+    def action_label_map(self, character: Character) -> Dict[str, str]:
+        key = self._conversation_key(character)
+        bucket = self.npc_actions.setdefault(key, {})
+        if bucket:
+            self._refresh_action_labels(key)
+        labels = self.action_labels.get(key, {})
+        return dict(labels)
+
+    def clear_available_actions(self, character: Character) -> None:
+        key = self._conversation_key(character)
+        self.npc_actions[key] = {}
+        self.action_labels[key] = {}
+
+    def current_credibility(self, target_faction: str | None) -> int | None:
+        if not target_faction:
+            return None
+        self.credibility.ensure_faction(self.player_faction)
+        self.credibility.ensure_faction(target_faction)
+        return self.credibility.value(self.player_faction, target_faction)
 
     def record_action(
         self,
@@ -204,6 +271,7 @@ class GameState:
         if not option.is_action:
             raise ValueError("attempt_action requires an action-type ResponseOption")
         logger.info("Evaluating action '%s' for %s", option.text, character.name)
+        action_label = self._resolve_action_label(character, option)
         attribute_name = option.related_attribute
         attribute_score = character.attribute_score(attribute_name)
         player_score = self.player_character.attribute_score(attribute_name)
@@ -233,14 +301,15 @@ class GameState:
         logger.info("Sampled %.2f from uniform[0, 10]", sampled_value)
         success = sampled_value < effective_score
         cost, gain = self._credibility_cost_gain(attribute_score, player_score)
-        label = attribute_name or "none"
+        attribute_label = attribute_name or "none"
         failure_text = (
-            f"Failed '{option.text}' (attribute {label}: {effective_score}, roll={sampled_value:.2f})"
+            f"Failed {action_label} (attribute {attribute_label}: {effective_score}, roll={sampled_value:.2f})"
         )
         targets_tuple = tuple(targets or [])
         attempt = ActionAttempt(
             success=success,
             option=option,
+            label=action_label,
             attribute=attribute_name,
             actor_score=attribute_score,
             player_score=player_score,
@@ -292,20 +361,20 @@ class GameState:
         penalty = attempt.credibility_cost * reroll_count
         if penalty <= 0:
             return
-        self.credibility.ensure_faction(PLAYER_FACTION)
+        self.credibility.ensure_faction(self.player_faction)
         target_factions = list(attempt.targets or [actor_faction])
         for target in target_factions:
-            if not target or target == PLAYER_FACTION:
+            if not target:
                 continue
             self.credibility.ensure_faction(target)
             logger.debug(
                 "Applying reroll penalty for source=%s target=%s by -%d (attempt %d)",
-                PLAYER_FACTION,
+                self.player_faction,
                 target,
                 penalty,
                 reroll_count,
             )
-            self.credibility.adjust(PLAYER_FACTION, target, -penalty)
+            self.credibility.adjust(self.player_faction, target, -penalty)
 
     def finalize_failed_action(
         self,
@@ -324,7 +393,7 @@ class GameState:
             logger.info("No pending failure to finalize for %s", option.text)
             return
         failure_text = attempt.failure_text or (
-            f"Failed '{option.text}' (attribute {attempt.attribute or 'none'}: {attempt.effective_score}, roll={attempt.roll:.2f})"
+            f"Failed {attempt.label} (attribute {attempt.attribute or 'none'}: {attempt.effective_score}, roll={attempt.roll:.2f})"
         )
         logger.info("Recording failed action for %s: %s", character.name, failure_text)
         self.history.append((character.display_name, failure_text))
@@ -383,22 +452,22 @@ class GameState:
         """Update credibility values after a successful action."""
 
         actor_faction = getattr(character, "faction", None)
-        self.credibility.ensure_faction(PLAYER_FACTION)
+        self.credibility.ensure_faction(self.player_faction)
         if actor_faction:
             self.credibility.ensure_faction(actor_faction)
         delta = -cost if action.related_triplet is not None else gain
         target_factions = list(targets or [actor_faction])
         for target in target_factions:
-            if not target or target == PLAYER_FACTION:
+            if not target:
                 continue
             self.credibility.ensure_faction(target)
             logger.debug(
                 "Adjusting credibility for source=%s target=%s by %+d",
-                PLAYER_FACTION,
+                self.player_faction,
                 target,
                 delta,
             )
-            self.credibility.adjust(PLAYER_FACTION, target, delta)
+            self.credibility.adjust(self.player_faction, target, delta)
 
     def update_progress(self, scores: Dict[str, List[int]]) -> None:
         """Update progress scores for all characters.
@@ -459,25 +528,5 @@ class GameState:
                 for n, a in self.history
             )
             lines.append(f"<h2>Action History</h2><ol>{hist_items}</ol>")
-        credibility_snapshot = self.credibility.snapshot()
-        if credibility_snapshot:
-            headers = "".join(
-                f"<th>{escape(target, quote=False)}</th>" for target in self.credibility.factions
-            )
-            body_rows = []
-            for source in self.credibility.factions:
-                row_cells = [f"<th scope='row'>{escape(source, quote=False)}</th>"]
-                for target in self.credibility.factions:
-                    value = credibility_snapshot.get(source, {}).get(target, 0)
-                    row_cells.append(f"<td>{int(value)}</td>")
-                body_rows.append("<tr>" + "".join(row_cells) + "</tr>")
-            lines.append(
-                "<h2>Credibility Matrix</h2>"
-                + "<table><thead><tr><th>Source \\ Target</th>"
-                + headers
-                + "</tr></thead><tbody>"
-                + "".join(body_rows)
-                + "</tbody></table>"
-            )
         lines.append(f"Final weighted score: {self.final_weighted_score()}")
         return "<div id='state'>" + "<br>".join(lines) + "</div>"

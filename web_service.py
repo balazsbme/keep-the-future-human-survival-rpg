@@ -76,19 +76,32 @@ def create_app() -> Flask:
         ".attribute-list{list-style:none;padding:0;margin:0;width:100%;}"
         ".attribute-list li{display:flex;justify-content:space-between;padding:0.25rem 0;border-bottom:1px solid #e5e5e5;font-size:0.9rem;}"
         ".attribute-list li:last-child{border-bottom:none;}"
+        ".credibility-box{width:100%;padding:0.5rem;border:1px solid #d6d6d6;border-radius:8px;background:#fffdfa;text-align:center;font-size:0.9rem;}"
+        ".credibility-box span{display:block;font-size:0.75rem;color:#555;margin-bottom:0.2rem;}"
+        ".reroll-actions{display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:0.5rem;}"
+        ".reroll-actions form{margin:0;}"
         "</style>"
     )
 
-    def _profile_panel(character: Character) -> str:
+    def _profile_panel(character: Character, *, credibility: int | None = None) -> str:
         attributes = "".join(
             f"<li><span>{label}</span><span>{int(character.attribute_score(label.lower()))}</span></li>"
             for label in ("Leadership", "Technology", "Policy", "Network")
         )
+        credibility_block = ""
+        if credibility is not None:
+            credibility_block = (
+                "<div class='credibility-box'>"
+                "<span>Credibility</span>"
+                f"<strong>{int(credibility)}</strong>"
+                "</div>"
+            )
         return (
             "<div class='profile-card'>"
             "<div class='profile-photo' role='img' aria-label='Portrait placeholder'>Portrait</div>"
             f"<h2 class='profile-name'>{escape(character.display_name, quote=False)}</h2>"
             f"<ul class='attribute-list'>{attributes}</ul>"
+            f"{credibility_block}"
             "</div>"
         )
 
@@ -119,6 +132,10 @@ def create_app() -> Flask:
             player = game_state.player_character
             conversation_snapshots = [
                 game_state.conversation_history(char) for char in characters
+            ]
+            credibility_values = [
+                game_state.current_credibility(getattr(char, "faction", None))
+                for char in characters
             ]
         if score >= WIN_THRESHOLD or hist_len >= game_state.config.max_rounds:
             return redirect("/result")
@@ -176,11 +193,20 @@ def create_app() -> Flask:
                 zip(characters, conversation_snapshots)
             ):
                 launch(idx, char, convo)
-        options = "".join(
-            f'<input type="radio" name="character" value="{idx}" id="char{idx}">'  # noqa: E501
-            f'<label for="char{idx}">{escape(char.display_name, quote=False)}</label><br>'
-            for idx, char in enumerate(characters)
-        )
+        option_items = []
+        for idx, (char, credibility) in enumerate(zip(characters, credibility_values)):
+            if credibility is None:
+                credibility_text = "Credibility: N/A"
+            else:
+                credibility_text = f"Credibility: {int(credibility)}"
+            option_items.append(
+                "<div>"
+                + f'<input type="radio" name="character" value="{idx}" id="char{idx}">'  # noqa: E501
+                + f'<label for="char{idx}">{escape(char.display_name, quote=False)}'
+                + f"<span style='display:block;font-size:0.85rem;color:#555;'>{credibility_text}</span>"  # noqa: E501
+                + "</label></div>"
+            )
+        options = "".join(option_items)
         body = (
             "<h1>Keep the Future Human Survival RPG</h1>"
             "<form method='get' action='/actions'>"
@@ -196,7 +222,16 @@ def create_app() -> Flask:
 
     def _character_snapshot(
         char_id: int,
-    ) -> Tuple[Character, List[Tuple[str, str]], List[ConversationEntry], List[ResponseOption], str, Character]:
+    ) -> Tuple[
+        Character,
+        List[Tuple[str, str]],
+        List[ConversationEntry],
+        List[ResponseOption],
+        str,
+        Character,
+        Dict[str, str],
+        int | None,
+    ]:
         with state_lock:
             character = game_state.characters[char_id]
             history = list(game_state.history)
@@ -204,6 +239,10 @@ def create_app() -> Flask:
             available_actions = list(game_state.available_npc_actions(character))
             state_html = game_state.render_state()
             player = game_state.player_character
+            action_labels = game_state.action_label_map(character)
+            credibility_value = game_state.current_credibility(
+                getattr(character, "faction", None)
+            )
         return (
             character,
             history,
@@ -211,6 +250,8 @@ def create_app() -> Flask:
             available_actions,
             state_html,
             player,
+            action_labels,
+            credibility_value,
         )
 
     def _resolve_player_options(
@@ -414,6 +455,8 @@ def create_app() -> Flask:
         action_options: Sequence[ResponseOption],
         state_html: str,
         player: Character,
+        action_labels: Dict[str, str],
+        partner_credibility: int | None,
         *,
         loading_chat: bool = False,
     ) -> str:
@@ -434,8 +477,10 @@ def create_app() -> Flask:
             option_counter += 1
         for action_index, option in enumerate(action_options, 1):
             payload = escape(json.dumps(option.to_payload()), quote=True)
-            attribute = option.related_attribute.title() if option.related_attribute else "None"
-            label_text = f"Action {action_index} [{attribute}]"
+            label_text = action_labels.get(option.text)
+            if not label_text:
+                attribute = option.related_attribute.title() if option.related_attribute else "None"
+                label_text = f"Action {action_index} [{attribute}]"
             option_items.append(
                 f"<li><input type='radio' name='response' value='{payload}' id='opt{option_counter}'>"
                 f"<label for='opt{option_counter}' title='{escape(option.text, quote=True)}'>"
@@ -472,7 +517,7 @@ def create_app() -> Flask:
             + "<section><a href='/start'>Back to characters</a></section>"
         )
         player_panel = _profile_panel(player)
-        partner_panel = _profile_panel(character)
+        partner_panel = _profile_panel(character, credibility=partner_credibility)
         layout = (
             panel_style
             + "<div class='layout-container'>"
@@ -491,12 +536,33 @@ def create_app() -> Flask:
         state_html: str,
         player: Character,
         next_cost: int,
+        partner_credibility: int | None,
     ) -> str:
         failure_text = attempt.failure_text or (
-            f"Failed '{attempt.option.text}' (attribute {attempt.attribute or 'none'}: {attempt.effective_score}, roll={attempt.roll:.2f})"
+            f"Failed {attempt.label} (attribute {attempt.attribute or 'none'}: {attempt.effective_score}, roll={attempt.roll:.2f})"
         )
+        if next_cost > 0:
+            reroll_note = f"Reroll will cost {next_cost} credibility."
+            reroll_label = f"Reroll (-{next_cost} credibility)"
+        else:
+            reroll_note = "Reroll will not cost additional credibility."
+            reroll_label = "Reroll (no cost)"
+        payload = escape(json.dumps(attempt.option.to_payload()), quote=True)
         outcome_section = (
-            f"<section><h2>Action Outcome</h2><p>{escape(failure_text, quote=False)}</p></section>"
+            "<section><h2>Action Outcome</h2>"
+            f"<p>{escape(failure_text, quote=False)}</p>"
+            f"<p>{reroll_note}</p>"
+            + "<div class='reroll-actions'>"
+            + "<form method='post' action='/reroll'>"
+            + f"<input type='hidden' name='character' value='{char_id}'>"
+            + f"<input type='hidden' name='action' value='{payload}'>"
+            + f"<button type='submit'>{reroll_label}</button>"
+            + "</form>"
+            + "<form method='post' action='/finalize_failure'>"
+            + f"<input type='hidden' name='character' value='{char_id}'>"
+            + f"<input type='hidden' name='action' value='{payload}'>"
+            + "<button type='submit'>Accept Failure</button>"
+            + "</form></div></section>"
         )
         if conversation:
             convo_items = "".join(
@@ -508,29 +574,9 @@ def create_app() -> Flask:
             convo_block = (
                 "<section><h2>Conversation So Far</h2><p>No conversation yet.</p></section>"
             )
-        payload = escape(json.dumps(attempt.option.to_payload()), quote=True)
-        if next_cost > 0:
-            reroll_note = f"Reroll will cost {next_cost} credibility."
-            reroll_label = f"Reroll (-{next_cost} credibility)"
-        else:
-            reroll_note = "Reroll will not cost additional credibility."
-            reroll_label = "Reroll (no cost)"
-        forms_section = (
-            f"<section><p>{reroll_note}</p>"
-            + "<form method='post' action='/reroll'>"
-            + f"<input type='hidden' name='character' value='{char_id}'>"
-            + f"<input type='hidden' name='action' value='{payload}'>"
-            + f"<button type='submit'>{reroll_label}</button>"
-            + "</form>"
-            + "<form method='post' action='/finalize_failure'>"
-            + f"<input type='hidden' name='character' value='{char_id}'>"
-            + f"<input type='hidden' name='action' value='{payload}'>"
-            + "<button type='submit'>Accept Failure</button>"
-            + "</form></section>"
-        )
-        conversation_panel = outcome_section + convo_block + forms_section
+        conversation_panel = outcome_section + convo_block
         player_panel = _profile_panel(player)
-        partner_panel = _profile_panel(character)
+        partner_panel = _profile_panel(character, credibility=partner_credibility)
         layout = (
             panel_style
             + "<div class='layout-container'>"
@@ -564,6 +610,10 @@ def create_app() -> Flask:
                     player_snapshot = game_state.player_character
                     state_html = game_state.render_state()
                     next_cost = game_state.next_reroll_cost(character, option)
+                    partner_credibility = game_state.current_credibility(
+                        getattr(character, "faction", None)
+                    )
+                    game_state.clear_available_actions(character)
                 _clear_player_option_entries(char_id)
                 pending_player_choices.pop(char_id, None)
                 _clear_pending_npc_entries(char_id)
@@ -616,6 +666,7 @@ def create_app() -> Flask:
                     state_html,
                     player_snapshot,
                     next_cost,
+                    partner_credibility,
                 )
                 return Response(failure_page)
 
@@ -655,9 +706,16 @@ def create_app() -> Flask:
             _clear_player_option_entries(char_id)
             return redirect(f"/actions?character={char_id}")
 
-        character, history, conversation, npc_actions, state_html, player = (
-            _character_snapshot(char_id)
-        )
+        (
+            character,
+            history,
+            conversation,
+            npc_actions,
+            state_html,
+            player,
+            action_labels,
+            partner_credibility,
+        ) = _character_snapshot(char_id)
         pending_choice = pending_player_choices.get(char_id)
         if pending_choice:
             expected_length, signature, chosen_option = pending_choice
@@ -689,6 +747,10 @@ def create_app() -> Flask:
                     conversation = game_state.conversation_history(character)
                     npc_actions = list(game_state.available_npc_actions(character))
                     state_html = game_state.render_state()
+                    action_labels = game_state.action_label_map(character)
+                    partner_credibility = game_state.current_credibility(
+                        getattr(character, "faction", None)
+                    )
                 pending_player_choices.pop(char_id, None)
                 _clear_pending_npc_entries(char_id, signature)
                 _clear_player_option_entries(char_id)
@@ -696,6 +758,10 @@ def create_app() -> Flask:
                 pending_player_choices.pop(char_id, None)
                 _clear_pending_npc_entries(char_id, signature)
                 _clear_player_option_entries(char_id)
+        else:
+            pending_player_choices.pop(char_id, None)
+            _clear_pending_npc_entries(char_id)
+            _clear_player_option_entries(char_id)
 
         options, loading = _resolve_player_options(
             char_id, history, conversation, character, player
@@ -726,6 +792,8 @@ def create_app() -> Flask:
             action_options,
             state_html,
             player,
+            action_labels,
+            partner_credibility,
             loading_chat=loading,
         )
         if loading:
@@ -748,6 +816,10 @@ def create_app() -> Flask:
             player_snapshot = game_state.player_character
             state_html = game_state.render_state()
             next_cost = game_state.next_reroll_cost(character, option)
+            partner_credibility = game_state.current_credibility(
+                getattr(character, "faction", None)
+            )
+            game_state.clear_available_actions(character)
         if attempt.success:
             if enable_parallel:
 
@@ -796,6 +868,7 @@ def create_app() -> Flask:
             state_html,
             player_snapshot,
             next_cost,
+            partner_credibility,
         )
         return Response(failure_page)
 

@@ -224,12 +224,6 @@ class CredibilityMatrix:
         )
         self.ensure_faction(source)
         self.ensure_faction(target)
-        if source == target:
-            logger.debug(
-                "Skipping credibility adjustment because source and target are identical: %s",
-                source,
-            )
-            return
         row = self._values[source]
         current_value = row[target]
         logger.debug(
