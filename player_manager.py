@@ -10,7 +10,7 @@ from typing import Dict, Iterable, List
 from uuid import uuid4
 
 from rpg.assessment_agent import AssessmentAgent
-from rpg.game_state import GameState, WIN_THRESHOLD
+from rpg.game_state import GameState
 from players import Player
 
 
@@ -125,7 +125,7 @@ class PlayerManager:
                     character_label,
                     final_score,
                 )
-                if final_score >= WIN_THRESHOLD:
+                if final_score >= state.config.win_threshold:
                     logger.info(
                         "Final score threshold reached for game %d; ending early", game_index
                     )
@@ -140,7 +140,7 @@ class PlayerManager:
             "game_number": game_index,
             "rounds": rounds_progress,
             "final_score": final_score,
-            "result": "Win" if final_score >= WIN_THRESHOLD else "Lose",
+            "result": "Win" if final_score >= state.config.win_threshold else "Lose",
             "iterations": len(rounds_progress),
             "actions": len(state.history),
             "log_filename": log_filename,

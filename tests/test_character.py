@@ -79,7 +79,7 @@ class YamlCharacterTest(unittest.TestCase):
         partner = SimpleNamespace(
             display_name="Player", faction="CivilSociety", triplets=char.triplets
         )
-        actions = char.generate_responses([], [], partner)
+        actions = char.generate_responses([], [], partner, partner_credibility=50)
         prompt_used = mock_action_model.generate_content.call_args_list[0][0][0]
         self.assertIn("end1", prompt_used)
         self.assertIn("size: Small", prompt_used)
@@ -142,7 +142,7 @@ class YamlCharacterTest(unittest.TestCase):
             display_name="Player", faction="CivilSociety", triplets=char.triplets
         )
         with self.assertLogs("rpg.character", level="WARNING") as log_ctx:
-            actions = char.generate_responses([], [], partner)
+            actions = char.generate_responses([], [], partner, partner_credibility=50)
 
         self.assertEqual([action.text for action in actions], ["Act1", "Act2", "Act3"])
         self.assertTrue(
@@ -175,7 +175,7 @@ class YamlCharacterTest(unittest.TestCase):
         partner = SimpleNamespace(
             display_name="NPC", faction="Allies", triplets=[(1, 2, 3)]
         )
-        options = player.generate_responses([], [], partner)
+        options = player.generate_responses([], [], partner, partner_credibility=50)
         expected_texts = [
             "It's good to connect, NPC. What's top of mind for you today?",
             "I'd love to hear your priorities right now, NPC.",

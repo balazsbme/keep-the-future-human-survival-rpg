@@ -32,7 +32,7 @@ def _load_test_character() -> YamlCharacter:
 
 
 class WebServiceTest(unittest.TestCase):
-    @patch("rpg.game_state.random.uniform", return_value=0)
+    @patch("rpg.game_state.random.randint", return_value=20)
     def test_conversation_and_win_flow(self, mock_uniform):
         with patch("rpg.character.genai") as mock_char_genai, patch(
             "rpg.assessment_agent.genai"

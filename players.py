@@ -45,7 +45,13 @@ class Player(ABC):
         logger.info("Selected character: %s", char.name)
         conversation = state.conversation_history(char)
         partner = state.player_character
-        responses = char.generate_responses(state.history, conversation, partner)
+        credibility = state.current_credibility(getattr(char, "faction", None))
+        responses = char.generate_responses(
+            state.history,
+            conversation,
+            partner,
+            partner_credibility=credibility,
+        )
         actions = [option for option in responses if option.is_action]
         known_texts = {option.text for option in actions}
         for stored_option in state.available_npc_actions(char):

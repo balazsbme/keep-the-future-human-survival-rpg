@@ -82,7 +82,7 @@ class PlayerServiceTest(unittest.TestCase):
 
                 mock_choice.side_effect = choice_side_effect
                 with patch("player_service.load_characters", return_value=[character]):
-                    with patch("rpg.game_state.random.uniform", return_value=0):
+                    with patch("rpg.game_state.random.randint", return_value=20):
                         app = create_app(log_dir=tmpdir)
                         client = app.test_client()
 

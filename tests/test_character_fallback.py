@@ -32,7 +32,7 @@ def test_generate_responses_strips_code_fence_on_fallback(mock_genai):
         display_name="Player", faction="Allies", triplets=character.triplets
     )
 
-    options = character.generate_responses([], [], partner)
+    options = character.generate_responses([], [], partner, partner_credibility=50)
 
     assert [option.text for option in options] == ["Not valid"]
     assert all(option.type == "chat" for option in options)

@@ -41,7 +41,7 @@ class PlayerTests(unittest.TestCase):
     @patch("players.random.choice")
     @patch("rpg.assessment_agent.genai")
     @patch("rpg.character.genai")
-    @patch("rpg.game_state.random.uniform", return_value=0)
+    @patch("rpg.game_state.random.randint", return_value=20)
     def test_random_player_turn(
         self, mock_uniform, mock_char_genai, mock_assess_genai, mock_choice
     ):

@@ -39,7 +39,14 @@ def test_async_response_generation(mock_char_genai, mock_assess_genai):
     start_evt = threading.Event()
     finish_evt = threading.Event()
 
-    def slow_responses(self, history, conversation, partner):
+    def slow_responses(
+        self,
+        history,
+        conversation,
+        partner,
+        *,
+        partner_credibility=None,
+    ):
         start_evt.set()
         finish_evt.wait()
         return [ResponseOption(text="A", type="action")]
@@ -75,7 +82,14 @@ def test_async_npc_responses(mock_char_genai, mock_assess_genai):
     finish_evt = threading.Event()
     completed_evt = threading.Event()
 
-    def player_options(self, history, conversation, partner):
+    def player_options(
+        self,
+        history,
+        conversation,
+        partner,
+        *,
+        partner_credibility=None,
+    ):
         return [
             ResponseOption(text="Starter 1", type="chat"),
             ResponseOption(text="Starter 2", type="chat"),
@@ -84,7 +98,14 @@ def test_async_npc_responses(mock_char_genai, mock_assess_genai):
 
     observed_conversations: list[str] = []
 
-    def slow_npc(self, history, conversation, partner):
+    def slow_npc(
+        self,
+        history,
+        conversation,
+        partner,
+        *,
+        partner_credibility=None,
+    ):
         start_evt.set()
         finish_evt.wait()
         completed_evt.set()
@@ -162,7 +183,14 @@ def test_assessment_background_wait(mock_char_genai, mock_assess_genai):
         related_attribute="leadership",
     )
 
-    def static_responses(self, history, conversation, partner):
+    def static_responses(
+        self,
+        history,
+        conversation,
+        partner,
+        *,
+        partner_credibility=None,
+    ):
         return [action_option]
 
     start_evt = threading.Event()
@@ -184,7 +212,7 @@ def test_assessment_background_wait(mock_char_genai, mock_assess_genai):
                 client = app.test_client()
                 client.get("/start")
                 payload = json.dumps(action_option.to_payload())
-                with patch("rpg.game_state.random.uniform", return_value=0):
+                with patch("rpg.game_state.random.randint", return_value=20):
                     resp = client.post(
                         "/actions",
                         data={"character": "0", "response": payload},
