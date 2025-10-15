@@ -69,6 +69,7 @@ class GameState:
     player_action_records: Dict[str, Dict[int, ResponseOption]] = field(
         default_factory=dict, init=False
     )
+    last_action_attempt: ActionAttempt | None = field(default=None, init=False)
 
     def __post_init__(self) -> None:
         """Initialize progress tracking and load "how to win" instructions.
@@ -83,7 +84,14 @@ class GameState:
         self.config = GAME_CONFIG
         self.credibility = CredibilityMatrix()
         self.player_character = PlayerCharacter()
-        self.scenario_summary = getattr(self.player_character, "scenario_summary", "")
+        player_summary = getattr(self.player_character, "scenario_summary", "")
+        character_summary = ""
+        for npc in self.characters:
+            candidate = getattr(npc, "scenario_summary", "")
+            if candidate:
+                character_summary = candidate
+                break
+        self.scenario_summary = character_summary or player_summary
         self.player_faction = self.player_character.faction or PLAYER_FACTION
         self.credibility.ensure_faction(self.player_faction)
         for character in self.characters:
@@ -159,10 +167,8 @@ class GameState:
         selected_option = action_candidate or chat_candidate or fallback_option
         if selected_option is not None:
             if selected_option.is_action:
-                label = self._resolve_action_label(character, selected_option)
-                text = f"{label}: {selected_option.text}"
-            else:
-                text = selected_option.text
+                self._resolve_action_label(character, selected_option)
+            text = selected_option.text
             entry = ConversationEntry(
                 speaker=character.display_name,
                 text=text,
@@ -313,6 +319,7 @@ class GameState:
             credibility_gain=gain,
             failure_text=None if success else failure_text,
         )
+        self.last_action_attempt = attempt
         key = (character.name, option.text)
         if success:
             logger.info("Action succeeded; recording in history")

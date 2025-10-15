@@ -20,8 +20,13 @@ from rpg.game_state import GameState
 from rpg.assessment_agent import AssessmentAgent
 
 
-def run_consistency_assessment() -> str:
-    """Execute the same assessment multiple times and return results."""
+def run_consistency_assessment(scenario_name: str | None = None) -> str:
+    """Execute the same assessment multiple times and return results.
+
+    Args:
+        scenario_name: Optional scenario identifier to load instead of the
+            configuration default.
+    """
     if load_dotenv is None or genai is None:
         return "optional dependencies not installed"
     load_dotenv()
@@ -30,7 +35,7 @@ def run_consistency_assessment() -> str:
     if not api_key or api_key == placeholder:
         return "GEMINI_API_KEY environment variable not set"
     genai.configure(api_key=api_key)
-    characters = load_characters()
+    characters = load_characters(scenario_name=scenario_name)
     state = GameState(characters)
     assessor = AssessmentAgent()
     history = []

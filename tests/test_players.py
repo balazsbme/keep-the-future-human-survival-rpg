@@ -10,7 +10,11 @@ import yaml
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from players import GeminiGovCorpPlayer, GeminiWinPlayer, RandomPlayer
+from players import (
+    GeminiCivilSocietyPlayer,
+    GeminiCorporationPlayer,
+    RandomPlayer,
+)
 from rpg.assessment_agent import AssessmentAgent
 from rpg.game_state import GameState
 from rpg.character import ResponseOption, YamlCharacter
@@ -88,6 +92,8 @@ class PlayerTests(unittest.TestCase):
             (char.display_name, "A"),
         )
         self.assertEqual(state.progress[char.progress_key], [10, 20, 30])
+        self.assertIsNotNone(state.last_action_attempt)
+        self.assertEqual(state.last_action_attempt.attribute, "leadership")
 
     @patch("players.genai")
     @patch("rpg.character.genai")
@@ -98,7 +104,7 @@ class PlayerTests(unittest.TestCase):
         mock_char_genai.GenerativeModel.return_value = MagicMock()
         char = _load_test_character()
         state = GameState([char])
-        player = GeminiWinPlayer()
+        player = GeminiCivilSocietyPlayer()
         actions = [
             ResponseOption(text="A", type="action"),
             ResponseOption(text="B", type="action"),
@@ -111,14 +117,14 @@ class PlayerTests(unittest.TestCase):
 
     @patch("players.genai")
     @patch("rpg.character.genai")
-    def test_govcorp_context(self, mock_char_genai, mock_players_genai):
+    def test_corporation_context(self, mock_char_genai, mock_players_genai):
         mock_model = MagicMock()
         mock_model.generate_content.return_value = MagicMock(text="1")
         mock_players_genai.GenerativeModel.return_value = mock_model
         mock_char_genai.GenerativeModel.return_value = MagicMock()
         char = _load_test_character()
         gov_ctx = corp_ctx = "CTX"
-        player = GeminiGovCorpPlayer(gov_ctx, corp_ctx)
+        player = GeminiCorporationPlayer(corp_ctx)
         state = GameState([char])
         actions = [
             ResponseOption(text="A", type="action"),

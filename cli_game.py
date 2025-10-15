@@ -81,6 +81,14 @@ def load_characters(
     context_payload = _load_yaml(context_path) if context_path else {}
     triplet_specs = _faction_mapping(scenario_payload)
     context_specs = _faction_mapping(context_payload)
+    scenario_summary = ""
+    if isinstance(scenario_payload, dict):
+        summary_value = scenario_payload.get("summary") or scenario_payload.get("Summary")
+        if isinstance(summary_value, str):
+            scenario_summary = summary_value.strip()
+        elif isinstance(summary_value, list):
+            parts = [str(item).strip() for item in summary_value if str(item).strip()]
+            scenario_summary = "\n".join(parts)
     if not triplet_specs:
         logger.error("No faction definitions found in scenario file %s", resolved_scenario)
     characters: List[YamlCharacter] = []
@@ -105,7 +113,10 @@ def load_characters(
                 combined_spec["MarkdownContext"] = context_spec["MarkdownContext"]
             for key, value in context_spec.items():
                 combined_spec.setdefault(key, value)
-        characters.append(YamlCharacter(name, combined_spec, entry))
+        character = YamlCharacter(name, combined_spec, entry)
+        if scenario_summary:
+            setattr(character, "scenario_summary", scenario_summary)
+        characters.append(character)
     return characters
 
 
