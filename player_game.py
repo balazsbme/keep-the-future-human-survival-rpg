@@ -10,7 +10,7 @@ import os
 from typing import Dict
 
 from cli_game import load_characters
-from rpg.game_state import GameState, WIN_THRESHOLD
+from rpg.game_state import GameState
 from rpg.assessment_agent import AssessmentAgent
 from players import (
     GeminiCivilSocietyPlayer,
@@ -61,7 +61,7 @@ def main() -> None:
     for round_num in range(1, args.rounds + 1):
         logger.info("Round %d", round_num)
         player.take_turn(state, assessor)
-        if state.final_weighted_score() >= WIN_THRESHOLD:
+        if state.final_weighted_score() >= state.config.win_threshold:
             logger.info("Final score threshold reached; ending game")
             break
 

@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import Iterable, List, Sequence, Tuple
 
 from .conversation import ConversationEntry, ConversationType
-from .config import load_game_config
+from .config import GameConfig, load_game_config
+from .credibility import CREDIBILITY_PENALTY
 
 import yaml
 
@@ -173,6 +174,8 @@ class Character(ABC):
         history: Sequence[Tuple[str, str]],
         conversation: Sequence[ConversationEntry],
         partner: "Character",
+        *,
+        partner_credibility: int | None = None,
     ) -> List[ResponseOption]:
         """Return responses the character might give next."""
 
@@ -369,15 +372,49 @@ class YamlCharacter(Character):
             )
         return "\n".join(lines)
 
+    def _estimate_triplet_cost(self, partner: Character) -> int:
+        """Return the minimum credibility cost to pursue a triplet action."""
+
+        costs: List[int] = []
+        base_cost = CREDIBILITY_PENALTY
+        partner_attr_score = getattr(partner, "attribute_score", None)
+        for attribute in ("leadership", "technology", "policy", "network"):
+            actor_score = self.attribute_score(attribute)
+            if callable(partner_attr_score):
+                partner_score = partner_attr_score(attribute)
+            else:
+                partner_score = 0
+            diff = actor_score - partner_score
+            if diff < 0:
+                cost = max(0, base_cost - (-diff))
+            elif diff > 0:
+                cost = base_cost + diff
+            else:
+                cost = base_cost
+            costs.append(cost)
+        return min(costs) if costs else base_cost
+
     def generate_responses(
         self,
         history: Sequence[Tuple[str, str]],
         conversation: Sequence[ConversationEntry],
         partner: Character,
+        *,
+        partner_credibility: int | None = None,
     ) -> List[ResponseOption]:
         logger.info("Generating responses for %s", self.name)
         partner_label = partner.display_name
         faction_focus = self.faction or "your personal priorities"
+        restricted_triplets = False
+        triplet_cost = self._estimate_triplet_cost(partner)
+        if partner_credibility is not None and partner_credibility < triplet_cost:
+            restricted_triplets = True
+            logger.info(
+                "Credibility %s is below required cost %s for %s; limiting prompt to faction interests",
+                partner_credibility,
+                triplet_cost,
+                self.name,
+            )
         base_prompt = (
             f"You are {self.display_name} in the 'Keep the Future Human' survival RPG game. "
             f"You are having a conversation with {partner_label}. "
@@ -386,20 +423,35 @@ class YamlCharacter(Character):
             f"Your persona is described below:\n{self._profile_text()}\n"
             "Ground your thinking in this persona and the faction context below before proposing responses.\n"
             f"**MarkdownContext**\n{self.base_context}\n**End of MarkdownContext**\n"
-            "Throughout the game you are acting related to the following numbered list of triplets, describing the initial state at the start of the game, end state and the gap between them:\n"
-            f"{self._triplet_text()}\n"
             "Previous actions taken by you or other faction representatives:\n"
             f"{self._history_text(history)}\n"
             "Full conversation history you are now having with the player:\n"
             f"{self._conversation_text(conversation)}\n"
-            "Provide exactly one JSON response. Default to a 'chat' and 'action' type replies reinforcing your own or faction priorities unless the player's case persuades you to propose an 'action' related to the numbered triplets."
         )
-        prompt = f"{base_prompt}\n{self._format_prompt_instructions()}"
+        if restricted_triplets:
+            guidance = (
+                "The player's credibility is currently insufficient to consider scenario triplets. "
+                "Ignore the numbered triplets entirely and only propose actions that serve your immediate or faction-level interests. "
+                "Any actions you output must set 'related-triplet' to 'None'."
+            )
+        else:
+            guidance = (
+                "Throughout the game you are acting related to the following numbered list of triplets, describing the initial state at the start of the game, end state and the gap between them:\n"
+                f"{self._triplet_text()}\n"
+                "Provide exactly one JSON response. Default to a 'chat' and 'action' type replies reinforcing your own or faction priorities unless the player's case persuades you to propose an 'action' related to the numbered triplets."
+            )
+        prompt = f"{base_prompt}{guidance}\n{self._format_prompt_instructions()}"
         logger.debug("Prompt for %s: %s", self.name, prompt)
         response = self._model.generate_content(prompt)
         response_text = getattr(response, "text", "").strip()
         logger.debug("Raw response for %s: %s", self.name, response_text)
         options = self._parse_response_payload(response_text, len(self.triplets))
+        if restricted_triplets and any(
+            option.is_action and option.related_triplet is not None for option in options
+        ):
+            logger.warning(
+                "Restricted prompt for %s still produced triplet-related actions", self.name
+            )
         if not options:
             logger.warning("Model returned no usable responses for %s", self.name)
             return []
@@ -452,7 +504,12 @@ class YamlCharacter(Character):
 class PlayerCharacter(Character):
     """Representation of the human player as a character."""
 
-    def __init__(self, model: str = "gemini-2.5-flash") -> None:
+    def __init__(
+        self,
+        model: str = "gemini-2.5-flash",
+        *,
+        config: GameConfig | None = None,
+    ) -> None:
         base_dir = Path(__file__).resolve().parent
         profile_path = base_dir / "player_character.yaml"
         profile_entries = _character_entries(_load_yaml(profile_path))
@@ -462,8 +519,8 @@ class PlayerCharacter(Character):
         faction = str(profile.get("faction", "CivilSociety")) or "CivilSociety"
         name = str(profile.get("name", "Player")) or "Player"
 
-        config = load_game_config()
-        scenario_path = base_dir.parent / "scenarios" / f"{config.scenario}.yaml"
+        cfg = config or load_game_config()
+        scenario_path = base_dir.parent / "scenarios" / f"{cfg.scenario}.yaml"
         scenario_payload: object = {}
         try:
             scenario_payload = _load_yaml(scenario_path)
@@ -577,6 +634,8 @@ class PlayerCharacter(Character):
         history: Sequence[Tuple[str, str]],
         conversation: Sequence[ConversationEntry],
         partner: Character,
+        *,
+        partner_credibility: int | None = None,
     ) -> List[ResponseOption]:
         logger.info("Generating player responses against %s", partner.display_name)
         partner_label = partner.display_name

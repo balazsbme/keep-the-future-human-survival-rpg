@@ -29,7 +29,7 @@ class DummyCharacter:
 
 class CredibilityMatrixTests(unittest.TestCase):
     @patch("rpg.character.genai")
-    @patch("rpg.game_state.random.uniform", return_value=0)
+    @patch("rpg.game_state.random.randint", return_value=20)
     def test_record_action_rewards_targets(self, mock_uniform, mock_genai):
         mock_genai.GenerativeModel.return_value = MagicMock()
         character = DummyCharacter("Alice", "Governments")
@@ -44,7 +44,7 @@ class CredibilityMatrixTests(unittest.TestCase):
         self.assertEqual(updated_player, min(100, initial_player + 10))
 
     @patch("rpg.character.genai")
-    @patch("rpg.game_state.random.uniform", return_value=0)
+    @patch("rpg.game_state.random.randint", return_value=20)
     def test_record_action_penalises_targets_with_triplet(
         self, mock_uniform, mock_genai
     ):
@@ -61,7 +61,7 @@ class CredibilityMatrixTests(unittest.TestCase):
         self.assertEqual(updated_player, max(0, initial_player - 30))
 
     @patch("rpg.character.genai")
-    @patch("rpg.game_state.random.uniform", return_value=0)
+    @patch("rpg.game_state.random.randint", return_value=20)
     def test_record_action_without_targets_applies_penalty(
         self, mock_uniform, mock_genai
     ):
@@ -76,7 +76,7 @@ class CredibilityMatrixTests(unittest.TestCase):
         self.assertEqual(updated_player, max(0, initial_player - 30))
 
     @patch("rpg.character.genai")
-    @patch("rpg.game_state.random.uniform", return_value=0)
+    @patch("rpg.game_state.random.randint", return_value=20)
     def test_unknown_faction_initialises_defaults(self, mock_uniform, mock_genai):
         mock_genai.GenerativeModel.return_value = MagicMock()
         outsider = DummyCharacter("Bob", "NewFaction")

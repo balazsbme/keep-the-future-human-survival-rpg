@@ -9,6 +9,7 @@ import logging
 import os
 import threading
 from html import escape
+from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
 from flask import Flask, Response, redirect, request
@@ -16,8 +17,9 @@ from flask import Flask, Response, redirect, request
 from cli_game import load_characters
 from rpg.assessment_agent import AssessmentAgent
 from rpg.character import Character, ResponseOption
+from rpg.config import GameConfig, load_game_config
 from rpg.conversation import ConversationEntry
-from rpg.game_state import ActionAttempt, GameState, WIN_THRESHOLD
+from rpg.game_state import ActionAttempt, GameState
 
 
 GITHUB_URL = "https://github.com/balazsbme/keep-the-future-human-survival-rpg"
@@ -44,8 +46,11 @@ def create_app() -> Flask:
 
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
     app = Flask(__name__)
-    initial_characters = load_characters()
-    game_state = GameState(list(initial_characters))
+    scenario_dir = Path(__file__).resolve().parent / "rpg" / "scenarios"
+    available_scenarios = sorted({p.stem.lower() for p in scenario_dir.glob("*.yaml")})
+    current_config = load_game_config()
+    initial_characters = load_characters(config=current_config)
+    game_state = GameState(list(initial_characters), config_override=current_config)
     assessor = AssessmentAgent()
     enable_parallel = os.environ.get("ENABLE_PARALLELISM") == "1"
     pending_player_options: Dict[
@@ -83,6 +88,20 @@ def create_app() -> Flask:
         "</style>"
     )
 
+    intro_style = (
+        "<style>"
+        ".instructions,.config-settings{margin:1rem 0;padding:1rem;border:1px solid #dcdcdc;border-radius:10px;background:#f8faff;}"
+        ".instructions h2,.config-settings h2{margin-top:0;margin-bottom:0.5rem;}"
+        ".instructions ul{margin:0.5rem 0 0 1.25rem;}"
+        ".instructions li{margin-bottom:0.4rem;}"
+        ".config-settings form{display:flex;flex-direction:column;gap:0.75rem;max-width:360px;}"
+        ".config-settings label{display:flex;flex-direction:column;font-weight:600;font-size:0.95rem;}"
+        ".config-settings input,.config-settings select{margin-top:0.25rem;padding:0.45rem;border:1px solid #c6c6c6;border-radius:6px;font-size:0.95rem;}"
+        ".config-settings button{align-self:flex-start;padding:0.45rem 0.9rem;font-size:0.95rem;}"
+        ".config-note{margin:0;font-size:0.85rem;color:#555;}"
+        "</style>"
+    )
+
     summary_style = (
         "<style>"
         ".scenario-summary{margin:1.5rem 0;padding:1rem;border:1px solid #dcdcdc;"
@@ -91,6 +110,37 @@ def create_app() -> Flask:
         ".scenario-summary p{margin:0.5rem 0;line-height:1.5;}"
         "</style>"
     )
+
+    def _reload_state(config: GameConfig) -> None:
+        nonlocal current_config, initial_characters, game_state
+        logger.info("Reloading game state with config %s", config)
+        current_config = config
+        try:
+            new_characters = load_characters(config=config)
+        except StopIteration:
+            logger.warning(
+                "Character loading interrupted by exhausted mock; reusing existing roster"
+            )
+            new_characters = list(initial_characters)
+        initial_characters = list(new_characters)
+        existing_player = getattr(game_state, "player_character", None)
+        try:
+            new_state = GameState(list(initial_characters), config_override=config)
+        except StopIteration:
+            logger.warning(
+                "Player character reset interrupted by exhausted mock; reusing existing persona"
+            )
+            new_state = GameState(
+                list(initial_characters),
+                config_override=config,
+                player_override=existing_player,
+            )
+        game_state = new_state
+        pending_player_options.clear()
+        pending_npc_responses.clear()
+        pending_player_choices.clear()
+        with assessment_lock:
+            assessment_threads.clear()
 
     def _format_summary_html(text: str) -> str:
         stripped = (text or "").strip()
@@ -145,19 +195,85 @@ def create_app() -> Flask:
     def log_request() -> None:
         logger.info("%s %s", request.method, request.path)
 
-    @app.route("/", methods=["GET"])
-    def main_page() -> str:
+    @app.route("/", methods=["GET", "POST"])
+    def main_page() -> Response | str:
+        nonlocal current_config
+
+        if request.method == "POST":
+            scenario = request.form.get("scenario", current_config.scenario)
+            scenario = (scenario or current_config.scenario).strip().lower()
+            if scenario not in available_scenarios:
+                scenario = current_config.scenario
+
+            def _parse_int(field: str, fallback: int) -> int:
+                try:
+                    return int(request.form.get(field, fallback))
+                except (TypeError, ValueError):
+                    return fallback
+
+            win_threshold = max(0, _parse_int("win_threshold", current_config.win_threshold))
+            max_rounds = max(1, _parse_int("max_rounds", current_config.max_rounds))
+            roll_threshold = max(
+                1,
+                _parse_int(
+                    "roll_success_threshold", current_config.roll_success_threshold
+                ),
+            )
+            new_config = GameConfig(
+                scenario=scenario,
+                win_threshold=win_threshold,
+                max_rounds=max_rounds,
+                roll_success_threshold=roll_threshold,
+            )
+            with state_lock:
+                _reload_state(new_config)
+            return redirect("/start")
+
         turns = game_state.config.max_rounds
+        threshold = game_state.config.win_threshold
+        roll_threshold = game_state.config.roll_success_threshold
         summary_section = _scenario_summary_section(
             getattr(game_state, "scenario_summary", "")
         )
+        scenario_options = []
+        for name in available_scenarios:
+            display_name = escape(name.replace("-", " ").replace("_", " ").title(), False)
+            selected = " selected" if name == game_state.config.scenario else ""
+            scenario_options.append(
+                f"<option value='{name}'{selected}>{display_name}</option>"
+            )
+        options_html = "".join(scenario_options)
+        config_form = (
+            "<section class='config-settings'><h2>Configure the Campaign</h2>"
+            "<form method='post'>"
+            "<label>Scenario<select name='scenario'>"
+            f"{options_html}"
+            "</select></label>"
+            f"<label>Win threshold<input type='number' name='win_threshold' min='0' value='{threshold}'></label>"
+            f"<label>Max rounds<input type='number' name='max_rounds' min='1' value='{turns}'></label>"
+            f"<label>Roll success threshold<input type='number' name='roll_success_threshold' min='1' value='{roll_threshold}'></label>"
+            "<p class='config-note'>Applying new settings resets the current game.</p>"
+            "<button type='submit'>Apply settings</button>"
+            "</form></section>"
+        )
+        instructions_block = (
+            "<section class='instructions'><h2>How the Negotiation Works</h2><ul>"
+            "<li><strong>Credibility:</strong> Each faction tracks how much they trust you. Triplet-aligned commitments cost credibility, and if your credibility drops below the cost the NPC will only propose actions that serve their own agenda.</li>"
+            "<li><strong>Action rolls:</strong> When an action is attempted, roll a twenty-sided die and add the higher relevant attribute (yours or the partner's). You succeed when the total meets or exceeds the roll success threshold.</li>"
+            "<li><strong>Rerolls and time:</strong> You can reroll failed actions at increasing credibility costs. Every action attempt or reroll advances time by half a year.</li>"
+            "</ul></section>"
+        )
         return (
-            "<h1>AI Safety Negotiation Game</h1>"
+            intro_style
+            + "<h1>AI Safety Negotiation Game</h1>"
+            + instructions_block
             + summary_section
+            + config_form
             + "<p>You are an expert negotiator with connections to every major faction shaping AI governance. You can persuade their key representatives to propose and take actions. Your objective is to ensure AI is developed in humanity's best interest and keep the future human.</p>"
-            f"<p>You have {turns} turns to reach a final weighted score of {WIN_THRESHOLD} or higher to win.</p>"
-            "<a href='/start'>Start</a>"
-            f"{footer}"
+            + f"<p>You have {turns} turns to reach a final weighted score of {threshold} or higher to win.</p>"
+            + f"<p>The current roll success threshold is {roll_threshold}.</p>"
+            + "<a href='/start'>Start</a>"
+            + f"{footer}"
         )
 
     @app.route("/start", methods=["GET"])
@@ -177,7 +293,7 @@ def create_app() -> Flask:
                 game_state.current_credibility(getattr(char, "faction", None))
                 for char in characters
             ]
-        if score >= WIN_THRESHOLD or hist_len >= game_state.config.max_rounds:
+        if score >= game_state.config.win_threshold or hist_len >= game_state.config.max_rounds:
             return redirect("/result")
         if enable_parallel:
             pending_player_options.clear()
@@ -199,7 +315,15 @@ def create_app() -> Flask:
                     pending_event: threading.Event,
                 ) -> None:
                     try:
-                        options = player.generate_responses(hist, snapshots, partner)
+                        credibility = game_state.current_credibility(
+                            getattr(partner, "faction", None)
+                        )
+                        options = player.generate_responses(
+                            hist,
+                            snapshots,
+                            partner,
+                            partner_credibility=credibility,
+                        )
                     except Exception:  # pragma: no cover - defensive logging
                         logger.exception("Failed to generate player responses in background")
                         options = []
@@ -250,9 +374,13 @@ def create_app() -> Flask:
         summary_section = _scenario_summary_section(
             getattr(game_state, "scenario_summary", "")
         )
+        time_block = (
+            f"<p style='font-weight:600;'>Time passed since November 2025: {game_state.time_elapsed_years:.1f} years</p>"
+        )
         body = (
             "<h1>Keep the Future Human Survival RPG</h1>"
             + summary_section
+            + time_block
             + "<form method='get' action='/actions'>"
             f"{options}"
             "<button type='submit'>Talk</button>"
@@ -319,7 +447,15 @@ def create_app() -> Flask:
             return [], False
 
         if not enable_parallel:
-            options = player.generate_responses(history, conversation, character)
+            credibility = game_state.current_credibility(
+                getattr(character, "faction", None)
+            )
+            options = player.generate_responses(
+                history,
+                conversation,
+                character,
+                partner_credibility=credibility,
+            )
             event = threading.Event()
             event.set()
             pending_player_options[key] = (event, list(options))
@@ -336,7 +472,15 @@ def create_app() -> Flask:
             pending_key: Tuple[int, int],
         ) -> None:
             try:
-                options = player.generate_responses(hist, convo, partner)
+                credibility = game_state.current_credibility(
+                    getattr(partner, "faction", None)
+                )
+                options = player.generate_responses(
+                    hist,
+                    convo,
+                    partner,
+                    partner_credibility=credibility,
+                )
             except Exception:  # pragma: no cover - defensive logging
                 logger.exception("Failed to generate player responses in background")
                 options = []
@@ -428,7 +572,15 @@ def create_app() -> Flask:
                             type=response_option.type,
                         )
                     ]
-                    replies = character.generate_responses(hist, simulated, partner)
+                    credibility = game_state.current_credibility(
+                        getattr(character, "faction", None)
+                    )
+                    replies = character.generate_responses(
+                        hist,
+                        simulated,
+                        partner,
+                        partner_credibility=credibility,
+                    )
                 except Exception:  # pragma: no cover - defensive logging
                     logger.exception(
                         "Failed to generate NPC responses in background"
@@ -484,7 +636,13 @@ def create_app() -> Flask:
             pending_choice = pending_player_choices.get(char_id)
             if pending_choice and pending_choice[0] == conversation_length and pending_choice[1] == signature:
                 return None, True
-        replies = character.generate_responses(history, conversation, player)
+        credibility = game_state.current_credibility(getattr(character, "faction", None))
+        replies = character.generate_responses(
+            history,
+            conversation,
+            player,
+            partner_credibility=credibility,
+        )
         if enable_parallel:
             event = threading.Event()
             event.set()
@@ -967,15 +1125,9 @@ def create_app() -> Flask:
 
     @app.route("/reset", methods=["POST"])
     def reset() -> Response:
-        nonlocal game_state
         logger.info("Resetting game state")
         with state_lock:
-            game_state = GameState(list(initial_characters))
-        pending_player_options.clear()
-        pending_npc_responses.clear()
-        pending_player_choices.clear()
-        with assessment_lock:
-            assessment_threads.clear()
+            _reload_state(current_config)
         return redirect("/start")
 
     @app.route("/instructions", methods=["GET"])
@@ -1000,7 +1152,8 @@ def create_app() -> Flask:
         with state_lock:
             final = game_state.final_weighted_score()
             state_html = game_state.render_state()
-        outcome = "You won!" if final >= WIN_THRESHOLD else "You lost!"
+            threshold = game_state.config.win_threshold
+        outcome = "You won!" if final >= threshold else "You lost!"
         return (
             f"<h1>{outcome}</h1>"
             f"{state_html}"

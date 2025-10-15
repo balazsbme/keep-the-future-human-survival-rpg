@@ -20,9 +20,6 @@ from .conversation import ConversationEntry
 logger = logging.getLogger(__name__)
 
 
-GAME_CONFIG = load_game_config()
-WIN_THRESHOLD = GAME_CONFIG.win_threshold
-MAX_ROUNDS = GAME_CONFIG.max_rounds
 PLAYER_FACTION = "CivilSociety"
 
 
@@ -37,7 +34,7 @@ class ActionAttempt:
     actor_score: int
     player_score: int
     effective_score: int
-    roll: float
+    roll: int
     targets: Tuple[str, ...]
     credibility_cost: int
     credibility_gain: int
@@ -49,6 +46,8 @@ class GameState:
     """Store characters, their progress, and a history of actions."""
 
     characters: List[Character]
+    config_override: GameConfig | None = None
+    player_override: PlayerCharacter | None = None
     history: List[Tuple[str, str]] = field(default_factory=list)
     conversations: Dict[str, List[ConversationEntry]] = field(default_factory=dict)
     npc_actions: Dict[str, Dict[str, ResponseOption]] = field(default_factory=dict)
@@ -70,6 +69,7 @@ class GameState:
         default_factory=dict, init=False
     )
     last_action_attempt: ActionAttempt | None = field(default=None, init=False)
+    time_elapsed_years: float = field(default=0.0, init=False)
 
     def __post_init__(self) -> None:
         """Initialize progress tracking and load "how to win" instructions.
@@ -81,9 +81,11 @@ class GameState:
         self.progress = {}
         self.weights = {}
         self.faction_labels = {}
-        self.config = GAME_CONFIG
+        self.config = self.config_override or load_game_config()
         self.credibility = CredibilityMatrix()
-        self.player_character = PlayerCharacter()
+        self.player_character = self.player_override or PlayerCharacter(
+            config=self.config
+        )
         player_summary = getattr(self.player_character, "scenario_summary", "")
         character_summary = ""
         for npc in self.characters:
@@ -296,13 +298,15 @@ class GameState:
         logger.info(
             "Using attribute score %s for success threshold", effective_score
         )
-        sampled_value = random.uniform(0, 10)
-        logger.info("Sampled %.2f from uniform[0, 10]", sampled_value)
-        success = sampled_value < effective_score
+        self.time_elapsed_years += 0.5
+        sampled_value = random.randint(1, 20)
+        logger.info("Sampled %d from randint[1, 20]", sampled_value)
+        roll_total = effective_score + sampled_value
+        success = roll_total >= self.config.roll_success_threshold
         cost, gain = self._credibility_cost_gain(attribute_score, player_score)
         attribute_label = attribute_name or "none"
         failure_text = (
-            f"Failed {action_label} (attribute {attribute_label}: {effective_score}, roll={sampled_value:.2f})"
+            f"Failed {action_label} (attribute {attribute_label}: {effective_score}, roll={sampled_value}, total={roll_total}, threshold={self.config.roll_success_threshold})"
         )
         targets_tuple = tuple(targets or [])
         attempt = ActionAttempt(

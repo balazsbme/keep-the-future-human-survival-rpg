@@ -133,7 +133,13 @@ def main() -> None:
         convo = state.conversation_history(char)
         for entry in convo:
             print(f"{entry.speaker}: {entry.text} ({entry.type})")
-        responses = player.generate_responses(state.history, convo, char)
+        partner_credibility = state.current_credibility(getattr(char, "faction", None))
+        responses = player.generate_responses(
+            state.history,
+            convo,
+            char,
+            partner_credibility=partner_credibility,
+        )
         npc_actions = list(state.available_npc_actions(char))
         combined_options = list(responses)
         existing_texts = {opt.text for opt in combined_options}
@@ -170,7 +176,12 @@ def main() -> None:
                 state.finalize_failed_action(char, option)
                 break
             break
-        npc_responses = char.generate_responses(state.history, state.conversation_history(char), player)
+        npc_responses = char.generate_responses(
+            state.history,
+            state.conversation_history(char),
+            player,
+            partner_credibility=partner_credibility,
+        )
         state.log_npc_responses(char, npc_responses)
         npc_actions = list(state.available_npc_actions(char))
         if npc_actions:
