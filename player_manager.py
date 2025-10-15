@@ -92,6 +92,15 @@ class PlayerManager:
                 logger.info("Beginning round %d", round_index)
                 player.take_turn(state, self._assessor)
                 character_label = state.history[-1][0] if state.history else ""
+                attempt = state.last_action_attempt
+                attribute_label = "None"
+                action_text = ""
+                if attempt is not None:
+                    if attempt.attribute:
+                        attribute_label = attempt.attribute.replace("_", " ").title()
+                    else:
+                        attribute_label = "None"
+                    action_text = attempt.option.text
                 final_score = state.final_weighted_score()
                 faction_scores = {}
                 for key, scores in state.progress.items():
@@ -104,6 +113,8 @@ class PlayerManager:
                     {
                         "round": round_index,
                         "character": character_label,
+                        "action": action_text,
+                        "attribute": attribute_label,
                         "score": final_score,
                         "factions": faction_scores,
                     }

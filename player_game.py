@@ -12,23 +12,23 @@ from typing import Dict
 from cli_game import load_characters
 from rpg.game_state import GameState, WIN_THRESHOLD
 from rpg.assessment_agent import AssessmentAgent
-from players import RandomPlayer, GeminiWinPlayer, GeminiGovCorpPlayer
+from players import (
+    GeminiCivilSocietyPlayer,
+    GeminiCorporationPlayer,
+    RandomPlayer,
+)
 
 
 def create_players(characters) -> Dict[str, object]:
     """Return available player instances based on characters."""
-    gov_ctx = next(
-        (c.base_context for c in characters if c.faction == "Governments"),
-        "",
-    )
     corp_ctx = next(
         (c.base_context for c in characters if c.faction == "Corporations"),
         "",
     )
     return {
         "random": RandomPlayer(),
-        "gemini-win": GeminiWinPlayer(),
-        "gemini-govcorp": GeminiGovCorpPlayer(gov_ctx, corp_ctx),
+        "civil-society": GeminiCivilSocietyPlayer(),
+        "corporation": GeminiCorporationPlayer(corp_ctx),
     }
 
 
@@ -39,14 +39,19 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--player",
-        choices=["random", "gemini-win", "gemini-govcorp"],
+        choices=["random", "civil-society", "corporation"],
         default="random",
         help="Which automated player to use",
+    )
+    parser.add_argument(
+        "--scenario",
+        default=None,
+        help="Scenario name to load (defaults to configuration)",
     )
     parser.add_argument("--rounds", type=int, default=10, help="Number of rounds to play")
     args = parser.parse_args()
 
-    characters = load_characters()
+    characters = load_characters(scenario_name=args.scenario)
     state = GameState(list(characters))
     assessor = AssessmentAgent()
     players = create_players(characters)

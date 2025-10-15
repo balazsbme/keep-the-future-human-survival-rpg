@@ -54,6 +54,7 @@ class Player(ABC):
                 known_texts.add(stored_option.text)
         if not actions:
             logger.info("No actions available for %s", char.name)
+            state.last_action_attempt = None
             return
         action = self.select_action(char, actions, state)
         logger.info("Selected action for %s: %s", char.name, action.text)
@@ -84,8 +85,8 @@ class RandomPlayer(Player):
         return action
 
 
-class GeminiWinPlayer(Player):
-    """Gemini-based player using the 'how to win' guide for choices."""
+class GeminiCivilSocietyPlayer(Player):
+    """Gemini-based player using the civil society victory guide."""
 
     def __init__(self, model: str = "gemini-2.5-flash") -> None:
         if genai is None:  # pragma: no cover - env without dependency
@@ -103,14 +104,16 @@ class GeminiWinPlayer(Player):
             f"Available characters: {names}.\n"
             "Respond with the name of the character only."
         )
-        logger.debug("GeminiWinPlayer character prompt: %s", prompt)
+        logger.debug("GeminiCivilSocietyPlayer character prompt: %s", prompt)
         resp = self._model.generate_content(prompt).text
-        logger.debug("GeminiWinPlayer character response: %s", resp)
+        logger.debug("GeminiCivilSocietyPlayer character response: %s", resp)
         for char in state.characters:
             if char.name in resp:
-                logger.info("GeminiWinPlayer chose character: %s", char.name)
+                logger.info("GeminiCivilSocietyPlayer chose character: %s", char.name)
                 return char
-        logger.info("GeminiWinPlayer defaulted to %s", state.characters[0].name)
+        logger.info(
+            "GeminiCivilSocietyPlayer defaulted to %s", state.characters[0].name
+        )
         return state.characters[0]
 
     def select_action(
@@ -123,46 +126,45 @@ class GeminiWinPlayer(Player):
             f"{idx+1}. {act.text}" for idx, act in enumerate(actions)
         )
         prompt = (
-            "You are deciding which action to take in the 'Keep the future human' RPG. "
+            "You are a civil society strategist in the 'Keep the future human' RPG. "
+            "Prioritise collaborative, human-centric outcomes that secure a win for the coalition. "
             f"Use the following guide to win: {state.how_to_win}\n"
             f"Character: {character.display_name}\n"
             f"Faction context: {character.base_context}\n"
             f"Possible actions:\n{numbered}\n"
             "Respond with the number of the best action."
         )
-        logger.debug("GeminiWinPlayer action prompt: %s", prompt)
+        logger.debug("GeminiCivilSocietyPlayer action prompt: %s", prompt)
         resp = self._model.generate_content(prompt).text
-        logger.debug("GeminiWinPlayer action response: %s", resp)
+        logger.debug("GeminiCivilSocietyPlayer action response: %s", resp)
         for token in resp.split():
             if token.isdigit():
                 idx = int(token) - 1
                 if 0 <= idx < len(actions):
                     logger.info(
-                        "GeminiWinPlayer chose action '%s' for %s",
+                        "GeminiCivilSocietyPlayer chose action '%s' for %s",
                         actions[idx].text,
                         character.name,
                     )
                     return actions[idx]
-        logger.info("GeminiWinPlayer defaulted to action '%s'", actions[0].text)
+        logger.info(
+            "GeminiCivilSocietyPlayer defaulted to action '%s'", actions[0].text
+        )
         return actions[0]
 
 
-class GeminiGovCorpPlayer(Player):
-    """Gemini-based player favoring governments and corporations."""
+class GeminiCorporationPlayer(Player):
+    """Gemini-based player focusing solely on corporation faction goals."""
 
     def __init__(
         self,
-        government_context: str,
         corporation_context: str,
         model: str = "gemini-2.5-flash",
     ) -> None:
         if genai is None:  # pragma: no cover - env without dependency
             raise ModuleNotFoundError("google-generativeai not installed")
         self._model = genai.GenerativeModel(model)
-        self._context = (
-            f"Government context:\n{government_context}\n"
-            f"Corporation context:\n{corporation_context}\n"
-        )
+        self._context = f"Corporation context:\n{corporation_context}\n"
 
     def select_character(self, state: GameState) -> Character:
         names = ", ".join(
@@ -172,21 +174,23 @@ class GeminiGovCorpPlayer(Player):
         prompt = (
             f"{self._context}"
             f"Available characters: {names}.\n"
-            "Choose the character whose move would most favor governments and corporations.\n"
+            "Choose the character whose move would best advance the corporation faction objectives.\n"
             "Respond with the name only."
         )
-        logger.debug("GeminiGovCorpPlayer character prompt: %s", prompt)
+        logger.debug("GeminiCorporationPlayer character prompt: %s", prompt)
         resp = self._model.generate_content(prompt).text
-        logger.debug("GeminiGovCorpPlayer character response: %s", resp)
+        logger.debug("GeminiCorporationPlayer character response: %s", resp)
         for char in state.characters:
             if char.name in resp:
-                logger.info("GeminiGovCorpPlayer chose character: %s", char.name)
+                logger.info("GeminiCorporationPlayer chose character: %s", char.name)
                 return char
         for char in state.characters:
-            if char.faction in ("Governments", "Corporations"):
-                logger.info("GeminiGovCorpPlayer defaulted to %s", char.name)
+            if char.faction == "Corporations":
+                logger.info("GeminiCorporationPlayer defaulted to %s", char.name)
                 return char
-        logger.info("GeminiGovCorpPlayer defaulted to %s", state.characters[0].name)
+        logger.info(
+            "GeminiCorporationPlayer defaulted to %s", state.characters[0].name
+        )
         return state.characters[0]
 
     def select_action(
@@ -202,22 +206,27 @@ class GeminiGovCorpPlayer(Player):
             f"{self._context}"
             f"Character: {character.display_name}\n"
             f"Possible actions:\n{numbered}\n"
-            "Select the action number that best favors governments and corporations."
+            "Select the action number that best aligns with the corporation faction objectives."
         )
-        logger.debug("GeminiGovCorpPlayer action prompt: %s", prompt)
+        logger.debug("GeminiCorporationPlayer action prompt: %s", prompt)
         resp = self._model.generate_content(prompt).text
-        logger.debug("GeminiGovCorpPlayer action response: %s", resp)
+        logger.debug("GeminiCorporationPlayer action response: %s", resp)
         for token in resp.split():
             if token.isdigit():
                 idx = int(token) - 1
                 if 0 <= idx < len(actions):
                     logger.info(
-                        "GeminiGovCorpPlayer chose action '%s' for %s",
+                        "GeminiCorporationPlayer chose action '%s' for %s",
                         actions[idx].text,
                         character.name,
                     )
                     return actions[idx]
         logger.info(
-            "GeminiGovCorpPlayer defaulted to action '%s'", actions[0].text
+            "GeminiCorporationPlayer defaulted to action '%s'", actions[0].text
         )
         return actions[0]
+
+
+# Backwards compatibility aliases for legacy names
+GeminiWinPlayer = GeminiCivilSocietyPlayer
+GeminiGovCorpPlayer = GeminiCorporationPlayer

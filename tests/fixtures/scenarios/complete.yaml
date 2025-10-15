@@ -1,6 +1,7 @@
 summary: "Test scenario summary."
 
 test_character:
+  scenario_summary: "Test scenario summary."
   end_states:
     - end1
     - end2

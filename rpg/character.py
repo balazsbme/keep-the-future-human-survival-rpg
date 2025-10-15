@@ -333,6 +333,11 @@ class YamlCharacter(Character):
         )
         self.base_context = base_context
         self.profile = profile
+        summary_value = spec.get("scenario_summary") or spec.get("ScenarioSummary")
+        if isinstance(summary_value, str):
+            self.scenario_summary = summary_value.strip()
+        else:
+            self.scenario_summary = ""
         self._attribute_scores: dict[str, int] = {}
         for attr in ("leadership", "technology", "policy", "network"):
             raw_value = profile.get(attr)
@@ -377,7 +382,7 @@ class YamlCharacter(Character):
             f"You are {self.display_name} in the 'Keep the Future Human' survival RPG game. "
             f"You are having a conversation with {partner_label}. "
             "Respond in a way that prioritizes your own goals or those of your faction before entertaining new requests.\n"
-            f"Keep your response grounded in {faction_focus}, your motivations, and your capabilities.\n"
+            f"Keep your response aligned with your motivations and capabilities, grounded in {faction_focus}.\n"
             f"Your persona is described below:\n{self._profile_text()}\n"
             "Ground your thinking in this persona and the faction context below before proposing responses.\n"
             f"**MarkdownContext**\n{self.base_context}\n**End of MarkdownContext**\n"
@@ -398,6 +403,11 @@ class YamlCharacter(Character):
         if not options:
             logger.warning("Model returned no usable responses for %s", self.name)
             return []
+        if not any(not option.is_action for option in options):
+            logger.warning(
+                "Expected at least one chat option from %s; defaulting to action proposals",
+                self.name,
+            )
         if len(options) > 1:
             logger.info(
                 "Model returned %d options for %s; using top suggestions",
@@ -597,6 +607,11 @@ class PlayerCharacter(Character):
         response_text = getattr(response, "text", "").strip()
         logger.debug("Raw player response: %s", response_text)
         options = self._parse_response_payload(response_text, len(partner.triplets))
+        if any(option.is_action for option in options):
+            logger.warning(
+                "Player model suggested action-oriented responses; using scripted prompts instead"
+            )
+            options = []
         chat_options: List[ResponseOption] = []
         seen_texts: set[str] = set()
         partner_name = getattr(partner, "name", getattr(partner, "display_name", "partner"))
