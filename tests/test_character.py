@@ -185,6 +185,46 @@ class YamlCharacterTest(unittest.TestCase):
         self.assertTrue(all(option.type == "chat" for option in options))
 
     @patch("rpg.character.genai")
+    def test_generate_responses_handles_wrapped_payload(self, mock_char_genai):
+        mock_action_model = MagicMock()
+        mock_action_model.generate_content.return_value = MagicMock(
+            text=json.dumps(
+                {
+                    "responses": [
+                        {
+                            "text": "Figoure out the root cause and fix that the option is not lost.",
+                            "type": "chat",
+                            "related-triplet": "None",
+                            "related-attribute": "None",
+                        }
+                    ]
+                }
+            )
+        )
+        mock_char_genai.GenerativeModel.return_value = mock_action_model
+
+        with open(CHARACTERS_FILE, "r", encoding="utf-8") as fh:
+            character_payload = yaml.safe_load(fh)
+        with open(SCENARIO_FILE, "r", encoding="utf-8") as fh:
+            faction_payload = yaml.safe_load(fh) or {}
+        with open(FACTIONS_FILE, "r", encoding="utf-8") as fh:
+            faction_contexts = yaml.safe_load(fh) or {}
+        profile = character_payload["Characters"][0]
+        faction_spec = dict(faction_payload[profile["faction"]])
+        faction_context = faction_contexts.get(profile["faction"], {})
+        if isinstance(faction_context, dict) and faction_context.get("MarkdownContext"):
+            faction_spec["MarkdownContext"] = faction_context["MarkdownContext"]
+        char = YamlCharacter(profile["name"], faction_spec, profile)
+        partner = SimpleNamespace(
+            display_name="Player", faction="CivilSociety", triplets=char.triplets
+        )
+
+        options = char.generate_responses([], [], partner, partner_credibility=50)
+
+        self.assertEqual(len(options), 1)
+        self.assertEqual(options[0].text, "Figoure out the root cause and fix that the option is not lost.")
+
+    @patch("rpg.character.genai")
     def test_load_characters_merges_markdown_context(self, mock_char_genai):
         mock_char_genai.GenerativeModel.return_value = MagicMock()
         characters = load_characters(

@@ -262,8 +262,16 @@ class Character(ABC):
 
         responses: List[ResponseOption] = []
         payload = parsed_payload
-        if isinstance(payload, dict) and "actions" in payload:
-            payload = payload["actions"]
+        if isinstance(payload, dict):
+            list_candidates = (
+                payload.get("actions"),
+                payload.get("responses"),
+                payload.get("options"),
+            )
+            for candidate in list_candidates:
+                if isinstance(candidate, list):
+                    payload = candidate
+                    break
         if isinstance(payload, list):
             for entry in payload:
                 if not isinstance(entry, dict):
