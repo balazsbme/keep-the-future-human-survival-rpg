@@ -7,17 +7,23 @@ from __future__ import annotations
 from typing import Dict, List, Set
 import logging
 import os
+import sys
 import tempfile
 from pathlib import Path
+
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from flask import Flask, abort, redirect, request, send_from_directory
 
 from cli_game import load_characters
 
-from .assessment_baseline import run_baseline_assessment
-from .assessment_consistency import run_consistency_assessment
-from .player_manager import PlayerManager
-from .players import (
+from evaluations.assessment_baseline import run_baseline_assessment
+from evaluations.assessment_consistency import run_consistency_assessment
+from evaluations.player_manager import PlayerManager
+from evaluations.players import (
     GeminiCivilSocietyPlayer,
     GeminiCorporationPlayer,
     Player,
