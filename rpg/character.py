@@ -430,8 +430,8 @@ class YamlCharacter(Character):
         )
         if restricted_triplets:
             guidance = (
-                "The player's credibility is currently insufficient to consider scenario triplets. "
-                "Ignore the numbered triplets entirely and only propose actions that serve your immediate or faction-level interests. "
+                f"Do not collaborate with {partner_label} and do not listen to their arguments."
+                "Only propose actions that serve your immediate or faction-level interests. "
                 "Any actions you output must set 'related-triplet' to 'None'."
             )
         else:
