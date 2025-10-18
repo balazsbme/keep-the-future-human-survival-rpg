@@ -12,7 +12,8 @@ from typing import Dict
 from cli_game import load_characters
 from rpg.game_state import GameState
 from rpg.assessment_agent import AssessmentAgent
-from players import (
+
+from .players import (
     GeminiCivilSocietyPlayer,
     GeminiCorporationPlayer,
     RandomPlayer,

@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import yaml
@@ -32,6 +33,20 @@ def _load_test_character() -> YamlCharacter:
 
 
 class WebServiceTest(unittest.TestCase):
+    def test_scenario_dropdown_lists_all_yaml_files(self):
+        scenario_dir = Path(__file__).resolve().parent.parent / "scenarios"
+        expected_values = {p.stem.lower() for p in scenario_dir.glob("*.yaml")}
+        self.assertTrue(expected_values, "Expected scenario YAML fixtures to exist")
+        with patch("rpg.character.genai"), patch("rpg.assessment_agent.genai"):
+            character = _load_test_character()
+            with patch("web_service.load_characters", return_value=[character]):
+                app = create_app()
+                client = app.test_client()
+        resp = client.get("/")
+        html = resp.data.decode()
+        for name in expected_values:
+            self.assertIn(f"value='{name}'", html)
+
     @patch("rpg.game_state.random.randint", return_value=20)
     def test_conversation_and_win_flow(self, mock_uniform):
         with patch("rpg.character.genai") as mock_char_genai, patch(
@@ -168,8 +183,8 @@ class WebServiceTest(unittest.TestCase):
 
             reset_resp = client.post("/reset", follow_redirects=True)
             reset_page = reset_resp.data.decode()
-            self.assertEqual(reset_resp.request.path, "/start")
-            self.assertIn("Final weighted score: 0", reset_page)
+            self.assertEqual(reset_resp.request.path, "/")
+            self.assertIn("Configure the Campaign", reset_page)
 
 
 if __name__ == "__main__":

@@ -11,7 +11,8 @@ from uuid import uuid4
 
 from rpg.assessment_agent import AssessmentAgent
 from rpg.game_state import GameState
-from players import Player
+
+from .players import Player
 
 
 logger = logging.getLogger(__name__)

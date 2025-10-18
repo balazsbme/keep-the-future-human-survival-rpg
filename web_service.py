@@ -46,9 +46,20 @@ def create_app() -> Flask:
 
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
     app = Flask(__name__)
-    scenario_dir = Path(__file__).resolve().parent / "rpg" / "scenarios"
-    available_scenarios = sorted({p.stem.lower() for p in scenario_dir.glob("*.yaml")})
     current_config = load_game_config()
+    scenario_roots = [
+        Path(__file__).resolve().parent / "scenarios",
+        Path(__file__).resolve().parent / "rpg" / "scenarios",
+    ]
+    discovered_scenarios = set()
+    for root in scenario_roots:
+        if root.exists():
+            discovered_scenarios.update(p.stem.lower() for p in root.glob("*.yaml"))
+    if not discovered_scenarios:
+        available_scenarios = [current_config.scenario]
+    else:
+        discovered_scenarios.add(current_config.scenario)
+        available_scenarios = sorted(discovered_scenarios)
     initial_characters = load_characters(config=current_config)
     game_state = GameState(list(initial_characters), config_override=current_config)
     assessor = AssessmentAgent()
@@ -1128,7 +1139,7 @@ def create_app() -> Flask:
         logger.info("Resetting game state")
         with state_lock:
             _reload_state(current_config)
-        return redirect("/start")
+        return redirect("/")
 
     @app.route("/instructions", methods=["GET"])
     def instructions() -> str:
