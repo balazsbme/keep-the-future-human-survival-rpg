@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 import random
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Sequence
 
 try:  # pragma: no cover - optional dependency
     import google.generativeai as genai
@@ -16,10 +16,21 @@ except ModuleNotFoundError:  # pragma: no cover
 
 from rpg.game_state import GameState
 from rpg.character import Character, ResponseOption
+from rpg.conversation import ConversationEntry
 from rpg.assessment_agent import AssessmentAgent
 
 
 logger = logging.getLogger(__name__)
+
+
+def _format_conversation(conversation: Sequence[ConversationEntry]) -> str:
+    """Return a formatted string representation of a conversation history."""
+
+    if not conversation:
+        return "None"
+    return "\n".join(
+        f"{entry.speaker}: {entry.text} [{entry.type}]" for entry in conversation
+    )
 
 
 class Player(ABC):
@@ -33,38 +44,86 @@ class Player(ABC):
     def select_action(
         self,
         character: Character,
+        conversation: Sequence[ConversationEntry],
         actions: List[ResponseOption],
         state: GameState,
     ) -> ResponseOption:
-        """Return the chosen action for ``character`` from ``actions``."""
+        """Return the chosen option for ``character`` from ``actions``."""
 
     def take_turn(self, state: GameState, assessor: AssessmentAgent) -> None:
         """Execute a full turn by selecting character, action and updating state."""
         logger.info("Taking turn")
         char = self.select_character(state)
         logger.info("Selected character: %s", char.name)
-        conversation = state.conversation_history(char)
         partner = state.player_character
         credibility = state.current_credibility(getattr(char, "faction", None))
-        responses = char.generate_responses(
-            state.history,
-            conversation,
-            partner,
-            partner_credibility=credibility,
-        )
-        actions = [option for option in responses if option.is_action]
-        known_texts = {option.text for option in actions}
-        for stored_option in state.available_npc_actions(char):
-            if stored_option.text not in known_texts:
-                actions.append(stored_option)
-                known_texts.add(stored_option.text)
-        if not actions:
-            logger.info("No actions available for %s", char.name)
+        action_performed = False
+        max_exchanges = 8
+        for exchange in range(1, max_exchanges + 1):
+            conversation = state.conversation_history(char)
+            logger.debug(
+                "Exchange %d conversation length for %s: %d entries",
+                exchange,
+                char.name,
+                len(conversation),
+            )
+            player_options = partner.generate_responses(
+                state.history,
+                conversation,
+                char,
+                partner_credibility=credibility,
+            )
+            stored_actions = state.available_npc_actions(char)
+            options: List[ResponseOption] = []
+            seen_texts = set()
+            for option in player_options:
+                if option.text not in seen_texts:
+                    options.append(option)
+                    seen_texts.add(option.text)
+            for option in stored_actions:
+                if option.text not in seen_texts:
+                    options.append(option)
+                    seen_texts.add(option.text)
+            if not options:
+                logger.info("No conversation options available for %s", char.name)
+                state.last_action_attempt = None
+                return
+            try:
+                selection = self.select_action(char, conversation, options, state)
+            except Exception:  # pragma: no cover - defensive fallback
+                logger.exception(
+                    "Error selecting option for %s; defaulting to first choice",
+                    char.name,
+                )
+                selection = options[0]
+            if selection not in options:
+                logger.warning(
+                    "Selected option for %s not in available list; defaulting to first",
+                    char.name,
+                )
+                selection = options[0]
+            logger.info(
+                "Selected option for %s: %s (%s)",
+                char.name,
+                selection.text,
+                selection.type,
+            )
+            state.log_player_response(char, selection)
+            if selection.is_action:
+                action_performed = True
+                state.record_action(char, selection)
+                break
+            npc_responses = char.generate_responses(
+                state.history,
+                state.conversation_history(char),
+                partner,
+                partner_credibility=credibility,
+            )
+            state.log_npc_responses(char, npc_responses)
+        if not action_performed:
+            logger.info("No action performed for %s during this turn", char.name)
             state.last_action_attempt = None
             return
-        action = self.select_action(char, actions, state)
-        logger.info("Selected action for %s: %s", char.name, action.text)
-        state.record_action(char, action)
         scores = assessor.assess(state.characters, state.how_to_win, state.history)
         logger.info("Assessment results: %s", scores)
         state.update_progress(scores)
@@ -81,6 +140,7 @@ class RandomPlayer(Player):
     def select_action(
         self,
         character: Character,
+        conversation: Sequence[ConversationEntry],
         actions: List[ResponseOption],
         state: GameState,
     ) -> ResponseOption:
@@ -125,11 +185,14 @@ class GeminiCivilSocietyPlayer(Player):
     def select_action(
         self,
         character: Character,
+        conversation: Sequence[ConversationEntry],
         actions: List[ResponseOption],
         state: GameState,
     ) -> ResponseOption:
+        conversation_text = _format_conversation(conversation)
         numbered = "\n".join(
-            f"{idx+1}. {act.text}" for idx, act in enumerate(actions)
+            f"{idx+1}. [{'Action' if act.is_action else 'Dialogue'}] {act.text}"
+            for idx, act in enumerate(actions)
         )
         prompt = (
             "You are a civil society strategist in the 'Keep the future human' RPG. "
@@ -137,6 +200,8 @@ class GeminiCivilSocietyPlayer(Player):
             f"Use the following guide to win: {state.how_to_win}\n"
             f"Character: {character.display_name}\n"
             f"Faction context: {character.base_context}\n"
+            "Conversation so far:\n"
+            f"{conversation_text}\n"
             f"Possible actions:\n{numbered}\n"
             "Respond with the number of the best action."
         )
@@ -202,15 +267,20 @@ class GeminiCorporationPlayer(Player):
     def select_action(
         self,
         character: Character,
+        conversation: Sequence[ConversationEntry],
         actions: List[ResponseOption],
         state: GameState,
     ) -> ResponseOption:
+        conversation_text = _format_conversation(conversation)
         numbered = "\n".join(
-            f"{idx+1}. {act.text}" for idx, act in enumerate(actions)
+            f"{idx+1}. [{'Action' if act.is_action else 'Dialogue'}] {act.text}"
+            for idx, act in enumerate(actions)
         )
         prompt = (
             f"{self._context}"
             f"Character: {character.display_name}\n"
+            "Conversation so far:\n"
+            f"{conversation_text}\n"
             f"Possible actions:\n{numbered}\n"
             "Select the action number that best aligns with the corporation faction objectives."
         )

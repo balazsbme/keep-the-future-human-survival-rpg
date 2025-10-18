@@ -60,9 +60,27 @@ class PlayerManager:
             logger.info(
                 "Launching game %d/%d for player %s", game_index, total_games, player_key
             )
-            results.append(
-                self._run_single_game(player_key, player, max_rounds, game_index)
-            )
+            try:
+                game_result = self._run_single_game(
+                    player_key, player, max_rounds, game_index
+                )
+            except Exception as exc:  # pragma: no cover - defensive fallback
+                logger.exception(
+                    "Game %d for player %s failed; recording error and continuing",
+                    game_index,
+                    player_key,
+                )
+                game_result = {
+                    "game_number": game_index,
+                    "rounds": [],
+                    "final_score": 0,
+                    "result": "Error",
+                    "iterations": 0,
+                    "actions": 0,
+                    "log_filename": None,
+                    "error": str(exc),
+                }
+            results.append(game_result)
         return results
 
     def _run_single_game(
