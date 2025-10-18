@@ -13,10 +13,11 @@ from pathlib import Path
 from flask import Flask, abort, redirect, request, send_from_directory
 
 from cli_game import load_characters
-from evaluations.assessment_baseline import run_baseline_assessment
-from evaluations.assessment_consistency import run_consistency_assessment
-from player_manager import PlayerManager
-from players import (
+
+from .assessment_baseline import run_baseline_assessment
+from .assessment_consistency import run_consistency_assessment
+from .player_manager import PlayerManager
+from .players import (
     GeminiCivilSocietyPlayer,
     GeminiCorporationPlayer,
     Player,
@@ -37,7 +38,7 @@ def create_app(log_dir: str | None = None) -> Flask:
     assessor = AssessmentAgent()
 
     config = load_game_config()
-    scenario_dir = Path(__file__).resolve().parent / "scenarios"
+    scenario_dir = Path(__file__).resolve().parent.parent / "scenarios"
     scenario_files = sorted(p for p in scenario_dir.glob("*.yaml"))
     scenario_lookup: Dict[str, str] = {
         path.stem.lower(): path.stem for path in scenario_files

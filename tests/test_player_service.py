@@ -12,7 +12,7 @@ import yaml
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from player_service import create_app
+from evaluations.player_service import create_app
 from rpg.character import YamlCharacter
 
 CHARACTERS_FILE = os.path.join(
@@ -36,11 +36,13 @@ def _load_test_character() -> YamlCharacter:
 class PlayerServiceTest(unittest.TestCase):
     def test_progress_page_lists_all_scores_and_logs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("players.random.choice") as mock_choice, patch(
+            with patch("evaluations.players.random.choice") as mock_choice, patch(
                 "rpg.character.genai"
             ) as mock_char_genai, patch(
                 "rpg.assessment_agent.genai"
-            ) as mock_assess_genai, patch("players.genai") as mock_players_genai:
+            ) as mock_assess_genai, patch(
+                "evaluations.players.genai"
+            ) as mock_players_genai:
                 mock_action_model = MagicMock()
                 mock_assess_model = MagicMock()
                 mock_action_model.generate_content.return_value = MagicMock(
@@ -81,7 +83,10 @@ class PlayerServiceTest(unittest.TestCase):
                     return options[0]
 
                 mock_choice.side_effect = choice_side_effect
-                with patch("player_service.load_characters", return_value=[character]):
+                with patch(
+                    "evaluations.player_service.load_characters",
+                    return_value=[character],
+                ):
                     with patch("rpg.game_state.random.randint", return_value=20):
                         app = create_app(log_dir=tmpdir)
                         client = app.test_client()
@@ -104,8 +109,11 @@ class PlayerServiceTest(unittest.TestCase):
                 self.assertTrue(log_resp.data)
 
     def test_evaluation_buttons_present(self):
-        with patch("player_service.load_characters", return_value=[]), patch(
-            "players.genai"
+        with patch(
+            "evaluations.player_service.load_characters",
+            return_value=[],
+        ), patch(
+            "evaluations.players.genai"
         ), patch("rpg.assessment_agent.genai"):
             app = create_app()
             client = app.test_client()

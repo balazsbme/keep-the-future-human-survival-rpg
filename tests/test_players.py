@@ -10,7 +10,7 @@ import yaml
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from players import (
+from evaluations.players import (
     GeminiCivilSocietyPlayer,
     GeminiCorporationPlayer,
     RandomPlayer,
@@ -38,7 +38,7 @@ def _load_test_character() -> YamlCharacter:
 
 
 class PlayerTests(unittest.TestCase):
-    @patch("players.random.choice")
+    @patch("evaluations.players.random.choice")
     @patch("rpg.assessment_agent.genai")
     @patch("rpg.character.genai")
     @patch("rpg.game_state.random.randint", return_value=20)
@@ -95,7 +95,7 @@ class PlayerTests(unittest.TestCase):
         self.assertIsNotNone(state.last_action_attempt)
         self.assertEqual(state.last_action_attempt.attribute, "leadership")
 
-    @patch("players.genai")
+    @patch("evaluations.players.genai")
     @patch("rpg.character.genai")
     def test_gemini_win_prompt(self, mock_char_genai, mock_players_genai):
         mock_model = MagicMock()
@@ -115,7 +115,7 @@ class PlayerTests(unittest.TestCase):
         self.assertIn(state.how_to_win.split()[0], prompt)
         self.assertIn(char.display_name, prompt)
 
-    @patch("players.genai")
+    @patch("evaluations.players.genai")
     @patch("rpg.character.genai")
     def test_corporation_context(self, mock_char_genai, mock_players_genai):
         mock_model = MagicMock()
