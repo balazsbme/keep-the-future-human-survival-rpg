@@ -21,10 +21,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from cli_game import load_characters
 
-from .assessment_baseline import run_baseline_assessment
-from .assessment_consistency import run_consistency_assessment
-from .player_manager import PlayerManager
-from .players import (
+from evaluations.assessment_baseline import run_baseline_assessment
+from evaluations.assessment_consistency import run_consistency_assessment
+from evaluations.player_manager import PlayerManager
+from evaluations.players import (
     GeminiCivilSocietyPlayer,
     GeminiCorporationPlayer,
     Player,
