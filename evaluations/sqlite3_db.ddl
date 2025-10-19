@@ -40,3 +40,13 @@ CREATE TABLE IF NOT EXISTS assessments (
 );
 
 CREATE INDEX IF NOT EXISTS idx_outcomes_exec_action ON outcomes(execution_id, action_id);
+
+-- 4) Credibility
+CREATE TABLE IF NOT EXISTS credibility (
+  credibility_vector_id       INTEGER PRIMARY KEY,
+  execution_id                INTEGER NOT NULL,      -- FK → executions
+  action_id                   INTEGER NOT NULL,      -- FK → actions
+  cost                   INTEGER NOT NULL,
+  reroll_attempt_count    INTEGER NOT NULL, -- start from 0 as an action without reroll already costs
+  # TODO for Codex: add one column for each relevant credibility matrix element. (e.g. the row of the CivilSociety player). 
+);
