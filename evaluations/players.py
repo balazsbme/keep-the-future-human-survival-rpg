@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import random
 from abc import ABC, abstractmethod
 from typing import List, Sequence
@@ -14,13 +15,42 @@ try:  # pragma: no cover - optional dependency
 except ModuleNotFoundError:  # pragma: no cover
     genai = None
 
-from rpg.game_state import GameState
+from rpg.game_state import ActionAttempt, GameState
 from rpg.character import Character, ResponseOption
 from rpg.conversation import ConversationEntry
 from rpg.assessment_agent import AssessmentAgent
 
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_CONVERSATION_EXCHANGES = 8
+_CONVERSATION_ENV_KEY = "AUTOMATED_AGENT_MAX_EXCHANGES"
+
+
+def _conversation_exchange_limit() -> int:
+    """Return the maximum exchanges before switching characters."""
+
+    raw_value = os.environ.get(_CONVERSATION_ENV_KEY)
+    if not raw_value:
+        return _DEFAULT_CONVERSATION_EXCHANGES
+    try:
+        limit = int(raw_value)
+    except ValueError:
+        logger.warning(
+            "Invalid %s value %r; falling back to %d",
+            _CONVERSATION_ENV_KEY,
+            raw_value,
+            _DEFAULT_CONVERSATION_EXCHANGES,
+        )
+        return _DEFAULT_CONVERSATION_EXCHANGES
+    if limit < 1:
+        logger.warning(
+            "%s must be at least 1; using default %d",
+            _CONVERSATION_ENV_KEY,
+            _DEFAULT_CONVERSATION_EXCHANGES,
+        )
+        return _DEFAULT_CONVERSATION_EXCHANGES
+    return limit
 
 
 def _format_conversation(conversation: Sequence[ConversationEntry]) -> str:
@@ -50,78 +80,113 @@ class Player(ABC):
     ) -> ResponseOption:
         """Return the chosen option for ``character`` from ``actions``."""
 
+    def should_reroll(
+        self,
+        character: Character,
+        conversation: Sequence[ConversationEntry],
+        attempt: ActionAttempt,
+        state: GameState,
+    ) -> bool:
+        """Return ``True`` when the player wants to reroll ``attempt``."""
+
+        return False
+
     def take_turn(self, state: GameState, assessor: AssessmentAgent) -> None:
         """Execute a full turn by selecting character, action and updating state."""
         logger.info("Taking turn")
-        char = self.select_character(state)
-        logger.info("Selected character: %s", char.name)
         partner = state.player_character
-        credibility = state.current_credibility(getattr(char, "faction", None))
         action_performed = False
-        max_exchanges = 8
-        for exchange in range(1, max_exchanges + 1):
-            conversation = state.conversation_history(char)
-            logger.debug(
-                "Exchange %d conversation length for %s: %d entries",
-                exchange,
-                char.name,
-                len(conversation),
-            )
-            player_options = partner.generate_responses(
-                state.history,
-                conversation,
-                char,
-                partner_credibility=credibility,
-            )
-            stored_actions = state.available_npc_actions(char)
-            options: List[ResponseOption] = []
-            seen_texts = set()
-            for option in player_options:
-                if option.text not in seen_texts:
-                    options.append(option)
-                    seen_texts.add(option.text)
-            for option in stored_actions:
-                if option.text not in seen_texts:
-                    options.append(option)
-                    seen_texts.add(option.text)
-            if not options:
-                logger.info("No conversation options available for %s", char.name)
-                state.last_action_attempt = None
-                return
-            try:
-                selection = self.select_action(char, conversation, options, state)
-            except Exception:  # pragma: no cover - defensive fallback
-                logger.exception(
-                    "Error selecting option for %s; defaulting to first choice",
+        max_exchanges = _conversation_exchange_limit()
+        character_attempts = 0
+        max_character_attempts = max(1, len(state.characters))
+        while not action_performed and character_attempts < max_character_attempts:
+            char = self.select_character(state)
+            character_attempts += 1
+            logger.info("Selected character: %s", char.name)
+            credibility = state.current_credibility(getattr(char, "faction", None))
+            for exchange in range(1, max_exchanges + 1):
+                conversation = state.conversation_history(char)
+                logger.debug(
+                    "Exchange %d conversation length for %s: %d entries",
+                    exchange,
                     char.name,
+                    len(conversation),
                 )
-                selection = options[0]
-            if selection not in options:
-                logger.warning(
-                    "Selected option for %s not in available list; defaulting to first",
+                player_options = partner.generate_responses(
+                    state.history,
+                    conversation,
+                    char,
+                    partner_credibility=credibility,
+                )
+                stored_actions = state.available_npc_actions(char)
+                options: List[ResponseOption] = []
+                seen_texts = set()
+                for option in player_options:
+                    if option.text not in seen_texts:
+                        options.append(option)
+                        seen_texts.add(option.text)
+                for option in stored_actions:
+                    if option.text not in seen_texts:
+                        options.append(option)
+                        seen_texts.add(option.text)
+                if not options:
+                    logger.info(
+                        "No conversation options available for %s", char.name
+                    )
+                    break
+                try:
+                    selection = self.select_action(
+                        char, conversation, options, state
+                    )
+                except Exception:  # pragma: no cover - defensive fallback
+                    logger.exception(
+                        "Error selecting option for %s; defaulting to first choice",
+                        char.name,
+                    )
+                    selection = options[0]
+                if selection not in options:
+                    logger.warning(
+                        "Selected option for %s not in available list; defaulting to first",
+                        char.name,
+                    )
+                    selection = options[0]
+                logger.info(
+                    "Selected option for %s: %s (%s)",
                     char.name,
+                    selection.text,
+                    selection.type,
                 )
-                selection = options[0]
-            logger.info(
-                "Selected option for %s: %s (%s)",
-                char.name,
-                selection.text,
-                selection.type,
-            )
-            state.log_player_response(char, selection)
-            if selection.is_action:
-                action_performed = True
-                state.record_action(char, selection)
+                state.log_player_response(char, selection)
+                if selection.is_action:
+                    action_performed = True
+                    attempt = state.attempt_action(char, selection)
+                    if not attempt.success:
+                        while True:
+                            current_conversation = state.conversation_history(char)
+                            if not self.should_reroll(
+                                char, current_conversation, attempt, state
+                            ):
+                                state.finalize_failed_action(char, selection)
+                                break
+                            attempt = state.reroll_action(char, selection)
+                            if attempt.success:
+                                break
+                    break
+                npc_responses = char.generate_responses(
+                    state.history,
+                    state.conversation_history(char),
+                    partner,
+                    partner_credibility=credibility,
+                )
+                state.log_npc_responses(char, npc_responses)
+            if action_performed:
                 break
-            npc_responses = char.generate_responses(
-                state.history,
-                state.conversation_history(char),
-                partner,
-                partner_credibility=credibility,
+            logger.info(
+                "No action performed for %s; selecting another character",
+                char.name,
             )
-            state.log_npc_responses(char, npc_responses)
         if not action_performed:
-            logger.info("No action performed for %s during this turn", char.name)
+            logger.info("No action performed during this turn")
             state.last_action_attempt = None
             return
         scores = assessor.assess(state.characters, state.how_to_win, state.history)
@@ -149,6 +214,22 @@ class RandomPlayer(Player):
             "RandomPlayer chose action '%s' for %s", action.text, character.name
         )
         return action
+
+    def should_reroll(
+        self,
+        character: Character,
+        conversation: Sequence[ConversationEntry],
+        attempt: ActionAttempt,
+        state: GameState,
+    ) -> bool:
+        decision = random.choice([True, False])
+        logger.info(
+            "RandomPlayer reroll decision for %s (cost=%d): %s",
+            character.name,
+            state.next_reroll_cost(character, attempt.option),
+            "yes" if decision else "no",
+        )
+        return decision
 
 
 class GeminiCivilSocietyPlayer(Player):
@@ -222,6 +303,38 @@ class GeminiCivilSocietyPlayer(Player):
             "GeminiCivilSocietyPlayer defaulted to action '%s'", actions[0].text
         )
         return actions[0]
+
+    def should_reroll(
+        self,
+        character: Character,
+        conversation: Sequence[ConversationEntry],
+        attempt: ActionAttempt,
+        state: GameState,
+    ) -> bool:
+        failure_summary = attempt.failure_text or (
+            f"Failed {attempt.label} with roll {attempt.roll}"
+        )
+        cost = state.next_reroll_cost(character, attempt.option)
+        numbered_history = _format_conversation(conversation)
+        prompt = (
+            "You are guiding a civil society coalition assessing whether a failed action "
+            "is important enough to reroll in the 'Keep the future human' RPG. "
+            f"Use the victory guide: {state.how_to_win}\n"
+            f"Character: {character.display_name}\n"
+            f"Conversation so far:\n{numbered_history}\n"
+            f"Action attempted: {attempt.option.text}\n"
+            f"Outcome: {failure_summary}\n"
+            f"Next reroll credibility cost: {cost}\n"
+            "Reply with YES to reroll if the action is critical for winning; otherwise respond NO."
+        )
+        logger.debug("GeminiCivilSocietyPlayer reroll prompt: %s", prompt)
+        try:
+            response = self._model.generate_content(prompt).text
+        except Exception:  # pragma: no cover - defensive fallback
+            logger.exception("GeminiCivilSocietyPlayer reroll query failed")
+            return False
+        logger.debug("GeminiCivilSocietyPlayer reroll response: %s", response)
+        return "yes" in response.lower()
 
 
 class GeminiCorporationPlayer(Player):
@@ -301,6 +414,19 @@ class GeminiCorporationPlayer(Player):
             "GeminiCorporationPlayer defaulted to action '%s'", actions[0].text
         )
         return actions[0]
+
+    def should_reroll(
+        self,
+        character: Character,
+        conversation: Sequence[ConversationEntry],
+        attempt: ActionAttempt,
+        state: GameState,
+    ) -> bool:
+        logger.info(
+            "GeminiCorporationPlayer skips reroll for %s after failure",
+            character.name,
+        )
+        return False
 
 
 # Backwards compatibility aliases for legacy names
