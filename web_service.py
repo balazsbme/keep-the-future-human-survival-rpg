@@ -71,6 +71,8 @@ def create_app() -> Flask:
         Tuple[int, int, str], Tuple[threading.Event, List[ResponseOption] | None]
     ] = {}
     pending_player_choices: Dict[int, Tuple[int, str, ResponseOption]] = {}
+    player_option_signatures: Dict[Tuple[int, int], tuple] = {}
+    last_history_signature: Tuple[Tuple[str, str], ...] | None = None
     assessment_threads: List[threading.Thread] = []
     assessment_lock = threading.Lock()
     state_lock = threading.Lock()
@@ -123,7 +125,7 @@ def create_app() -> Flask:
     )
 
     def _reload_state(config: GameConfig) -> None:
-        nonlocal current_config, initial_characters, game_state
+        nonlocal current_config, initial_characters, game_state, last_history_signature
         logger.info("Reloading game state with config %s", config)
         current_config = config
         try:
@@ -148,10 +150,12 @@ def create_app() -> Flask:
             )
         game_state = new_state
         pending_player_options.clear()
+        player_option_signatures.clear()
         pending_npc_responses.clear()
         pending_player_choices.clear()
         with assessment_lock:
             assessment_threads.clear()
+        last_history_signature = None
 
     def _format_summary_html(text: str) -> str:
         stripped = (text or "").strip()
@@ -290,6 +294,7 @@ def create_app() -> Flask:
     @app.route("/start", methods=["GET"])
     def list_characters() -> Response:
         logger.info("Listing characters")
+        nonlocal last_history_signature
         with state_lock:
             score = game_state.final_weighted_score()
             hist_len = len(game_state.history)
@@ -300,6 +305,9 @@ def create_app() -> Flask:
             conversation_snapshots = [
                 game_state.conversation_history(char) for char in characters
             ]
+            action_snapshots = [
+                list(game_state.available_npc_actions(char)) for char in characters
+            ]
             credibility_values = [
                 game_state.current_credibility(getattr(char, "faction", None))
                 for char in characters
@@ -307,16 +315,42 @@ def create_app() -> Flask:
         if score >= game_state.config.win_threshold or hist_len >= game_state.config.max_rounds:
             return redirect("/result")
         if enable_parallel:
-            pending_player_options.clear()
-            pending_npc_responses.clear()
+            history_signature = tuple(
+                (str(label), str(action)) for label, action in history_snapshot
+            )
+            if history_signature != last_history_signature:
+                pending_player_options.clear()
+                player_option_signatures.clear()
+                pending_npc_responses.clear()
             pending_player_choices.clear()
+            last_history_signature = history_signature
 
-            def launch(idx: int, char: Character, convo: Sequence[ConversationEntry]) -> None:
+            def launch(
+                idx: int,
+                char: Character,
+                convo: Sequence[ConversationEntry],
+                actions: Sequence[ResponseOption],
+            ) -> None:
                 if convo:
                     return
                 key = _player_pending_key(idx, len(convo))
+                signature = _player_context_signature(
+                    history_snapshot, convo, actions
+                )
+                existing_signature = player_option_signatures.get(key)
+                entry = pending_player_options.get(key)
+                if (
+                    existing_signature == signature
+                    and entry is not None
+                ):
+                    current_event, value = entry
+                    if value is not None or not current_event.is_set():
+                        return
+                pending_player_options.pop(key, None)
+                player_option_signatures.pop(key, None)
                 event = threading.Event()
                 pending_player_options[key] = (event, None)
+                player_option_signatures[key] = signature
 
                 def worker(
                     hist: Sequence[Tuple[str, str]],
@@ -324,6 +358,7 @@ def create_app() -> Flask:
                     snapshots: Sequence[ConversationEntry],
                     pending_key: Tuple[int, int],
                     pending_event: threading.Event,
+                    expected_signature: tuple,
                 ) -> None:
                     try:
                         credibility = game_state.current_credibility(
@@ -346,6 +381,9 @@ def create_app() -> Flask:
                     if current_event is not pending_event:
                         pending_event.set()
                         return
+                    if player_option_signatures.get(pending_key) != expected_signature:
+                        pending_event.set()
+                        return
                     pending_player_options[pending_key] = (
                         pending_event,
                         list(options),
@@ -360,14 +398,15 @@ def create_app() -> Flask:
                         tuple(convo),
                         key,
                         event,
+                        signature,
                     ),
                     daemon=True,
                 ).start()
 
-            for idx, (char, convo) in enumerate(
-                zip(characters, conversation_snapshots)
+            for idx, (char, convo, actions) in enumerate(
+                zip(characters, conversation_snapshots, action_snapshots)
             ):
-                launch(idx, char, convo)
+                launch(idx, char, convo, actions)
         option_items = []
         for idx, (char, credibility) in enumerate(zip(characters, credibility_values)):
             if credibility is None:
@@ -443,10 +482,20 @@ def create_app() -> Flask:
         conversation: Sequence[ConversationEntry],
         character: Character,
         player: Character,
+        *,
+        available_actions: Sequence[ResponseOption] | None = None,
     ) -> Tuple[List[ResponseOption] | None, bool]:
         conversation_length = len(conversation)
         key = _player_pending_key(char_id, conversation_length)
+        signature = _player_context_signature(
+            history, conversation, available_actions
+        )
+        existing_signature = player_option_signatures.get(key)
         entry = pending_player_options.get(key)
+        if existing_signature is not None and existing_signature != signature:
+            pending_player_options.pop(key, None)
+            player_option_signatures.pop(key, None)
+            entry = None
         if entry is not None:
             event, value = entry
             if value is not None:
@@ -470,17 +519,20 @@ def create_app() -> Flask:
             event = threading.Event()
             event.set()
             pending_player_options[key] = (event, list(options))
+            player_option_signatures[key] = signature
             _clear_player_option_entries(char_id, keep_length=conversation_length)
             return list(options), False
 
         event = threading.Event()
         pending_player_options[key] = (event, None)
+        player_option_signatures[key] = signature
 
         def worker(
             hist: Sequence[Tuple[str, str]],
             convo: Sequence[ConversationEntry],
             partner: Character,
             pending_key: Tuple[int, int],
+            expected_signature: tuple,
         ) -> None:
             try:
                 credibility = game_state.current_credibility(
@@ -503,12 +555,21 @@ def create_app() -> Flask:
             if current_event is not event:
                 event.set()
                 return
+            if player_option_signatures.get(pending_key) != expected_signature:
+                event.set()
+                return
             pending_player_options[pending_key] = (event, list(options))
             event.set()
 
         threading.Thread(
             target=worker,
-            args=(tuple(history), tuple(conversation), character, key),
+            args=(
+                tuple(history),
+                tuple(conversation),
+                character,
+                key,
+                signature,
+            ),
             daemon=True,
         ).start()
         _clear_player_option_entries(char_id, keep_length=conversation_length)
@@ -517,6 +578,29 @@ def create_app() -> Flask:
     def _option_signature(option: ResponseOption) -> str:
         payload = option.to_payload()
         return json.dumps(payload, sort_keys=True, default=str)
+
+    def _player_context_signature(
+        history: Sequence[Tuple[str, str]],
+        conversation: Sequence[ConversationEntry],
+        actions: Sequence[ResponseOption] | None = None,
+    ) -> tuple:
+        history_sig = tuple((str(label), str(action)) for label, action in history)
+        conversation_sig = tuple(
+            (entry.speaker, entry.text, entry.type) for entry in conversation
+        )
+        if actions:
+            action_sig = tuple(
+                (
+                    option.text,
+                    option.type,
+                    option.related_triplet,
+                    option.related_attribute,
+                )
+                for option in actions
+            )
+        else:
+            action_sig = ()
+        return history_sig, conversation_sig, action_sig
 
     def _player_pending_key(char_id: int, conversation_length: int) -> Tuple[int, int]:
         return (char_id, conversation_length)
@@ -531,6 +615,7 @@ def create_app() -> Flask:
         ]
         for key in removable:
             pending_player_options.pop(key, None)
+            player_option_signatures.pop(key, None)
 
     def _npc_pending_key(
         char_id: int, conversation_length: int, signature: str
@@ -977,7 +1062,12 @@ def create_app() -> Flask:
             _clear_player_option_entries(char_id, keep_length=len(conversation))
 
         options, loading = _resolve_player_options(
-            char_id, history, conversation, character, player
+            char_id,
+            history,
+            conversation,
+            character,
+            player,
+            available_actions=npc_actions,
         )
         resolved_options = options or []
         chat_options = [opt for opt in resolved_options if not opt.is_action]

@@ -298,18 +298,25 @@ class GameState:
         effective_score = attribute_score
         if player_score > attribute_score:
             effective_score = player_score
-        logger.info(
-            "Using attribute score %s for success threshold", effective_score
-        )
+        logger.info("Using attribute score %s as roll modifier", effective_score)
         self.time_elapsed_years += 0.5
         sampled_value = random.randint(1, 20)
         logger.info("Sampled %d from randint[1, 20]", sampled_value)
         roll_total = effective_score + sampled_value
+        logger.info(
+            "Adjusted roll %s (modifier %s + roll %s) vs threshold %s",
+            roll_total,
+            effective_score,
+            sampled_value,
+            self.config.roll_success_threshold,
+        )
         success = roll_total >= self.config.roll_success_threshold
         cost, gain = self._credibility_cost_gain(attribute_score, player_score)
         attribute_label = attribute_name or "none"
         failure_text = (
-            f"Failed {action_label} (attribute {attribute_label}: {effective_score}, roll={sampled_value}, total={roll_total}, threshold={self.config.roll_success_threshold})"
+            f"Failed {action_label} (attribute {attribute_label}: {effective_score}, "
+            f"roll={sampled_value}, total={roll_total}, "
+            f"threshold={self.config.roll_success_threshold})"
         )
         targets_tuple = tuple(targets or [])
         attempt = ActionAttempt(
