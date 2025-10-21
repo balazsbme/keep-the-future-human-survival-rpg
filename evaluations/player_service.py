@@ -33,6 +33,7 @@ from evaluations.assessment_consistency import run_consistency_assessment
 from evaluations.game_database import GameDatabaseRecorder
 from evaluations.player_manager import PlayerManager
 from evaluations.players import (
+    ActionFirstRandomPlayer,
     GeminiCivilSocietyPlayer,
     GeminiCorporationPlayer,
     Player,
@@ -119,6 +120,7 @@ def create_app(log_dir: str | None = None) -> Flask:
 
     player_choices = [
         ("random", "Random (uniform choice)"),
+        ("action-first", "Action-first opportunist"),
         ("civil-society", "Civil society strategist"),
         ("corporation", "Corporation advocate"),
     ]
@@ -130,6 +132,7 @@ def create_app(log_dir: str | None = None) -> Flask:
         )
         return {
             "random": RandomPlayer(),
+            "action-first": ActionFirstRandomPlayer(),
             "civil-society": GeminiCivilSocietyPlayer(),
             "corporation": GeminiCorporationPlayer(corporation_context),
         }

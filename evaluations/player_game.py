@@ -14,6 +14,7 @@ from rpg.game_state import GameState
 from rpg.assessment_agent import AssessmentAgent
 
 from .players import (
+    ActionFirstRandomPlayer,
     GeminiCivilSocietyPlayer,
     GeminiCorporationPlayer,
     RandomPlayer,
@@ -28,6 +29,7 @@ def create_players(characters) -> Dict[str, object]:
     )
     return {
         "random": RandomPlayer(),
+        "action-first": ActionFirstRandomPlayer(),
         "civil-society": GeminiCivilSocietyPlayer(),
         "corporation": GeminiCorporationPlayer(corp_ctx),
     }
@@ -40,7 +42,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--player",
-        choices=["random", "civil-society", "corporation"],
+        choices=["random", "action-first", "civil-society", "corporation"],
         default="random",
         help="Which automated player to use",
     )

@@ -254,6 +254,48 @@ class RandomPlayer(Player):
         return decision
 
 
+class ActionFirstRandomPlayer(RandomPlayer):
+    """Random-like player that prioritises taking the first available action."""
+
+    def select_action(
+        self,
+        character: Character,
+        conversation: Sequence[ConversationEntry],
+        actions: List[ResponseOption],
+        state: GameState,
+    ) -> ResponseOption:
+        for option in actions:
+            if option.is_action:
+                logger.info(
+                    "ActionFirstRandomPlayer chose immediate action '%s' for %s",
+                    option.text,
+                    character.name,
+                )
+                return option
+        action = random.choice(actions)
+        logger.info(
+            "ActionFirstRandomPlayer fell back to random dialogue '%s' for %s",
+            action.text,
+            character.name,
+        )
+        return action
+
+    def should_reroll(
+        self,
+        character: Character,
+        conversation: Sequence[ConversationEntry],
+        attempt: ActionAttempt,
+        state: GameState,
+    ) -> bool:
+        cost = state.next_reroll_cost(character, attempt.option)
+        logger.info(
+            "ActionFirstRandomPlayer reroll decision for %s (cost=%d): yes",
+            character.name,
+            cost,
+        )
+        return True
+
+
 class GeminiCivilSocietyPlayer(Player):
     """Gemini-based player using the civil society victory guide."""
 
