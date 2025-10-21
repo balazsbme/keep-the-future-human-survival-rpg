@@ -4,12 +4,14 @@
 
 from __future__ import annotations
 
+import html
+import json
 import logging
 import os
 import sys
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Any, Dict, Iterable, List, Set
 
 try:  # pragma: no cover - optional dependency
     from dotenv import load_dotenv
@@ -124,18 +126,82 @@ def create_app(log_dir: str | None = None) -> Flask:
         ("civil-society", "Civil society strategist"),
         ("corporation", "Corporation advocate"),
     ]
+    player_label_lookup = dict(player_choices)
 
-    def _build_players(characters) -> Dict[str, Player]:
+    def _build_player(
+        characters: Iterable,
+        player_key: str,
+        player_config: Any,
+    ) -> Player:
         corporation_context = next(
-            (c.base_context for c in characters if c.faction == "Corporations"),
+            (c.base_context for c in characters if getattr(c, "faction", None) == "Corporations"),
             "",
         )
-        return {
-            "random": RandomPlayer(),
-            "action-first": ActionFirstRandomPlayer(),
-            "civil-society": GeminiCivilSocietyPlayer(),
-            "corporation": GeminiCorporationPlayer(corporation_context),
-        }
+        if player_key == "random":
+            return RandomPlayer()
+        if player_key == "action-first":
+            return ActionFirstRandomPlayer()
+        if player_key == "civil-society":
+            model = None
+            if isinstance(player_config, dict):
+                model = player_config.get("model")
+            elif isinstance(player_config, str) and player_config:
+                model = player_config
+            if model:
+                return GeminiCivilSocietyPlayer(model=str(model))
+            return GeminiCivilSocietyPlayer()
+        if player_key == "corporation":
+            model = None
+            if isinstance(player_config, dict):
+                model = player_config.get("model")
+            elif isinstance(player_config, str) and player_config:
+                model = player_config
+            if model:
+                return GeminiCorporationPlayer(corporation_context, model=str(model))
+            return GeminiCorporationPlayer(corporation_context)
+        raise KeyError(f"Unknown player key '{player_key}'")
+
+    def _normalise_player_config(value: Any) -> tuple[Any | None, str, str]:
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None, "Default", ""
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                return text, text, text
+            else:
+                if isinstance(parsed, dict):
+                    label = json.dumps(parsed, sort_keys=True)
+                elif isinstance(parsed, list):
+                    label = json.dumps(parsed)
+                else:
+                    label = str(parsed)
+                return parsed, label, text
+        if value is None:
+            return None, "Default", ""
+        if isinstance(value, dict):
+            label = json.dumps(value, sort_keys=True)
+            text = json.dumps(value)
+            return value, label, text
+        if isinstance(value, list):
+            label = json.dumps(value)
+            text = json.dumps(value)
+            return value, label, text
+        label = str(value)
+        return value, label, label
+
+    def _parse_positive_int(value: Any, default: int) -> int:
+        try:
+            candidate = int(value)
+        except (TypeError, ValueError):
+            candidate = default
+        return max(1, candidate)
+
+    def _resolve_scenario(requested: str | None, fallback: str) -> str:
+        if not requested:
+            return fallback
+        return scenario_lookup.get(requested.lower(), fallback)
     if log_dir is None:
         try:
             os.makedirs(app.instance_path, exist_ok=True)
@@ -152,69 +218,202 @@ def create_app(log_dir: str | None = None) -> Flask:
             )
     os.makedirs(log_dir, exist_ok=True)
     app.config["PLAYER_LOG_DIR"] = log_dir
-    game_runs: List[Dict[str, object]] = []
+    completed_sequences: List[Dict[str, Any]] = []
     known_logs: Set[str] = set()
-    last_run: Dict[str, object] = {}
+    last_form: Dict[str, Any] = {
+        "player": player_choices[0][0],
+        "rounds": 10,
+        "games": 1,
+        "scenario": current_scenario_name,
+        "log_to_db": False,
+        "player_config": "",
+    }
+    last_batch_config = ""
+    last_scenario = current_scenario_name
 
     @app.route("/", methods=["GET", "POST"])
     def index():
-        nonlocal game_runs, known_logs, last_run, current_scenario_name
+        nonlocal completed_sequences, known_logs, last_form, current_scenario_name
+        nonlocal last_batch_config, last_scenario
         if request.method == "POST":
-            requested_scenario = request.form.get("scenario", current_scenario_name)
-            scenario_key = scenario_lookup.get(
-                requested_scenario.lower(), current_scenario_name
+            default_player = request.form.get(
+                "player", last_form.get("player", player_choices[0][0])
             )
-            current_scenario_name = scenario_key
-            characters = load_characters(scenario_name=scenario_key)
-            players = _build_players(characters)
-            player_key = request.form.get("player", "random")
-            if player_key not in players:
-                logger.warning("Unknown player key '%s'; defaulting to random", player_key)
-                player_key = "random"
-            try:
-                rounds = int(request.form.get("rounds", "10"))
-            except ValueError:
-                rounds = 10
-            try:
-                games = int(request.form.get("games", "1"))
-            except ValueError:
-                games = 1
-            log_to_db = bool(request.form.get("log_to_db"))
-            game_observer_factory = None
-            if log_to_db:
-                def game_observer_factory(_state, _player_instance, selected_key, game_number):
-                    notes = f"{selected_key}-{scenario_key}-game-{game_number}"
-                    connector = SQLiteConnector()
-                    return _ClosingGameDatabaseRecorder(connector, notes=notes)
-            manager = PlayerManager(
-                characters,
-                assessor,
-                log_dir,
-                game_observer_factory=game_observer_factory,
+            if default_player not in player_label_lookup:
+                logger.warning(
+                    "Unknown player key '%s'; defaulting to random", default_player
+                )
+                default_player = "random"
+            default_scenario = _resolve_scenario(
+                request.form.get("scenario"),
+                last_form.get("scenario", current_scenario_name),
             )
-            rounds = max(1, rounds)
-            games = max(1, games)
-            logger.info(
-                "Starting sequence for player %s on scenario %s: %d games with %d rounds each",
-                player_key,
-                scenario_key,
-                games,
-                rounds,
+            default_games = _parse_positive_int(
+                request.form.get("games", last_form.get("games", 1)), 1
             )
-            player = players[player_key]
-            game_runs = manager.run_sequence(player_key, player, games, rounds)
-            known_logs = {entry["log_filename"] for entry in game_runs}
-            last_run = {
-                "player": player_key,
-                "rounds": rounds,
-                "games": games,
-                "scenario": scenario_key,
-                "scenario_label": _format_scenario_label(scenario_key),
-                "log_to_db": log_to_db,
-            }
+            default_rounds = _parse_positive_int(
+                request.form.get("rounds", last_form.get("rounds", 10)), 10
+            )
+            default_log_to_db = bool(request.form.get("log_to_db"))
+            (
+                default_config,
+                default_config_label,
+                default_config_input,
+            ) = _normalise_player_config(
+                request.form.get("player_config", last_form.get("player_config", ""))
+            )
+            batch_raw = request.form.get("batch_runs", "").strip()
+            run_requests: List[Dict[str, Any]] = []
+            if batch_raw:
+                last_batch_config = batch_raw
+                try:
+                    batch_payload = json.loads(batch_raw)
+                except json.JSONDecodeError:
+                    logger.error("Invalid batch configuration JSON provided")
+                    abort(400, description="Invalid batch configuration JSON")
+                if not isinstance(batch_payload, list) or not batch_payload:
+                    abort(400, description="Batch configuration must be a non-empty list")
+                for entry in batch_payload:
+                    if not isinstance(entry, dict):
+                        abort(400, description="Each batch configuration must be an object")
+                    entry_player = entry.get("player", default_player)
+                    if entry_player not in player_label_lookup:
+                        logger.warning(
+                            "Unknown player key '%s'; defaulting to random", entry_player
+                        )
+                        entry_player = "random"
+                    entry_scenario = _resolve_scenario(
+                        entry.get("scenario"), default_scenario
+                    )
+                    entry_games = _parse_positive_int(
+                        entry.get("games", default_games), default_games
+                    )
+                    entry_rounds = _parse_positive_int(
+                        entry.get("rounds", default_rounds), default_rounds
+                    )
+                    raw_log_to_db = entry.get("log_to_db", default_log_to_db)
+                    if isinstance(raw_log_to_db, str):
+                        entry_log_to_db = raw_log_to_db.lower() in {
+                            "1",
+                            "true",
+                            "yes",
+                            "on",
+                        }
+                    else:
+                        entry_log_to_db = bool(raw_log_to_db)
+                    entry_config_value = entry.get("player_config", default_config)
+                    (
+                        entry_config,
+                        entry_config_label,
+                        entry_config_input,
+                    ) = _normalise_player_config(entry_config_value)
+                    run_requests.append(
+                        {
+                            "player": entry_player,
+                            "player_label": player_label_lookup.get(
+                                entry_player, entry_player
+                            ),
+                            "scenario": entry_scenario,
+                            "games": entry_games,
+                            "rounds": entry_rounds,
+                            "log_to_db": entry_log_to_db,
+                            "player_config": entry_config,
+                            "player_config_label": entry_config_label,
+                            "player_config_input": entry_config_input,
+                        }
+                    )
+            else:
+                last_batch_config = ""
+                run_requests.append(
+                    {
+                        "player": default_player,
+                        "player_label": player_label_lookup.get(
+                            default_player, default_player
+                        ),
+                        "scenario": default_scenario,
+                        "games": default_games,
+                        "rounds": default_rounds,
+                        "log_to_db": default_log_to_db,
+                        "player_config": default_config,
+                        "player_config_label": default_config_label,
+                        "player_config_input": default_config_input,
+                    }
+                )
+
+            run_summaries: List[Dict[str, Any]] = []
+            new_known_logs: Set[str] = set()
+            for run_config in run_requests:
+                scenario_key = run_config["scenario"]
+                characters = load_characters(scenario_name=scenario_key)
+                player_instance = _build_player(
+                    characters, run_config["player"], run_config["player_config"]
+                )
+                game_observer_factory = None
+                if run_config["log_to_db"]:
+
+                    def game_observer_factory(
+                        _state, _player_instance, selected_key, game_number
+                    ):
+                        notes = f"{selected_key}-{scenario_key}-game-{game_number}"
+                        connector = SQLiteConnector()
+                        return _ClosingGameDatabaseRecorder(connector, notes=notes)
+
+                manager = PlayerManager(
+                    characters,
+                    assessor,
+                    log_dir,
+                    game_observer_factory=game_observer_factory,
+                )
+                logger.info(
+                    "Starting sequence for player %s on scenario %s: %d games with %d rounds each",
+                    run_config["player"],
+                    scenario_key,
+                    run_config["games"],
+                    run_config["rounds"],
+                )
+                game_results = manager.run_sequence(
+                    run_config["player"],
+                    player_instance,
+                    run_config["games"],
+                    run_config["rounds"],
+                )
+                for entry in game_results:
+                    filename = entry.get("log_filename")
+                    if filename:
+                        new_known_logs.add(filename)
+                run_summaries.append(
+                    {
+                        "player": run_config["player"],
+                        "player_label": run_config["player_label"],
+                        "player_config_label": run_config["player_config_label"],
+                        "player_config_input": run_config["player_config_input"],
+                        "rounds": run_config["rounds"],
+                        "games": run_config["games"],
+                        "scenario": scenario_key,
+                        "scenario_label": _format_scenario_label(scenario_key),
+                        "log_to_db": run_config["log_to_db"],
+                        "results": game_results,
+                    }
+                )
+
+            completed_sequences = run_summaries
+            known_logs = new_known_logs
+            if run_requests:
+                first = run_requests[0]
+                if run_summaries:
+                    current_scenario_name = run_summaries[0]["scenario"]
+                    last_scenario = run_summaries[0]["scenario"]
+                last_form = {
+                    "player": first["player"],
+                    "rounds": first["rounds"],
+                    "games": first["games"],
+                    "scenario": first.get("scenario", current_scenario_name),
+                    "log_to_db": first["log_to_db"],
+                    "player_config": first["player_config_input"],
+                }
             return redirect("/progress")
         logger.info("Showing main player selection page")
-        selected_player = last_run.get("player", player_choices[0][0])
+        selected_player = last_form.get("player", player_choices[0][0])
         player_options = "".join(
             "<option value='{key}'{selected}>{label}</option>".format(
                 key=key,
@@ -223,8 +422,8 @@ def create_app(log_dir: str | None = None) -> Flask:
             )
             for key, label in player_choices
         )
-        selected_scenario = last_run.get("scenario", current_scenario_name)
-        log_to_db_checked = " checked" if last_run.get("log_to_db") else ""
+        selected_scenario = last_form.get("scenario", current_scenario_name)
+        log_to_db_checked = " checked" if last_form.get("log_to_db") else ""
         scenario_options = "".join(
             "<option value='{value}'{selected}>{label}</option>".format(
                 value=name,
@@ -233,14 +432,21 @@ def create_app(log_dir: str | None = None) -> Flask:
             )
             for name in scenario_names
         )
+        player_config_value = html.escape(str(last_form.get("player_config", "")))
+        games_value = html.escape(str(last_form.get("games", 1)))
+        rounds_value = html.escape(str(last_form.get("rounds", 10)))
+        batch_value = html.escape(last_batch_config)
         return (
             "<h1>Automated Player Manager</h1>"
             "<form method='post'>"
             f"<label>Scenario: <select name='scenario'>{scenario_options}</select></label><br>"
             f"<label>Player: <select name='player'>{player_options}</select></label><br>"
-            "<label>Games: <input type='number' min='1' name='games' value='1'></label><br>"
-            "<label>Rounds per game: <input type='number' min='1' name='rounds' value='10'></label><br>"
+            f"<label>Player configuration: <input type='text' name='player_config' value='{player_config_value}'></label><br>"
+            f"<label>Games: <input type='number' min='1' name='games' value='{games_value}'></label><br>"
+            f"<label>Rounds per game: <input type='number' min='1' name='rounds' value='{rounds_value}'></label><br>"
             f"<label><input type='checkbox' name='log_to_db' value='1'{log_to_db_checked}> Log games to SQLite</label><br>"
+            "<label>Batch runs (JSON list, optional):<br>"
+            f"<textarea name='batch_runs' rows='6' cols='60'>{batch_value}</textarea></label><br>"
             "<button type='submit'>Run Sequence</button>"
             "</form>"
             "<h2>Evaluations</h2>"
@@ -251,57 +457,72 @@ def create_app(log_dir: str | None = None) -> Flask:
     @app.route("/progress", methods=["GET"])
     def show_progress():
         logger.info("Showing progress page")
-        if not game_runs:
+        if not completed_sequences:
             return "<h1>No games have been run yet.</h1><a href='/'>Back</a>"
-        summary = (
-            "<h1>Player Manager Progress</h1>"
-            f"<div>Selected player: {last_run.get('player', '')}</div>"
-            f"<div>Games requested: {last_run.get('games', 0)}</div>"
-            f"<div>Rounds per game: {last_run.get('rounds', 0)}</div>"
-            f"<div>Scenario: {last_run.get('scenario_label', last_run.get('scenario', current_scenario_name))}</div>"
-            f"<div>Logging to database: {'Yes' if last_run.get('log_to_db') else 'No'}</div>"
-        )
+        summary_parts = [
+            "<h1>Player Manager Progress</h1>",
+            f"<div>Total configured runs: {len(completed_sequences)}</div>",
+        ]
 
         def faction_score_lines(faction_data: Dict[str, Dict[str, object]]) -> str:
             return "<br>".join(
                 "{}: {} (weighted {})".format(
                     name,
-                    ", ".join(str(score) for score in details["scores"]),
-                    details["weighted"],
+                    ", ".join(str(score) for score in details['scores']),
+                    details['weighted'],
                 )
                 for name, details in faction_data.items()
             )
 
-        sections = []
-        for entry in game_runs:
-            rows = "".join(
-                "<tr><td>{round}</td><td>{character}</td><td>{attribute}</td><td>{score}</td><td>{factions}</td></tr>".format(
-                    round=round_info["round"],
-                    character=round_info["character"],
-                    attribute=round_info.get("attribute", ""),
-                    score=round_info["score"],
-                    factions=faction_score_lines(round_info["factions"]),
-                )
-                for round_info in entry["rounds"]
-            )
-            final_factions = faction_score_lines(entry.get("final_factions", {}))
-            sections.append(
+        for idx, run in enumerate(completed_sequences, start=1):
+            summary_parts.append(
                 (
-                    f"<section><h2>Game {entry['game_number']}</h2>"
-                    f"<div>Iterations: {entry['iterations']}</div>"
-                    f"<div>Actions: {entry['actions']}</div>"
-                    f"<div>Final weighted score: {entry['final_score']}</div>"
-                    f"<div>Result: {entry['result']}</div>"
-                    f"<div>Final faction scores:<br>{final_factions}</div>"
-                    f"<div><a href='/logs/{entry['log_filename']}'>Download log</a></div>"
-                    "<h3>Round-by-round progress</h3>"
-                    "<table><tr><th>Round</th><th>Character</th><th>Attribute</th><th>Weighted Score</th><th>Faction Scores</th></tr>"
-                    + rows
-                    + "</table></section>"
+                    f"<section><h2>Run {idx}: {run['player_label']} ({run['scenario_label']})</h2>"
+                    f"<div>Selected player: {run['player']}</div>"
+                    f"<div>Player configuration: {run['player_config_label']}</div>"
+                    f"<div>Games requested: {run['games']}</div>"
+                    f"<div>Rounds per game: {run['rounds']}</div>"
+                    f"<div>Scenario: {run['scenario_label']}</div>"
+                    f"<div>Logging to database: {'Yes' if run['log_to_db'] else 'No'}</div>"
                 )
             )
+            for entry in run['results']:
+                rows = "".join(
+                    "<tr><td>{round}</td><td>{character}</td><td>{attribute}</td><td>{score}</td><td>{factions}</td></tr>".format(
+                        round=round_info['round'],
+                        character=round_info['character'],
+                        attribute=round_info.get('attribute', ''),
+                        score=round_info['score'],
+                        factions=faction_score_lines(round_info['factions']),
+                    )
+                    for round_info in entry['rounds']
+                )
+                final_factions = faction_score_lines(entry.get('final_factions', {}))
+                log_link = (
+                    f"<div><a href='/logs/{entry['log_filename']}'>Download log</a></div>"
+                    if entry.get('log_filename')
+                    else ""
+                )
+                summary_parts.append(
+                    (
+                        f"<article><h3>Game {entry['game_number']}</h3>"
+                        f"<div>Iterations: {entry['iterations']}</div>"
+                        f"<div>Actions: {entry['actions']}</div>"
+                        f"<div>Final weighted score: {entry['final_score']}</div>"
+                        f"<div>Result: {entry['result']}</div>"
+                        f"<div>Final faction scores:<br>{final_factions}</div>"
+                        f"{log_link}"
+                        "<h4>Round-by-round progress</h4>"
+                        "<table><tr><th>Round</th><th>Character</th><th>Attribute</th><th>Weighted Score</th><th>Faction Scores</th>"
+                        "</tr>"
+                        + rows
+                        + "</table></article>"
+                    )
+                )
+            summary_parts.append("</section>")
 
-        return summary + "".join(sections) + "<a href='/'>Back</a>"
+        summary_parts.append("<a href='/'>Back</a>")
+        return "".join(summary_parts)
 
     @app.route("/logs/<path:filename>", methods=["GET"])
     def download_log(filename: str):
@@ -316,7 +537,7 @@ def create_app(log_dir: str | None = None) -> Flask:
 
     @app.route("/evaluation/baseline", methods=["POST"])
     def baseline_evaluation():
-        scenario = last_run.get("scenario") if last_run else None
+        scenario = last_scenario if completed_sequences else current_scenario_name
         result = run_baseline_assessment(scenario_name=scenario)
         return (
             "<h1>Baseline Assessment</h1>"
@@ -326,7 +547,7 @@ def create_app(log_dir: str | None = None) -> Flask:
 
     @app.route("/evaluation/consistency", methods=["POST"])
     def consistency_evaluation():
-        scenario = last_run.get("scenario") if last_run else None
+        scenario = last_scenario if completed_sequences else current_scenario_name
         result = run_consistency_assessment(scenario_name=scenario)
         return (
             "<h1>Consistency Assessment</h1>"
