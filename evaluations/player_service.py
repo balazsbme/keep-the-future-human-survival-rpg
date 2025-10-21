@@ -30,6 +30,7 @@ from cli_game import load_characters
 
 from evaluations.assessment_baseline import run_baseline_assessment
 from evaluations.assessment_consistency import run_consistency_assessment
+from evaluations.game_database import GameDatabaseRecorder
 from evaluations.player_manager import PlayerManager
 from evaluations.players import (
     GeminiCivilSocietyPlayer,
@@ -37,11 +38,48 @@ from evaluations.players import (
     Player,
     RandomPlayer,
 )
+from evaluations.sqlite3_connector import SQLiteConnector
 from rpg.assessment_agent import AssessmentAgent
 from rpg.config import load_game_config
 
 
 logger = logging.getLogger(__name__)
+
+
+class _ClosingGameDatabaseRecorder(GameDatabaseRecorder):
+    """Game recorder that closes its connector after each run."""
+
+    def _close_connector(self) -> None:
+        connector = getattr(self, "_connector", None)
+        if connector is not None:
+            try:
+                connector.close()
+            finally:
+                self._connector = None  # type: ignore[assignment]
+
+    def on_game_end(
+        self,
+        state,
+        *,
+        result,
+        successful,
+        error=None,
+    ):
+        try:
+            super().on_game_end(
+                state,
+                result=result,
+                successful=successful,
+                error=error,
+            )
+        finally:
+            self._close_connector()
+
+    def on_game_error(self, state, error):
+        try:
+            super().on_game_error(state, error)
+        finally:
+            self._close_connector()
 
 
 def create_app(log_dir: str | None = None) -> Flask:
@@ -126,7 +164,6 @@ def create_app(log_dir: str | None = None) -> Flask:
             current_scenario_name = scenario_key
             characters = load_characters(scenario_name=scenario_key)
             players = _build_players(characters)
-            manager = PlayerManager(characters, assessor, log_dir)
             player_key = request.form.get("player", "random")
             if player_key not in players:
                 logger.warning("Unknown player key '%s'; defaulting to random", player_key)
@@ -139,6 +176,19 @@ def create_app(log_dir: str | None = None) -> Flask:
                 games = int(request.form.get("games", "1"))
             except ValueError:
                 games = 1
+            log_to_db = bool(request.form.get("log_to_db"))
+            game_observer_factory = None
+            if log_to_db:
+                def game_observer_factory(_state, _player_instance, selected_key, game_number):
+                    notes = f"{selected_key}-{scenario_key}-game-{game_number}"
+                    connector = SQLiteConnector()
+                    return _ClosingGameDatabaseRecorder(connector, notes=notes)
+            manager = PlayerManager(
+                characters,
+                assessor,
+                log_dir,
+                game_observer_factory=game_observer_factory,
+            )
             rounds = max(1, rounds)
             games = max(1, games)
             logger.info(
@@ -157,6 +207,7 @@ def create_app(log_dir: str | None = None) -> Flask:
                 "games": games,
                 "scenario": scenario_key,
                 "scenario_label": _format_scenario_label(scenario_key),
+                "log_to_db": log_to_db,
             }
             return redirect("/progress")
         logger.info("Showing main player selection page")
@@ -170,6 +221,7 @@ def create_app(log_dir: str | None = None) -> Flask:
             for key, label in player_choices
         )
         selected_scenario = last_run.get("scenario", current_scenario_name)
+        log_to_db_checked = " checked" if last_run.get("log_to_db") else ""
         scenario_options = "".join(
             "<option value='{value}'{selected}>{label}</option>".format(
                 value=name,
@@ -185,6 +237,7 @@ def create_app(log_dir: str | None = None) -> Flask:
             f"<label>Player: <select name='player'>{player_options}</select></label><br>"
             "<label>Games: <input type='number' min='1' name='games' value='1'></label><br>"
             "<label>Rounds per game: <input type='number' min='1' name='rounds' value='10'></label><br>"
+            f"<label><input type='checkbox' name='log_to_db' value='1'{log_to_db_checked}> Log games to SQLite</label><br>"
             "<button type='submit'>Run Sequence</button>"
             "</form>"
             "<h2>Evaluations</h2>"
@@ -203,6 +256,7 @@ def create_app(log_dir: str | None = None) -> Flask:
             f"<div>Games requested: {last_run.get('games', 0)}</div>"
             f"<div>Rounds per game: {last_run.get('rounds', 0)}</div>"
             f"<div>Scenario: {last_run.get('scenario_label', last_run.get('scenario', current_scenario_name))}</div>"
+            f"<div>Logging to database: {'Yes' if last_run.get('log_to_db') else 'No'}</div>"
         )
 
         def faction_score_lines(faction_data: Dict[str, Dict[str, object]]) -> str:
