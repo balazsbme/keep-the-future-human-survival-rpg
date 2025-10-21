@@ -6,12 +6,13 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Dict, Iterable, List
+from typing import Callable, Dict, Iterable, List, Optional
 from uuid import uuid4
 
 from rpg.assessment_agent import AssessmentAgent
 from rpg.game_state import GameState
 
+from .game_database import GameRunObserver
 from .players import Player
 
 
@@ -26,6 +27,8 @@ class PlayerManager:
         characters: Iterable,
         assessor: AssessmentAgent,
         log_dir: str,
+        game_observer_factory: Callable[[GameState, Player, str, int], GameRunObserver]
+        | None = None,
     ) -> None:
         """Store the characters, assessor, and logging directory for runs."""
 
@@ -33,6 +36,7 @@ class PlayerManager:
         self._assessor = assessor
         self._log_dir = log_dir
         os.makedirs(log_dir, exist_ok=True)
+        self._game_observer_factory = game_observer_factory
 
     def run_sequence(
         self,
@@ -93,6 +97,20 @@ class PlayerManager:
         """Execute a single game and capture detailed progress information."""
 
         state = GameState(list(self._characters))
+        observer: Optional[GameRunObserver] = None
+        if self._game_observer_factory is not None:
+            observer_candidate = self._game_observer_factory(
+                state, player, player_key, game_index
+            )
+            if observer_candidate is not None:
+                observer = observer_candidate
+                observer.on_game_start(
+                    state,
+                    player_key=player_key,
+                    player_class=state.player_character.__class__.__name__,
+                    automated_player_class=player.__class__.__name__,
+                    game_index=game_index,
+                )
         log_filename = self._log_filename(player_key, game_index)
         log_path = os.path.join(self._log_dir, log_filename)
         file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
@@ -109,7 +127,11 @@ class PlayerManager:
         try:
             for round_index in range(1, rounds + 1):
                 logger.info("Beginning round %d", round_index)
+                if observer is not None:
+                    observer.before_turn(state, round_index)
                 player.take_turn(state, self._assessor)
+                if observer is not None:
+                    observer.after_turn(state, round_index)
                 character_label = state.history[-1][0] if state.history else ""
                 attempt = state.last_action_attempt
                 attribute_label = "None"
@@ -149,6 +171,10 @@ class PlayerManager:
                         "Final score threshold reached for game %d; ending early", game_index
                     )
                     break
+        except Exception as exc:
+            if observer is not None:
+                observer.on_game_error(state, exc)
+            raise
         finally:
             root_logger.removeHandler(file_handler)
             root_logger.setLevel(previous_level)
@@ -177,6 +203,13 @@ class PlayerManager:
             final_score,
             log_filename,
         )
+        if observer is not None:
+            observer.on_game_end(
+                state,
+                result=game_result["result"],
+                successful=True,
+                error=None,
+            )
         return game_result
 
     def _log_filename(self, player_key: str, game_index: int) -> str:

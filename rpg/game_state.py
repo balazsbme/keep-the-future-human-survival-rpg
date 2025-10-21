@@ -69,6 +69,8 @@ class GameState:
         default_factory=dict, init=False
     )
     last_action_attempt: ActionAttempt | None = field(default=None, init=False)
+    last_action_actor: str | None = field(default=None, init=False)
+    last_reroll_count: int = field(default=0, init=False)
     time_elapsed_years: float = field(default=0.0, init=False)
 
     def __post_init__(self) -> None:
@@ -273,6 +275,7 @@ class GameState:
             raise ValueError("attempt_action requires an action-type ResponseOption")
         logger.info("Evaluating action '%s' for %s", option.text, character.name)
         action_label = self._resolve_action_label(character, option)
+        self.last_action_actor = character.display_name
         attribute_name = option.related_attribute
         attribute_score = character.attribute_score(attribute_name)
         player_score = self.player_character.attribute_score(attribute_name)
@@ -325,6 +328,8 @@ class GameState:
         )
         self.last_action_attempt = attempt
         key = (character.name, option.text)
+        reroll_count = self.reroll_counts.get(key, 0)
+        self.last_reroll_count = reroll_count
         if success:
             logger.info("Action succeeded; recording in history")
             self.pending_failures.pop(key, None)
@@ -340,7 +345,8 @@ class GameState:
         else:
             logger.info("Action failed; storing failure for potential reroll")
             self.pending_failures[key] = attempt
-            self.reroll_counts.setdefault(key, 0)
+            reroll_value = self.reroll_counts.setdefault(key, reroll_count)
+            self.last_reroll_count = reroll_value
         return attempt
 
     def _credibility_cost_gain(self, actor_score: int, player_score: int) -> Tuple[int, int]:
@@ -392,7 +398,9 @@ class GameState:
         )
         key = (character.name, option.text)
         attempt = self.pending_failures.pop(key, None)
-        self.reroll_counts.pop(key, None)
+        reroll_count = self.reroll_counts.pop(key, None) or 0
+        self.last_reroll_count = reroll_count
+        self.last_action_actor = character.display_name
         if not attempt:
             logger.info("No pending failure to finalize for %s", option.text)
             return
@@ -420,6 +428,8 @@ class GameState:
             raise ValueError("No pending failed action to reroll")
         reroll_count = self.reroll_counts.get(key, 0) + 1
         self.reroll_counts[key] = reroll_count
+        self.last_reroll_count = reroll_count
+        self.last_action_actor = character.display_name
         self._apply_reroll_penalty(character, attempt, reroll_count)
         if targets is not None:
             targets_tuple = tuple(targets)
