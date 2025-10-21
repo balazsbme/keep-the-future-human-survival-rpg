@@ -93,7 +93,7 @@ class PlayerServiceTest(unittest.TestCase):
 
                 resp = client.post(
                     "/",
-                    data={"player": "random", "rounds": "1", "games": "2"},
+                    data={"player": "action-first", "rounds": "1", "games": "2"},
                     follow_redirects=True,
                 )
                 page = resp.data.decode()
@@ -102,6 +102,7 @@ class PlayerServiceTest(unittest.TestCase):
                 self.assertIn("Game 2", page)
                 self.assertIn("10, 20, 30", page)
                 self.assertIn("Download log", page)
+                self.assertIn("Selected player: action-first", page)
                 log_links = re.findall(r"/logs/([^\"']+)", page)
                 self.assertGreaterEqual(len(log_links), 2)
                 log_resp = client.get(f"/logs/{log_links[0]}")
@@ -121,6 +122,7 @@ class PlayerServiceTest(unittest.TestCase):
         page = resp.data.decode()
         self.assertIn("Baseline Assessment", page)
         self.assertIn("Consistency Assessment", page)
+        self.assertIn("Action-first opportunist", page)
 
 
 if __name__ == "__main__":
