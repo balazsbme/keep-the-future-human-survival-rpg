@@ -4,12 +4,19 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Set
 import logging
 import os
 import sys
 import tempfile
 from pathlib import Path
+from typing import Dict, List, Set
+
+try:  # pragma: no cover - optional dependency
+    from dotenv import load_dotenv
+except ModuleNotFoundError:  # pragma: no cover
+    load_dotenv = None
+else:
+    load_dotenv()
 
 from flask import Flask, abort, redirect, request, send_from_directory
 
@@ -220,7 +227,7 @@ def create_app(log_dir: str | None = None) -> Flask:
                 )
                 for round_info in entry["rounds"]
             )
-            final_factions = faction_score_lines(entry["final_factions"])
+            final_factions = faction_score_lines(entry.get("final_factions", {}))
             sections.append(
                 (
                     f"<section><h2>Game {entry['game_number']}</h2>"

@@ -25,6 +25,26 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_CONVERSATION_EXCHANGES = 8
 _CONVERSATION_ENV_KEY = "AUTOMATED_AGENT_MAX_EXCHANGES"
+_GEMINI_API_KEY_ENV = "GEMINI_API_KEY"
+_GENAI_CONFIGURED = False
+
+
+def _ensure_gemini_configured() -> None:
+    """Initialise the Gemini SDK using the expected environment variable."""
+
+    if genai is None:  # pragma: no cover - optional dependency
+        raise ModuleNotFoundError("google-generativeai not installed")
+    global _GENAI_CONFIGURED
+    if _GENAI_CONFIGURED:
+        return
+    api_key = os.environ.get(_GEMINI_API_KEY_ENV)
+    if not api_key:
+        raise EnvironmentError(
+            f"{_GEMINI_API_KEY_ENV} environment variable not set"
+        )
+    genai.configure(api_key=api_key)
+    os.environ.setdefault("GOOGLE_API_KEY", api_key)
+    _GENAI_CONFIGURED = True
 
 
 def _conversation_exchange_limit() -> int:
@@ -238,8 +258,7 @@ class GeminiCivilSocietyPlayer(Player):
     """Gemini-based player using the civil society victory guide."""
 
     def __init__(self, model: str = "gemini-2.5-flash") -> None:
-        if genai is None:  # pragma: no cover - env without dependency
-            raise ModuleNotFoundError("google-generativeai not installed")
+        _ensure_gemini_configured()
         self._model = genai.GenerativeModel(model)
 
     def select_character(self, state: GameState) -> Character:
@@ -347,8 +366,7 @@ class GeminiCorporationPlayer(Player):
         corporation_context: str,
         model: str = "gemini-2.5-flash",
     ) -> None:
-        if genai is None:  # pragma: no cover - env without dependency
-            raise ModuleNotFoundError("google-generativeai not installed")
+        _ensure_gemini_configured()
         self._model = genai.GenerativeModel(model)
         self._context = f"Corporation context:\n{corporation_context}\n"
 

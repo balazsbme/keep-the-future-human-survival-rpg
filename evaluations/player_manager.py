@@ -120,8 +120,21 @@ class PlayerManager:
         )
         root_logger = logging.getLogger()
         previous_level = root_logger.level
+        handler_levels = {handler: handler.level for handler in root_logger.handlers}
         root_logger.addHandler(file_handler)
         root_logger.setLevel(logging.DEBUG)
+        stream_level = (
+            previous_level
+            if previous_level != logging.NOTSET
+            else logging.INFO
+        )
+        for handler in root_logger.handlers:
+            if handler is file_handler:
+                continue
+            if handler.level == logging.NOTSET and isinstance(
+                handler, logging.StreamHandler
+            ):
+                handler.setLevel(stream_level)
 
         rounds_progress: List[Dict[str, object]] = []
         try:
@@ -178,6 +191,8 @@ class PlayerManager:
         finally:
             root_logger.removeHandler(file_handler)
             root_logger.setLevel(previous_level)
+            for handler, level in handler_levels.items():
+                handler.setLevel(level)
             file_handler.close()
 
         final_score = state.final_weighted_score()
