@@ -96,6 +96,7 @@ class Player(ABC):
         logger.info("Taking turn")
         partner = state.player_character
         action_performed = False
+        state.last_action_actor = None
         max_exchanges = _conversation_exchange_limit()
         character_attempts = 0
         max_character_attempts = max(1, len(state.characters))
@@ -188,6 +189,7 @@ class Player(ABC):
         if not action_performed:
             logger.info("No action performed during this turn")
             state.last_action_attempt = None
+            state.last_action_actor = None
             return
         scores = assessor.assess(state.characters, state.how_to_win, state.history)
         logger.info("Assessment results: %s", scores)
