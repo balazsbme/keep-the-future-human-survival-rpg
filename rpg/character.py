@@ -15,6 +15,7 @@ from typing import Iterable, List, Sequence, Tuple
 from .conversation import ConversationEntry, ConversationType
 from .config import GameConfig, load_game_config
 from .credibility import CREDIBILITY_PENALTY
+from .genai_cache import get_cache_manager
 
 import yaml
 
@@ -159,7 +160,11 @@ class Character(ABC):
             self.display_name = name
         if genai is None:  # pragma: no cover - env without dependency
             raise ModuleNotFoundError("google-generativeai not installed")
+        self._model_name = model
         self._model = genai.GenerativeModel(model)
+        self._cached_context_config: object | None = None
+        self._context_instruction: str = ""
+        self._context_fallback: str = ""
         if not hasattr(self, "triplets"):
             self.triplets: Sequence[object] = []
 
@@ -221,6 +226,67 @@ class Character(ABC):
             "policy, or network. For 'chat' types set the related fields to 'None'. Do not "
             "include any additional commentary beyond the JSON."
         )
+
+    def _setup_context_cache(
+        self,
+        *,
+        cache_id: str,
+        segments: Sequence[str],
+        fallback_prompt: str,
+        cache_instruction: str,
+        system_instruction: str | None = None,
+    ) -> None:
+        """Configure cached context handling for the character when available."""
+
+        self._context_fallback = fallback_prompt
+        self._context_instruction = cache_instruction
+        manager = get_cache_manager()
+        if not manager:
+            return
+        try:
+            config = manager.get_cached_config(
+                display_name=cache_id,
+                model=self._model_name,
+                texts=segments,
+                system_instruction=system_instruction or cache_instruction.strip(),
+            )
+        except Exception as exc:  # pragma: no cover - cache service failure
+            logger.warning("Failed to create cached content for %s: %s", self.name, exc)
+            return
+        if config is not None:
+            self._cached_context_config = config
+
+    def _context_prompt(self) -> str:
+        """Return the context block appropriate for the current cache state."""
+
+        return (
+            self._context_instruction
+            if self._cached_context_config is not None
+            else self._context_fallback
+        )
+
+    def _generate_with_context(self, prompt: str):
+        """Generate content while attaching cached context when available."""
+
+        if self._cached_context_config is not None:
+            return self._model.generate_content(
+                prompt, config=self._cached_context_config
+            )
+        return self._model.generate_content(prompt)
+
+    @property
+    def cached_context_config(self) -> object | None:
+        """Expose the cached context configuration for collaborators."""
+
+        return self._cached_context_config
+
+    @property
+    def context_instruction(self) -> str:
+        return self._context_instruction
+
+    @property
+    def context_fallback(self) -> str:
+        return self._context_fallback
 
     def _parse_response_payload(
         self, response_text: str, max_triplet_index: int
@@ -354,6 +420,58 @@ class YamlCharacter(Character):
                 numeric = 0
             self._attribute_scores[attr] = max(0, min(10, numeric))
 
+        persona_summary = self._profile_text()
+        static_segments = [
+            f"Persona for {self.display_name}:\n{persona_summary}"
+        ]
+        base_context_clean = self.base_context.strip()
+        if base_context_clean:
+            static_segments.append(
+                f"MarkdownContext for {self.display_name}:\n{base_context_clean}"
+            )
+        triplet_text = self._triplet_text()
+        if triplet_text:
+            static_segments.append(
+                f"Triplet definitions for {self.display_name}:\n{triplet_text}"
+            )
+        if self.scenario_summary:
+            static_segments.append(
+                f"Scenario summary for {self.display_name}:\n{self.scenario_summary}"
+            )
+
+        fallback_lines = [
+            f"Your persona is described below:\n{persona_summary}\n",
+            "Ground your thinking in this persona and the faction context below before proposing responses.\n",
+        ]
+        if base_context_clean:
+            fallback_lines.append(
+                f"**MarkdownContext**\n{self.base_context}\n**End of MarkdownContext**\n"
+            )
+        if triplet_text:
+            fallback_lines.append(
+                "Throughout the game you are acting related to the following numbered list of triplets, describing the initial state at the start of the game, end state and the gap between them:\n"
+                f"{triplet_text}\n"
+            )
+        if self.scenario_summary:
+            fallback_lines.append(f"Scenario summary:\n{self.scenario_summary}\n")
+        fallback_prompt = "".join(fallback_lines)
+
+        cache_instruction = (
+            f"Use the cached persona, MarkdownContext, scenario summary, and triplet information for {self.display_name} before crafting your response.\n"
+        )
+        system_instruction = (
+            "You are roleplaying as this character in the 'Keep the Future Human' survival RPG. "
+            "Ground every response in the cached persona, MarkdownContext, scenario summary, and triplet information."
+        )
+        cache_key = re.sub(r"[^a-z0-9_-]+", "-", self.progress_key.lower())
+        self._setup_context_cache(
+            cache_id=f"character::{cache_key}",
+            segments=static_segments,
+            fallback_prompt=fallback_prompt,
+            cache_instruction=cache_instruction,
+            system_instruction=system_instruction,
+        )
+
     def attribute_score(self, attribute: str | None) -> int:
         if not attribute:
             return 0
@@ -422,11 +540,13 @@ class YamlCharacter(Character):
             f"You are having a fluid, result-oriented conversation with {partner_label}. "
             "Respond in a way that prioritizes your own goals or those of your faction before entertaining new requests.\n"
             f"Keep your response aligned with your motivations and capabilities, grounded in {faction_focus}.\n"
-            f"Your persona is described below:\n{self._profile_text()}\n"
-            "Ground your thinking in this persona and the faction context below before proposing responses.\n"
-            f"**MarkdownContext**\n{self.base_context}\n**End of MarkdownContext**\n"
+        )
+        context_block = self._context_prompt()
+        history_block = (
             "Previous actions taken by you or other faction representatives:\n"
             f"{self._history_text(history)}\n"
+        )
+        conversation_block = (
             "Full conversation history you are now having with the player:\n"
             f"{self._conversation_text(conversation)}\n"
         )
@@ -437,14 +557,23 @@ class YamlCharacter(Character):
                 "Any actions you output must set 'related-triplet' to 'None'."
             )
         else:
-            guidance = (
-                "Throughout the game you are acting related to the following numbered list of triplets, describing the initial state at the start of the game, end state and the gap between them:\n"
-                f"{self._triplet_text()}\n"
-                "Provide exactly one JSON response. Default to a 'chat' and 'action' type replies reinforcing your own or faction priorities unless the player's case persuades you to propose an 'action' related to the numbered triplets."
-            )
-        prompt = f"{base_prompt}{guidance}\n{self._format_prompt_instructions()}"
+            if self.cached_context_config is not None:
+                guidance = (
+                    "Throughout the game you are acting related to the numbered triplets stored in the cached context. "
+                    "Provide exactly one JSON response. Default to a 'chat' and 'action' type replies reinforcing your own or faction priorities unless the player's case persuades you to propose an 'action' related to the numbered triplets."
+                )
+            else:
+                guidance = (
+                    "Throughout the game you are acting related to the following numbered list of triplets, describing the initial state at the start of the game, end state and the gap between them:\n"
+                    f"{self._triplet_text()}\n"
+                    "Provide exactly one JSON response. Default to a 'chat' and 'action' type replies reinforcing your own or faction priorities unless the player's case persuades you to propose an 'action' related to the numbered triplets."
+                )
+        prompt = (
+            f"{base_prompt}{context_block}{history_block}{conversation_block}{guidance}\n"
+            f"{self._format_prompt_instructions()}"
+        )
         logger.debug("Prompt for %s: %s", self.name, prompt)
-        response = self._model.generate_content(prompt)
+        response = self._generate_with_context(prompt)
         response_text = getattr(response, "text", "").strip()
         logger.debug("Raw response for %s: %s", self.name, response_text)
         options = self._parse_response_payload(response_text, len(self.triplets))
@@ -477,15 +606,18 @@ class YamlCharacter(Character):
     ) -> List[int]:
         logger.info("Performing action '%s' for %s", action, self.name)
         full_history = history + [(self.display_name, action)]
-        context_block = (
-            f"{self.base_context}\n{self._triplet_text()}\n"
-            f"Action history:\n{self._history_text(full_history)}\n"
-        )
+        if self.cached_context_config is not None:
+            context_block = self.context_instruction
+        else:
+            context_block = (
+                f"{self.base_context}\n{self._triplet_text()}\n"
+            )
         assess_prompt = (
-            f"{context_block}Provide progress (0-100) for each triplet on separate lines."
+            f"{context_block}Action history:\n{self._history_text(full_history)}\n"
+            "Provide progress (0-100) for each triplet on separate lines."
         )
         logger.debug("Assess prompt: %s", assess_prompt)
-        assess_resp = self._model.generate_content(assess_prompt)
+        assess_resp = self._generate_with_context(assess_prompt)
         assess_text = getattr(assess_resp, "text", "")
         logger.info("Assessment for %s: %s", self.name, assess_text[:50])
         logger.debug("Assess response: %s", assess_text)
@@ -621,6 +753,48 @@ class PlayerCharacter(Character):
                 numeric = 0
             self._attribute_scores[attr] = max(0, min(10, numeric))
 
+        persona_summary = self._profile_text()
+        static_segments = [
+            f"Player persona overview:\n{self.context}",
+            f"Player profile details:\n{persona_summary}",
+        ]
+        if self.base_context:
+            static_segments.append(
+                f"{self._faction_descriptor} context:\n{self.base_context}"
+            )
+        if self.scenario_summary:
+            static_segments.append(
+                f"Scenario summary:\n{self.scenario_summary}"
+            )
+
+        fallback_lines: List[str] = []
+        if self.base_context:
+            fallback_lines.append(
+                f"### Your {self._faction_descriptor} Context\n{self._faction_context()}\n"
+            )
+        fallback_lines.append(f"Your profile:\n{persona_summary}\n")
+        fallback_prompt = "".join(fallback_lines)
+
+        cache_instruction = (
+            f"Use the cached player persona, {self._faction_descriptor.lower()} context, and scenario summary when crafting your responses.\n"
+        )
+        system_instruction = (
+            "You are the player character in the 'Keep the Future Human' survival RPG. "
+            "Ground every reply in the cached persona, faction context, and scenario summary before responding to partners."
+        )
+        cache_key = re.sub(
+            r"[^a-z0-9_-]+",
+            "-",
+            f"player-{self._faction_descriptor}".lower(),
+        )
+        self._setup_context_cache(
+            cache_id=f"player::{cache_key}",
+            segments=static_segments,
+            fallback_prompt=fallback_prompt,
+            cache_instruction=cache_instruction,
+            system_instruction=system_instruction,
+        )
+
     def attribute_score(self, attribute: str | None) -> int:
         if not attribute:
             return 0
@@ -650,21 +824,17 @@ class PlayerCharacter(Character):
             "Draw on your coalition strengths to encourage them to state concrete actions they can take. "
             "Offer exactly three concise 'chat' responses that keep the conversation moving without proposing actions yourself."
         )
-        context_prompt = (
-            f"\n### Your {self._faction_descriptor} Context\n{self._faction_context()}\n"
-            if self.base_context
-            else ""
-        )
+        context_block = self._context_prompt()
         prompt = (
-            f"{base_prompt}{context_prompt}\n"
+            f"{base_prompt}\n"
+            f"{context_block}"
             f"Your capabilities: {attribute_summary}.\n"
             f"Previous gameplay actions:\n{self._history_text(history)}\n"
             f"Conversation so far:\n{self._conversation_text(conversation)}\n"
-            f"Your profile:\n{self._profile_text()}\n"
             f"{self._format_prompt_instructions()}"
         )
         logger.debug("Player prompt: %s", prompt)
-        response = self._model.generate_content(prompt)
+        response = self._generate_with_context(prompt)
         response_text = getattr(response, "text", "").strip()
         logger.debug("Raw player response: %s", response_text)
         options = self._parse_response_payload(response_text, len(partner.triplets))
