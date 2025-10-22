@@ -212,7 +212,9 @@ class Character(ABC):
         return (
             "Return the result as a JSON array with objects in order. Each object must "
             "contain the keys 'text', 'type', 'related-triplet', and 'related-attribute'. "
-            "The 'text' field holds the natural language response. The 'type' field must be "
+            "The 'text' field holds the natural language response, which should be short, at "
+            "most 1-2 sentences, with a hard-limit of 400 characters, finally do not"
+            " apply any formatting such as '*'-s. The 'type' field must be "
             "either 'chat' or 'action'. For 'action' types provide the 1-based index in "
             "'related-triplet' or the string 'None' if the action is unrelated to a "
             "specific triplet, and set 'related-attribute' to one of leadership, technology, "
@@ -417,7 +419,7 @@ class YamlCharacter(Character):
             )
         base_prompt = (
             f"You are {self.display_name} in the 'Keep the Future Human' survival RPG game. "
-            f"You are having a conversation with {partner_label}. "
+            f"You are having a fluid, result-oriented conversation with {partner_label}. "
             "Respond in a way that prioritizes your own goals or those of your faction before entertaining new requests.\n"
             f"Keep your response aligned with your motivations and capabilities, grounded in {faction_focus}.\n"
             f"Your persona is described below:\n{self._profile_text()}\n"
