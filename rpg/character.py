@@ -10,7 +10,7 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Sequence, Tuple
+from typing import Iterable, List, Mapping, Sequence, Tuple
 
 from .conversation import ConversationEntry, ConversationType
 from .config import GameConfig, load_game_config
@@ -143,6 +143,7 @@ class Character(ABC):
         motivations: str = "",
         background: str = "",
         weaknesses: str = "",
+        config: GameConfig | None = None,
     ):
         self.name = name
         self.context = context
@@ -158,6 +159,9 @@ class Character(ABC):
         else:
             self.progress_label = self.progress_key
             self.display_name = name
+            logger.warning(
+                "Using default faction label '%s' for %s", self.progress_label, name
+            )
         if genai is None:  # pragma: no cover - env without dependency
             raise ModuleNotFoundError("google-generativeai not installed")
         self._model_name = model
@@ -165,6 +169,7 @@ class Character(ABC):
         self._cached_context_config: object | None = None
         self._context_instruction: str = ""
         self._context_fallback: str = ""
+        self.config = config or load_game_config()
         if not hasattr(self, "triplets"):
             self.triplets: Sequence[object] = []
 
@@ -181,6 +186,8 @@ class Character(ABC):
         partner: "Character",
         *,
         partner_credibility: int | None = None,
+        force_action: bool = False,
+        conversation_cache: Mapping[str, Sequence[ConversationEntry]] | None = None,
     ) -> List[ResponseOption]:
         """Return responses the character might give next."""
 
@@ -214,11 +221,12 @@ class Character(ABC):
         return "\n".join(lines)
 
     def _format_prompt_instructions(self) -> str:
+        limit = getattr(self.config, "format_prompt_character_limit", 400)
         return (
             "Return the result as a JSON array with objects in order. Each object must "
             "contain the keys 'text', 'type', 'related-triplet', and 'related-attribute'. "
             "The 'text' field holds the natural language response, which should be short, at "
-            "most 1-2 sentences, with a hard-limit of 400 characters, finally do not"
+            f"most 1-2 sentences, with a hard-limit of {limit} characters, finally do not"
             " apply any formatting such as '*'-s. The 'type' field must be "
             "either 'chat' or 'action'. For 'action' types provide the 1-based index in "
             "'related-triplet' or the string 'None' if the action is unrelated to a "
@@ -339,10 +347,12 @@ class Character(ABC):
                 option = ResponseOption.from_payload(entry)
                 if option.is_action and option.related_triplet:
                     if not 1 <= option.related_triplet <= max_triplet_index:
-                        logger.debug(
-                            "Discarding out-of-range related triplet %s for %s",
+                        logger.warning(
+                            "Overwriting related triplet %s for %s option '%s' due to out-of-range index (max=%d)",
                             option.related_triplet,
                             self.name,
+                            option.text,
+                            max_triplet_index,
                         )
                         option = ResponseOption(
                             text=option.text,
@@ -372,6 +382,8 @@ class YamlCharacter(Character):
         spec: dict,
         profile: dict | None = None,
         model: str = "gemini-2.5-flash",
+        *,
+        config: GameConfig | None = None,
     ):
         profile = profile or {}
         base_context = spec.get("MarkdownContext", "")
@@ -401,6 +413,7 @@ class YamlCharacter(Character):
             motivations=str(profile.get("motivations", "") or ""),
             background=str(profile.get("background", "") or ""),
             weaknesses=str(profile.get("weaknesses", "") or ""),
+            config=config,
         )
         self.base_context = base_context
         self.profile = profile
@@ -521,6 +534,8 @@ class YamlCharacter(Character):
         partner: Character,
         *,
         partner_credibility: int | None = None,
+        force_action: bool = False,
+        conversation_cache: Mapping[str, Sequence[ConversationEntry]] | None = None,
     ) -> List[ResponseOption]:
         logger.info("Generating responses for %s", self.name)
         partner_label = partner.display_name
@@ -550,6 +565,13 @@ class YamlCharacter(Character):
             "Full conversation history you are now having with the player:\n"
             f"{self._conversation_text(conversation)}\n"
         )
+        action_requirement = ""
+        if force_action:
+            action_requirement = (
+                "The exchange limit has been reached. You must include at least one concrete "
+                "'action' commitment in your JSON response that demonstrates forward movement "
+                "without contradicting your core interests."
+            )
         if restricted_triplets:
             guidance = (
                 f"Do not collaborate with {partner_label} and do not listen to their arguments."
@@ -569,7 +591,7 @@ class YamlCharacter(Character):
                     "Provide exactly one JSON response. Default to a 'chat' and 'action' type replies reinforcing your own or faction priorities unless the player's case persuades you to propose an 'action' related to the numbered triplets."
                 )
         prompt = (
-            f"{base_prompt}{context_block}{history_block}{conversation_block}{guidance}\n"
+            f"{base_prompt}{context_block}{history_block}{conversation_block}{action_requirement}{guidance}\n"
             f"{self._format_prompt_instructions()}"
         )
         logger.debug("Prompt for %s: %s", self.name, prompt)
@@ -583,6 +605,24 @@ class YamlCharacter(Character):
             logger.warning(
                 "Restricted prompt for %s still produced triplet-related actions", self.name
             )
+        if restricted_triplets:
+            adjusted: List[ResponseOption] = []
+            for option in options:
+                if option.is_action and option.related_triplet is not None:
+                    logger.warning(
+                        "Overwriting related triplet %s for %s action '%s' due to credibility restriction",
+                        option.related_triplet,
+                        self.name,
+                        option.text,
+                    )
+                    option = ResponseOption(
+                        text=option.text,
+                        type=option.type,
+                        related_triplet=None,
+                        related_attribute=option.related_attribute,
+                    )
+                adjusted.append(option)
+            options = adjusted
         if not options:
             logger.warning("Model returned no usable responses for %s", self.name)
             return []
@@ -597,6 +637,38 @@ class YamlCharacter(Character):
                 len(options),
                 self.name,
             )
+        if force_action and not any(option.is_action for option in options):
+            logger.info(
+                "Force action required for %s but none returned; coercing first option to action",
+                self.name,
+            )
+            if options:
+                first = options[0]
+                options[0] = ResponseOption(
+                    text=first.text,
+                    type="action",
+                    related_triplet=None,
+                    related_attribute=first.related_attribute,
+                )
+            else:
+                fallback_text = (
+                    "Launch a goodwill outreach to rebuild trust immediately."
+                )
+                fallback_attribute = "network"
+                logger.warning(
+                    "Using hardcoded fallback action for %s due to empty option list; text='%s', attribute='%s'",
+                    self.name,
+                    fallback_text,
+                    fallback_attribute,
+                )
+                options = [
+                    ResponseOption(
+                        text=fallback_text,
+                        type="action",
+                        related_triplet=None,
+                        related_attribute=fallback_attribute,
+                    )
+                ]
         return options[:3]
 
     def perform_action(
@@ -719,6 +791,7 @@ class PlayerCharacter(Character):
             motivations=str(profile.get("motivations", "") or ""),
             background=str(profile.get("background", "") or ""),
             weaknesses=str(profile.get("weaknesses", "") or ""),
+            config=cfg,
         )
         self.profile = profile
         self.base_context = base_context
@@ -812,6 +885,8 @@ class PlayerCharacter(Character):
         partner: Character,
         *,
         partner_credibility: int | None = None,
+        force_action: bool = False,
+        conversation_cache: Mapping[str, Sequence[ConversationEntry]] | None = None,
     ) -> List[ResponseOption]:
         logger.info("Generating player responses against %s", partner.display_name)
         partner_label = partner.display_name
@@ -822,15 +897,33 @@ class PlayerCharacter(Character):
             f"You are the {self._faction_descriptor.lower()} player in the 'Keep the Future Human' survival RPG. "
             f"You are speaking with {partner_label} from the {partner.faction or 'independent'} faction. "
             "Draw on your coalition strengths to encourage them to state concrete actions they can take. "
-            "Offer exactly three concise 'chat' responses that keep the conversation moving without proposing actions yourself."
+            "Offer exactly three imaginative and varied 'chat' responses that keep the conversation moving without proposing actions yourself. "
+            "Each option should explore a distinct angle or tactic to keep the negotiation dynamic."
         )
         context_block = self._context_prompt()
+        other_conversations = "Conversations with other factions so far:\n"
+        if conversation_cache:
+            segments: List[str] = []
+            for faction_name, entries in sorted(conversation_cache.items()):
+                if not entries:
+                    continue
+                label = faction_name or "Independent"
+                segments.append(
+                    f"## {label}\n{self._conversation_text(entries)}"
+                )
+            if segments:
+                other_conversations += "\n\n".join(segments) + "\n"
+            else:
+                other_conversations += "None\n"
+        else:
+            other_conversations += "None\n"
         prompt = (
             f"{base_prompt}\n"
             f"{context_block}"
             f"Your capabilities: {attribute_summary}.\n"
             f"Previous gameplay actions:\n{self._history_text(history)}\n"
             f"Conversation so far:\n{self._conversation_text(conversation)}\n"
+            f"{other_conversations}"
             f"{self._format_prompt_instructions()}"
         )
         logger.debug("Player prompt: %s", prompt)

@@ -86,6 +86,14 @@ class GameDatabaseRecorder(GameRunObserver):
         player_row = credibility_snapshot.get(state.player_faction, {})
         self._cached_credibility_targets = list(player_row.keys())
         self._connector.initialise()
+        self._connector.ensure_columns(
+            "executions",
+            {
+                "action_time_cost_years": "REAL",
+                "format_prompt_character_limit": "INTEGER",
+                "conversation_force_action_after": "INTEGER",
+            },
+        )
         self._connector.ensure_dynamic_schema(
             self._faction_triplet_counts,
             self._cached_credibility_targets,
@@ -115,6 +123,9 @@ class GameDatabaseRecorder(GameRunObserver):
             "win_threshold": state.config.win_threshold,
             "max_rounds": state.config.max_rounds,
             "roll_success_threshold": state.config.roll_success_threshold,
+            "action_time_cost_years": state.config.action_time_cost_years,
+            "format_prompt_character_limit": state.config.format_prompt_character_limit,
+            "conversation_force_action_after": state.config.conversation_force_action_after,
             "notes": self._notes or f"{player_key}-game-{game_index}-{datetime.utcnow().isoformat()}",
         }
         metadata = {key: value for key, value in metadata.items() if value is not None}

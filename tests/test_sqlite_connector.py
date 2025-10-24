@@ -32,6 +32,11 @@ def test_dynamic_schema_and_inserts(tmp_path: Path) -> None:
     assert "credibility_governments" in credibility_columns
     assert "credibility_civilsociety" in credibility_columns
 
+    execution_columns = _get_columns(connector.connection, "executions")
+    assert "action_time_cost_years" in execution_columns
+    assert "format_prompt_character_limit" in execution_columns
+    assert "conversation_force_action_after" in execution_columns
+
     execution_id = connector.insert_execution(
         {
             "player_class": "TestPlayer",
@@ -40,6 +45,9 @@ def test_dynamic_schema_and_inserts(tmp_path: Path) -> None:
             "win_threshold": 10,
             "max_rounds": 5,
             "roll_success_threshold": 10,
+            "action_time_cost_years": 0.5,
+            "format_prompt_character_limit": 400,
+            "conversation_force_action_after": 8,
         }
     )
     assert execution_id > 0

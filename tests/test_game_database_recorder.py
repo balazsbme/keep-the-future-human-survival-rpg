@@ -61,6 +61,14 @@ def test_recorder_writes_expected_payloads() -> None:
         automated_player_class="AutoPlayer",
         game_index=1,
     )
+    connector.ensure_columns.assert_any_call(
+        "executions",
+        {
+            "action_time_cost_years": "REAL",
+            "format_prompt_character_limit": "INTEGER",
+            "conversation_force_action_after": "INTEGER",
+        },
+    )
     connector.ensure_dynamic_schema.assert_called_once()
     connector.insert_execution.assert_called_once()
 

@@ -3,3 +3,6 @@ game:
   win_threshold: 71
   max_rounds: 10
   roll_success_threshold: 10
+  action_time_cost_years: 0.5
+  format_prompt_character_limit: 400
+  conversation_force_action_after: 8
