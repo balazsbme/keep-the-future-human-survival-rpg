@@ -133,11 +133,13 @@ class Player(ABC):
                     char.name,
                     len(conversation),
                 )
+                conversation_cache = state.conversation_cache_for_player(char)
                 player_options = partner.generate_responses(
                     state.history,
                     conversation,
                     char,
                     partner_credibility=credibility,
+                    conversation_cache=conversation_cache,
                 )
                 stored_actions = state.available_npc_actions(char)
                 options: List[ResponseOption] = []
@@ -198,6 +200,7 @@ class Player(ABC):
                     state.conversation_history(char),
                     partner,
                     partner_credibility=credibility,
+                    force_action=state.should_force_action(char),
                 )
                 state.log_npc_responses(char, npc_responses)
             if action_performed:

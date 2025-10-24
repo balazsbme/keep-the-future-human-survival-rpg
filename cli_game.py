@@ -113,7 +113,7 @@ def load_characters(
                 combined_spec["MarkdownContext"] = context_spec["MarkdownContext"]
             for key, value in context_spec.items():
                 combined_spec.setdefault(key, value)
-        character = YamlCharacter(name, combined_spec, entry)
+        character = YamlCharacter(name, combined_spec, entry, config=cfg)
         if scenario_summary:
             setattr(character, "scenario_summary", scenario_summary)
         characters.append(character)
@@ -134,11 +134,13 @@ def main() -> None:
         for entry in convo:
             print(f"{entry.speaker}: {entry.text} ({entry.type})")
         partner_credibility = state.current_credibility(getattr(char, "faction", None))
+        conversation_cache = state.conversation_cache_for_player(char)
         responses = player.generate_responses(
             state.history,
             convo,
             char,
             partner_credibility=partner_credibility,
+            conversation_cache=conversation_cache,
         )
         npc_actions = list(state.available_npc_actions(char))
         combined_options = list(responses)
@@ -147,9 +149,13 @@ def main() -> None:
             if action.text not in existing_texts:
                 combined_options.append(action)
                 existing_texts.add(action.text)
+        label_map = state.action_label_map(char)
         for idx, opt in enumerate(combined_options, 1):
-            prefix = "Action: " if opt.is_action else ""
-            print(f"{idx}. {prefix}{opt.text}")
+            if opt.is_action:
+                display = label_map.get(opt.text, opt.text)
+            else:
+                display = opt.text
+            print(f"{idx}. {display}")
         choice = int(input("Choose a response: ")) - 1
         option = combined_options[choice]
         state.log_player_response(char, option)
@@ -181,6 +187,7 @@ def main() -> None:
             state.conversation_history(char),
             player,
             partner_credibility=partner_credibility,
+            force_action=state.should_force_action(char),
         )
         state.log_npc_responses(char, npc_responses)
         npc_actions = list(state.available_npc_actions(char))

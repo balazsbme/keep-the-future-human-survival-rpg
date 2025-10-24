@@ -10,7 +10,7 @@ import os
 import threading
 from html import escape
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Mapping, Sequence, Tuple
 
 from flask import Flask, Response, redirect, request
 
@@ -356,6 +356,7 @@ def create_app() -> Flask:
                     hist: Sequence[Tuple[str, str]],
                     partner: Character,
                     snapshots: Sequence[ConversationEntry],
+                    cache_snapshot: Mapping[str, Sequence[ConversationEntry]],
                     pending_key: Tuple[int, int],
                     pending_event: threading.Event,
                     expected_signature: tuple,
@@ -369,6 +370,7 @@ def create_app() -> Flask:
                             snapshots,
                             partner,
                             partner_credibility=credibility,
+                            conversation_cache=cache_snapshot,
                         )
                     except Exception:  # pragma: no cover - defensive logging
                         logger.exception("Failed to generate player responses in background")
@@ -390,12 +392,17 @@ def create_app() -> Flask:
                     )
                     pending_event.set()
 
+                cache_snapshot = {
+                    faction: tuple(entries)
+                    for faction, entries in game_state.conversation_cache_for_player(char).items()
+                }
                 threading.Thread(
                     target=worker,
                     args=(
                         tuple(history_snapshot),
                         char,
                         tuple(convo),
+                        cache_snapshot,
                         key,
                         event,
                         signature,
@@ -510,11 +517,13 @@ def create_app() -> Flask:
             credibility = game_state.current_credibility(
                 getattr(character, "faction", None)
             )
+            cache_snapshot = game_state.conversation_cache_for_player(character)
             options = player.generate_responses(
                 history,
                 conversation,
                 character,
                 partner_credibility=credibility,
+                conversation_cache=cache_snapshot,
             )
             event = threading.Event()
             event.set()
@@ -530,6 +539,7 @@ def create_app() -> Flask:
         def worker(
             hist: Sequence[Tuple[str, str]],
             convo: Sequence[ConversationEntry],
+            cache_snapshot: Mapping[str, Sequence[ConversationEntry]],
             partner: Character,
             pending_key: Tuple[int, int],
             expected_signature: tuple,
@@ -543,6 +553,7 @@ def create_app() -> Flask:
                     convo,
                     partner,
                     partner_credibility=credibility,
+                    conversation_cache=cache_snapshot,
                 )
             except Exception:  # pragma: no cover - defensive logging
                 logger.exception("Failed to generate player responses in background")
@@ -561,11 +572,16 @@ def create_app() -> Flask:
             pending_player_options[pending_key] = (event, list(options))
             event.set()
 
+        cache_snapshot = {
+            faction: tuple(entries)
+            for faction, entries in game_state.conversation_cache_for_player(character).items()
+        }
         threading.Thread(
             target=worker,
             args=(
                 tuple(history),
                 tuple(conversation),
+                cache_snapshot,
                 character,
                 key,
                 signature,
@@ -671,11 +687,18 @@ def create_app() -> Flask:
                     credibility = game_state.current_credibility(
                         getattr(character, "faction", None)
                     )
+                    limit = getattr(
+                        game_state.config, "conversation_force_action_after", 0
+                    )
+                    force_action_required = (
+                        limit > 0 and len(simulated) >= limit
+                    )
                     replies = character.generate_responses(
                         hist,
                         simulated,
                         partner,
                         partner_credibility=credibility,
+                        force_action=force_action_required,
                     )
                 except Exception:  # pragma: no cover - defensive logging
                     logger.exception(
@@ -733,11 +756,13 @@ def create_app() -> Flask:
             if pending_choice and pending_choice[0] == conversation_length and pending_choice[1] == signature:
                 return None, True
         credibility = game_state.current_credibility(getattr(character, "faction", None))
+        force_action_required = game_state.should_force_action(character)
         replies = character.generate_responses(
             history,
             conversation,
             player,
             partner_credibility=credibility,
+            force_action=force_action_required,
         )
         if enable_parallel:
             event = threading.Event()

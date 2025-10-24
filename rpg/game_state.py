@@ -50,6 +50,9 @@ class GameState:
     player_override: PlayerCharacter | None = None
     history: List[Tuple[str, str]] = field(default_factory=list)
     conversations: Dict[str, List[ConversationEntry]] = field(default_factory=dict)
+    faction_conversations: Dict[str, List[ConversationEntry]] = field(
+        default_factory=dict
+    )
     npc_actions: Dict[str, Dict[str, ResponseOption]] = field(default_factory=dict)
     action_labels: Dict[str, Dict[str, str]] = field(default_factory=dict)
     progress: Dict[str, List[int]] = field(init=False)
@@ -122,6 +125,31 @@ class GameState:
         key = self._conversation_key(character)
         return list(self.conversations.get(key, []))
 
+    def _update_faction_cache(self, character: Character) -> None:
+        faction = getattr(character, "faction", None)
+        if not faction:
+            return
+        key = self._conversation_key(character)
+        history = self.conversations.get(key, [])
+        self.faction_conversations[faction] = list(history)
+
+    def conversation_cache_for_player(
+        self, character: Character
+    ) -> Dict[str, List[ConversationEntry]]:
+        current_faction = getattr(character, "faction", None)
+        caches: Dict[str, List[ConversationEntry]] = {}
+        for faction, entries in self.faction_conversations.items():
+            if faction == current_faction or not entries:
+                continue
+            caches[faction] = list(entries)
+        return caches
+
+    def should_force_action(self, character: Character) -> bool:
+        limit = getattr(self.config, "conversation_force_action_after", 0)
+        if limit <= 0:
+            return False
+        return len(self.conversation_history(character)) >= limit
+
     def log_player_response(
         self, character: Character, option: ResponseOption
     ) -> ConversationEntry:
@@ -141,6 +169,7 @@ class GameState:
             type=option.type,
         )
         history.append(entry)
+        self._update_faction_cache(character)
         logger.debug(
             "Logged player response for %s: %s (%s)",
             character.name,
@@ -171,8 +200,10 @@ class GameState:
         selected_option = action_candidate or chat_candidate or fallback_option
         if selected_option is not None:
             if selected_option.is_action:
-                self._resolve_action_label(character, selected_option)
-            text = selected_option.text
+                label = self._resolve_action_label(character, selected_option)
+                text = f"{label}: {selected_option.text}"
+            else:
+                text = selected_option.text
             entry = ConversationEntry(
                 speaker=character.display_name,
                 text=text,
@@ -180,6 +211,7 @@ class GameState:
             )
             history.append(entry)
             entries.append(entry)
+            self._update_faction_cache(character)
         if selected_option is None and action_bucket:
             self._refresh_action_labels(key)
         logger.debug(
@@ -204,9 +236,18 @@ class GameState:
     def _refresh_action_labels(self, key: str) -> None:
         bucket = self.npc_actions.get(key, {})
         labels = self.action_labels.setdefault(key, {})
+        previous_labels = dict(labels)
         labels.clear()
         for idx, option in enumerate(bucket.values(), 1):
-            labels[option.text] = self._format_action_label(idx, option)
+            label = self._format_action_label(idx, option)
+            if previous_labels.get(option.text) != label:
+                logger.warning(
+                    "Using default action label '%s' for %s option '%s'",
+                    label,
+                    key,
+                    option.text,
+                )
+            labels[option.text] = label
 
     def _resolve_action_label(self, character: Character, option: ResponseOption) -> str:
         key = self._conversation_key(character)
@@ -263,6 +304,7 @@ class GameState:
         action: ResponseOption | str,
         *,
         targets: Iterable[str] | None = None,
+        advance_time: bool = True,
     ) -> ActionAttempt:
         """Attempt an action without immediately logging failure results."""
 
@@ -299,7 +341,8 @@ class GameState:
         if player_score > attribute_score:
             effective_score = player_score
         logger.info("Using attribute score %s as roll modifier", effective_score)
-        self.time_elapsed_years += 0.5
+        if advance_time:
+            self.time_elapsed_years += self.config.action_time_cost_years
         sampled_value = random.randint(1, 20)
         logger.info("Sampled %d from randint[1, 20]", sampled_value)
         roll_total = effective_score + sampled_value
@@ -442,7 +485,9 @@ class GameState:
             targets_tuple = tuple(targets)
         else:
             targets_tuple = attempt.targets
-        return self.attempt_action(character, option, targets=targets_tuple)
+        return self.attempt_action(
+            character, option, targets=targets_tuple, advance_time=False
+        )
 
     def next_reroll_cost(
         self,

@@ -39,7 +39,10 @@ def test_log_npc_responses_records_single_entry(mock_genai):
     assert len(entries) == 1
     history = state.conversation_history(character)
     assert len(history) == 1
-    assert history[0].text == action_option.text
+    label_map = state.action_label_map(character)
+    label = label_map.get(action_option.text)
+    assert label is not None
+    assert history[0].text == f"{label}: {action_option.text}"
     assert history[0].type == "action"
     stored_actions = state.available_npc_actions(character)
     assert any(option.text == action_option.text for option in stored_actions)

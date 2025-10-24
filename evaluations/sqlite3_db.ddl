@@ -13,6 +13,9 @@ CREATE TABLE IF NOT EXISTS executions (
   win_threshold                   INTEGER,
   max_rounds                      INTEGER,
   roll_success_threshold          INTEGER,
+  action_time_cost_years          REAL,
+  format_prompt_character_limit   INTEGER,
+  conversation_force_action_after INTEGER,
   notes                           TEXT,
   created_at                      TEXT DEFAULT CURRENT_TIMESTAMP
 );

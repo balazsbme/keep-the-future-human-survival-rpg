@@ -46,6 +46,7 @@ def test_async_response_generation(mock_char_genai, mock_assess_genai):
         partner,
         *,
         partner_credibility=None,
+        conversation_cache=None,
     ):
         start_evt.set()
         finish_evt.wait()
@@ -89,6 +90,7 @@ def test_async_npc_responses(mock_char_genai, mock_assess_genai):
         partner,
         *,
         partner_credibility=None,
+        conversation_cache=None,
     ):
         return [
             ResponseOption(text="Starter 1", type="chat"),
@@ -105,6 +107,8 @@ def test_async_npc_responses(mock_char_genai, mock_assess_genai):
         partner,
         *,
         partner_credibility=None,
+        conversation_cache=None,
+        force_action=False,
     ):
         start_evt.set()
         finish_evt.wait()
@@ -151,7 +155,7 @@ def test_async_npc_responses(mock_char_genai, mock_assess_genai):
                     history = game_state.conversation_history(gs_character)
                     if any(
                         item.speaker == gs_character.display_name
-                        and item.text == "Coordinate defenses"
+                        and "Coordinate defenses" in item.text
                         for item in history
                     ):
                         break
@@ -159,7 +163,7 @@ def test_async_npc_responses(mock_char_genai, mock_assess_genai):
                     attempts += 1
                 assert any(
                     item.speaker == gs_character.display_name
-                    and item.text == "Coordinate defenses"
+                    and "Coordinate defenses" in item.text
                     for item in history
                 ), (history, observed_conversations)
                 assert b"Coordinate defenses" in resp.data
