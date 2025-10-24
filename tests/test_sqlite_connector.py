@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import sys
+import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -108,3 +109,38 @@ def test_dynamic_schema_and_inserts(tmp_path: Path) -> None:
 
     connector.commit()
     connector.close()
+
+
+def test_concurrent_inserts(tmp_path: Path) -> None:
+    db_path = tmp_path / "concurrent.sqlite"
+    connector = SQLiteConnector(db_path=db_path)
+    connector.initialise()
+
+    errors: list[Exception] = []
+
+    def worker(idx: int) -> None:
+        try:
+            connector.insert_execution(
+                {
+                    "player_class": f"Player{idx}",
+                    "automated_player_class": "Auto",
+                    "scenario": "complete",
+                    "win_threshold": 10,
+                    "max_rounds": 5,
+                    "roll_success_threshold": 10,
+                    "notes": f"worker-{idx}",
+                }
+            )
+            connector.commit()
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(idx,)) for idx in range(5)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not errors
+    row = connector.connection.execute("SELECT COUNT(*) FROM executions").fetchone()
+    assert row[0] == 5

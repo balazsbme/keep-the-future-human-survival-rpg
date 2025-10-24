@@ -10,8 +10,9 @@ import logging
 import os
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Set
+from typing import Any, Dict, Iterable, List, Set, Tuple
 
 try:  # pragma: no cover - optional dependency
     from dotenv import load_dotenv
@@ -227,6 +228,7 @@ def create_app(log_dir: str | None = None) -> Flask:
         "scenario": current_scenario_name,
         "log_to_db": False,
         "player_config": "",
+        "parallel_runs": 1,
     }
     last_batch_config = ""
     last_scenario = current_scenario_name
@@ -253,6 +255,12 @@ def create_app(log_dir: str | None = None) -> Flask:
             )
             default_rounds = _parse_positive_int(
                 request.form.get("rounds", last_form.get("rounds", 10)), 10
+            )
+            parallel_runs = _parse_positive_int(
+                request.form.get(
+                    "parallel_runs", last_form.get("parallel_runs", 1)
+                ),
+                1,
             )
             default_log_to_db = bool(request.form.get("log_to_db"))
             (
@@ -340,9 +348,11 @@ def create_app(log_dir: str | None = None) -> Flask:
                     }
                 )
 
-            run_summaries: List[Dict[str, Any]] = []
             new_known_logs: Set[str] = set()
-            for run_config in run_requests:
+
+            def _execute_run(
+                index: int, run_config: Dict[str, Any]
+            ) -> Tuple[int, Dict[str, Any], Set[str]]:
                 scenario_key = run_config["scenario"]
                 characters = load_characters(scenario_name=scenario_key)
                 player_instance = _build_player(
@@ -371,18 +381,20 @@ def create_app(log_dir: str | None = None) -> Flask:
                     run_config["games"],
                     run_config["rounds"],
                 )
-                game_results = manager.run_sequence(
-                    run_config["player"],
-                    player_instance,
-                    run_config["games"],
-                    run_config["rounds"],
-                )
-                for entry in game_results:
-                    filename = entry.get("log_filename")
-                    if filename:
-                        new_known_logs.add(filename)
-                run_summaries.append(
-                    {
+                try:
+                    game_results = manager.run_sequence(
+                        run_config["player"],
+                        player_instance,
+                        run_config["games"],
+                        run_config["rounds"],
+                    )
+                except Exception as exc:  # pragma: no cover - defensive fallback
+                    logger.exception(
+                        "Run for player %s on scenario %s failed",
+                        run_config["player"],
+                        scenario_key,
+                    )
+                    summary = {
                         "player": run_config["player"],
                         "player_label": run_config["player_label"],
                         "player_config_label": run_config["player_config_label"],
@@ -392,9 +404,62 @@ def create_app(log_dir: str | None = None) -> Flask:
                         "scenario": scenario_key,
                         "scenario_label": _format_scenario_label(scenario_key),
                         "log_to_db": run_config["log_to_db"],
-                        "results": game_results,
+                        "results": [
+                            {
+                                "game_number": 0,
+                                "rounds_completed": 0,
+                                "result": "Error",
+                                "log_filename": None,
+                                "error": str(exc),
+                            }
+                        ],
                     }
-                )
+                    return index, summary, set()
+
+                condensed_results: List[Dict[str, Any]] = []
+                log_names: Set[str] = set()
+                for entry in game_results:
+                    filename = entry.get("log_filename")
+                    if filename:
+                        log_names.add(filename)
+                    condensed_results.append(
+                        {
+                            "game_number": entry.get("game_number"),
+                            "rounds_completed": entry.get("iterations", 0),
+                            "result": entry.get("result"),
+                            "log_filename": filename,
+                            "error": entry.get("error"),
+                        }
+                    )
+
+                summary = {
+                    "player": run_config["player"],
+                    "player_label": run_config["player_label"],
+                    "player_config_label": run_config["player_config_label"],
+                    "player_config_input": run_config["player_config_input"],
+                    "rounds": run_config["rounds"],
+                    "games": run_config["games"],
+                    "scenario": scenario_key,
+                    "scenario_label": _format_scenario_label(scenario_key),
+                    "log_to_db": run_config["log_to_db"],
+                    "results": condensed_results,
+                }
+                return index, summary, log_names
+
+            indexed_results: List[Tuple[int, Dict[str, Any], Set[str]]] = []
+            with ThreadPoolExecutor(max_workers=parallel_runs) as executor:
+                future_map = {
+                    executor.submit(_execute_run, idx, config): idx
+                    for idx, config in enumerate(run_requests)
+                }
+                for future in as_completed(future_map):
+                    indexed_results.append(future.result())
+
+            indexed_results.sort(key=lambda item: item[0])
+            run_summaries: List[Dict[str, Any]] = []
+            for _, summary, log_names in indexed_results:
+                run_summaries.append(summary)
+                new_known_logs.update(log_names)
 
             completed_sequences = run_summaries
             known_logs = new_known_logs
@@ -410,6 +475,7 @@ def create_app(log_dir: str | None = None) -> Flask:
                     "scenario": first.get("scenario", current_scenario_name),
                     "log_to_db": first["log_to_db"],
                     "player_config": first["player_config_input"],
+                    "parallel_runs": parallel_runs,
                 }
             return redirect("/progress")
         logger.info("Showing main player selection page")
@@ -435,6 +501,7 @@ def create_app(log_dir: str | None = None) -> Flask:
         player_config_value = html.escape(str(last_form.get("player_config", "")))
         games_value = html.escape(str(last_form.get("games", 1)))
         rounds_value = html.escape(str(last_form.get("rounds", 10)))
+        parallel_value = html.escape(str(last_form.get("parallel_runs", 1)))
         batch_value = html.escape(last_batch_config)
         return (
             "<h1>Automated Player Manager</h1>"
@@ -444,6 +511,7 @@ def create_app(log_dir: str | None = None) -> Flask:
             f"<label>Player configuration: <input type='text' name='player_config' value='{player_config_value}'></label><br>"
             f"<label>Games: <input type='number' min='1' name='games' value='{games_value}'></label><br>"
             f"<label>Rounds per game: <input type='number' min='1' name='rounds' value='{rounds_value}'></label><br>"
+            f"<label>Max parallel runs: <input type='number' min='1' name='parallel_runs' value='{parallel_value}'></label><br>"
             f"<label><input type='checkbox' name='log_to_db' value='1'{log_to_db_checked}> Log games to SQLite</label><br>"
             "<label>Batch runs (JSON list, optional):<br>"
             f"<textarea name='batch_runs' rows='6' cols='60'>{batch_value}</textarea></label><br>"
@@ -462,65 +530,50 @@ def create_app(log_dir: str | None = None) -> Flask:
         summary_parts = [
             "<h1>Player Manager Progress</h1>",
             f"<div>Total configured runs: {len(completed_sequences)}</div>",
+            "<ul>",
         ]
-
-        def faction_score_lines(faction_data: Dict[str, Dict[str, object]]) -> str:
-            return "<br>".join(
-                "{}: {} (weighted {})".format(
-                    name,
-                    ", ".join(str(score) for score in details['scores']),
-                    details['weighted'],
-                )
-                for name, details in faction_data.items()
-            )
-
         for idx, run in enumerate(completed_sequences, start=1):
+            log_flag = "Yes" if run.get("log_to_db") else "No"
             summary_parts.append(
                 (
-                    f"<section><h2>Run {idx}: {run['player_label']} ({run['scenario_label']})</h2>"
-                    f"<div>Selected player: {run['player']}</div>"
-                    f"<div>Player configuration: {run['player_config_label']}</div>"
-                    f"<div>Games requested: {run['games']}</div>"
-                    f"<div>Rounds per game: {run['rounds']}</div>"
-                    f"<div>Scenario: {run['scenario_label']}</div>"
-                    f"<div>Logging to database: {'Yes' if run['log_to_db'] else 'No'}</div>"
+                    "<li><strong>Run {idx}:</strong> {player_label} on {scenario_label} "
+                    "(games: {games}, rounds/game: {rounds}, log to DB: {log_flag})"
+                ).format(
+                    idx=idx,
+                    player_label=html.escape(str(run.get("player_label", run.get("player", "")))),
+                    scenario_label=html.escape(str(run.get("scenario_label", run.get("scenario", "")))),
+                    games=run.get("games"),
+                    rounds=run.get("rounds"),
+                    log_flag=log_flag,
                 )
             )
-            for entry in run['results']:
-                rows = "".join(
-                    "<tr><td>{round}</td><td>{character}</td><td>{attribute}</td><td>{score}</td><td>{factions}</td></tr>".format(
-                        round=round_info['round'],
-                        character=round_info['character'],
-                        attribute=round_info.get('attribute', ''),
-                        score=round_info['score'],
-                        factions=faction_score_lines(round_info['factions']),
+            results = run.get("results", [])
+            if results:
+                summary_parts.append("<ul>")
+                for entry in results:
+                    game_number = entry.get("game_number")
+                    game_label = html.escape(str(game_number if game_number is not None else "?"))
+                    rounds_completed = int(entry.get("rounds_completed", 0) or 0)
+                    result = html.escape(str(entry.get("result", "Pending")))
+                    error = entry.get("error")
+                    error_html = (
+                        f" — Error: {html.escape(str(error))}" if error else ""
                     )
-                    for round_info in entry['rounds']
-                )
-                final_factions = faction_score_lines(entry.get('final_factions', {}))
-                log_link = (
-                    f"<div><a href='/logs/{entry['log_filename']}'>Download log</a></div>"
-                    if entry.get('log_filename')
-                    else ""
-                )
-                summary_parts.append(
-                    (
-                        f"<article><h3>Game {entry['game_number']}</h3>"
-                        f"<div>Iterations: {entry['iterations']}</div>"
-                        f"<div>Actions: {entry['actions']}</div>"
-                        f"<div>Final weighted score: {entry['final_score']}</div>"
-                        f"<div>Result: {entry['result']}</div>"
-                        f"<div>Final faction scores:<br>{final_factions}</div>"
-                        f"{log_link}"
-                        "<h4>Round-by-round progress</h4>"
-                        "<table><tr><th>Round</th><th>Character</th><th>Attribute</th><th>Weighted Score</th><th>Faction Scores</th>"
-                        "</tr>"
-                        + rows
-                        + "</table></article>"
+                    filename = entry.get("log_filename")
+                    log_link = (
+                        f" — <a href='/logs/{html.escape(filename)}'>Log</a>"
+                        if filename
+                        else ""
                     )
-                )
-            summary_parts.append("</section>")
-
+                    summary_parts.append(
+                        (
+                            f"<li>Game {game_label}: {rounds_completed} rounds completed ({result})"
+                            f"{error_html}{log_link}</li>"
+                        )
+                    )
+                summary_parts.append("</ul>")
+            summary_parts.append("</li>")
+        summary_parts.append("</ul>")
         summary_parts.append("<a href='/'>Back</a>")
         return "".join(summary_parts)
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Callable, Dict, Iterable, List, Optional
 from uuid import uuid4
 
@@ -18,6 +19,59 @@ from .players import Player
 
 logger = logging.getLogger(__name__)
 
+_LOGGING_LOCK = threading.RLock()
+_LOGGING_STATE: Dict[str, object] = {
+    "active_runs": 0,
+    "original_level": None,
+    "handler_levels": {},
+}
+
+
+def _configure_root_logger(file_handler: logging.Handler) -> None:
+    """Attach ``file_handler`` capturing logs while preserving global state."""
+
+    root_logger = logging.getLogger()
+    with _LOGGING_LOCK:
+        active_runs = int(_LOGGING_STATE["active_runs"])
+        if active_runs == 0:
+            _LOGGING_STATE["original_level"] = root_logger.level
+            _LOGGING_STATE["handler_levels"] = {
+                handler: handler.level for handler in root_logger.handlers
+            }
+            root_logger.setLevel(logging.DEBUG)
+            previous_level = int(_LOGGING_STATE["original_level"])
+            stream_level = (
+                previous_level if previous_level != logging.NOTSET else logging.INFO
+            )
+            for handler in root_logger.handlers:
+                if handler.level == logging.NOTSET and isinstance(
+                    handler, logging.StreamHandler
+                ):
+                    handler.setLevel(stream_level)
+        _LOGGING_STATE["active_runs"] = active_runs + 1
+        root_logger.addHandler(file_handler)
+
+
+def _restore_root_logger(file_handler: logging.Handler) -> None:
+    """Detach ``file_handler`` and restore root logger state when idle."""
+
+    root_logger = logging.getLogger()
+    with _LOGGING_LOCK:
+        if file_handler in root_logger.handlers:
+            root_logger.removeHandler(file_handler)
+        active_runs = max(0, int(_LOGGING_STATE["active_runs"]) - 1)
+        _LOGGING_STATE["active_runs"] = active_runs
+        if active_runs == 0:
+            original_level = _LOGGING_STATE.get("original_level")
+            if isinstance(original_level, int):
+                root_logger.setLevel(original_level)
+            handler_levels = _LOGGING_STATE.get("handler_levels", {})
+            if isinstance(handler_levels, dict):
+                for handler, level in handler_levels.items():
+                    if handler in root_logger.handlers:
+                        handler.setLevel(level)
+            _LOGGING_STATE["handler_levels"] = {}
+            _LOGGING_STATE["original_level"] = None
 
 class PlayerManager:
     """Coordinate launching automated players for multiple games in sequence."""
@@ -118,23 +172,7 @@ class PlayerManager:
         file_handler.setFormatter(
             logging.Formatter("%(asctime)s %(name)s %(levelname)s: %(message)s")
         )
-        root_logger = logging.getLogger()
-        previous_level = root_logger.level
-        handler_levels = {handler: handler.level for handler in root_logger.handlers}
-        root_logger.addHandler(file_handler)
-        root_logger.setLevel(logging.DEBUG)
-        stream_level = (
-            previous_level
-            if previous_level != logging.NOTSET
-            else logging.INFO
-        )
-        for handler in root_logger.handlers:
-            if handler is file_handler:
-                continue
-            if handler.level == logging.NOTSET and isinstance(
-                handler, logging.StreamHandler
-            ):
-                handler.setLevel(stream_level)
+        _configure_root_logger(file_handler)
 
         rounds_progress: List[Dict[str, object]] = []
         try:
@@ -189,10 +227,7 @@ class PlayerManager:
                 observer.on_game_error(state, exc)
             raise
         finally:
-            root_logger.removeHandler(file_handler)
-            root_logger.setLevel(previous_level)
-            for handler, level in handler_levels.items():
-                handler.setLevel(level)
+            _restore_root_logger(file_handler)
             file_handler.close()
 
         final_score = state.final_weighted_score()

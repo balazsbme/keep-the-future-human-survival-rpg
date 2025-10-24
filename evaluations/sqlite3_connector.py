@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sqlite3
+import threading
 from contextlib import contextmanager
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
@@ -41,39 +42,48 @@ class SQLiteConnector:
         _ensure_directory(self.db_path)
         self._connection: sqlite3.Connection | None = None
         self._initialised = False
+        self._lock = threading.RLock()
 
     @property
     def connection(self) -> sqlite3.Connection:
-        if self._connection is None:
-            self._connection = sqlite3.connect(self.db_path)
-            self._connection.row_factory = sqlite3.Row
-        return self._connection
+        with self._lock:
+            if self._connection is None:
+                self._connection = sqlite3.connect(
+                    self.db_path, check_same_thread=False
+                )
+                self._connection.row_factory = sqlite3.Row
+            return self._connection
 
     def close(self) -> None:
-        if self._connection is not None:
-            self._connection.close()
-            self._connection = None
-            self._initialised = False
+        with self._lock:
+            if self._connection is not None:
+                self._connection.close()
+                self._connection = None
+                self._initialised = False
 
     @contextmanager
     def cursor(self) -> Iterator[sqlite3.Cursor]:
+        self._lock.acquire()
         cur = self.connection.cursor()
         try:
             yield cur
         finally:
             cur.close()
+            self._lock.release()
 
     def initialise(self) -> None:
         """Execute the DDL script once per connector lifetime."""
 
-        if self._initialised:
-            return
-        script = self.ddl_path.read_text(encoding="utf-8")
-        self.connection.executescript(script)
-        self._initialised = True
+        with self._lock:
+            if self._initialised:
+                return
+            script = self.ddl_path.read_text(encoding="utf-8")
+            self.connection.executescript(script)
+            self._initialised = True
 
     def commit(self) -> None:
-        self.connection.commit()
+        with self._lock:
+            self.connection.commit()
 
     # Column helpers -----------------------------------------------------
     def _table_columns(self, table: str) -> Dict[str, str]:
