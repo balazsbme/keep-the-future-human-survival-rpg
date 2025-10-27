@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Iterable, MutableMapping
 
 from rpg.game_state import ActionAttempt, GameState
@@ -26,6 +26,7 @@ class GameRunObserver:
         player_class: str,
         automated_player_class: str,
         game_index: int,
+        log_filename: str,
     ) -> None:
         raise NotImplementedError
 
@@ -42,11 +43,18 @@ class GameRunObserver:
         result: str,
         successful: bool,
         error: str | None = None,
+        log_warning_count: int = 0,
+        log_error_count: int = 0,
     ) -> None:
         raise NotImplementedError
 
     def on_game_error(
-        self, state: GameState | None, error: BaseException | str
+        self,
+        state: GameState | None,
+        error: BaseException | str,
+        *,
+        log_warning_count: int = 0,
+        log_error_count: int = 0,
     ) -> None:
         raise NotImplementedError
 
@@ -67,6 +75,9 @@ class GameDatabaseRecorder(GameRunObserver):
         self._cached_credibility_targets: Iterable[str] | None = None
         self._faction_triplet_counts: Dict[str, int] | None = None
         self._result_recorded = False
+        self._log_filename: str | None = None
+        self._log_warning_count: int = 0
+        self._log_error_count: int = 0
 
     # Interface implementation -----------------------------------------
     def on_game_start(
@@ -77,6 +88,7 @@ class GameDatabaseRecorder(GameRunObserver):
         player_class: str,
         automated_player_class: str,
         game_index: int,
+        log_filename: str,
     ) -> None:
         self._faction_triplet_counts = {
             faction: len(scores)
@@ -92,6 +104,14 @@ class GameDatabaseRecorder(GameRunObserver):
                 "action_time_cost_years": "REAL",
                 "format_prompt_character_limit": "INTEGER",
                 "conversation_force_action_after": "INTEGER",
+                "log_filename": "TEXT",
+            },
+        )
+        self._connector.ensure_columns(
+            "results",
+            {
+                "log_warning_count": "INTEGER",
+                "log_error_count": "INTEGER",
             },
         )
         self._connector.ensure_dynamic_schema(
@@ -126,12 +146,17 @@ class GameDatabaseRecorder(GameRunObserver):
             "action_time_cost_years": state.config.action_time_cost_years,
             "format_prompt_character_limit": state.config.format_prompt_character_limit,
             "conversation_force_action_after": state.config.conversation_force_action_after,
-            "notes": self._notes or f"{player_key}-game-{game_index}-{datetime.utcnow().isoformat()}",
+            "log_filename": log_filename,
+            "notes": self._notes
+            or f"{player_key}-game-{game_index}-{datetime.now(timezone.utc).isoformat()}",
         }
         metadata = {key: value for key, value in metadata.items() if value is not None}
         self._execution_id = self._connector.insert_execution(metadata)
         self._connector.commit()
         self._result_recorded = False
+        self._log_filename = log_filename
+        self._log_warning_count = 0
+        self._log_error_count = 0
 
     def before_turn(self, state: GameState, round_index: int) -> None:
         self._pre_turn_snapshot = self._snapshot_progress(state)
@@ -155,8 +180,12 @@ class GameDatabaseRecorder(GameRunObserver):
         result: str,
         successful: bool,
         error: str | None = None,
+        log_warning_count: int = 0,
+        log_error_count: int = 0,
     ) -> None:
         if self._execution_id is not None:
+            self._log_warning_count = log_warning_count
+            self._log_error_count = log_error_count
             self._record_result(
                 successful_execution=successful,
                 result=result,
@@ -166,11 +195,18 @@ class GameDatabaseRecorder(GameRunObserver):
         self._reset()
 
     def on_game_error(
-        self, state: GameState | None, error: BaseException | str
+        self,
+        state: GameState | None,
+        error: BaseException | str,
+        *,
+        log_warning_count: int = 0,
+        log_error_count: int = 0,
     ) -> None:
         if self._execution_id is None:
             self._reset()
             return
+        self._log_warning_count = log_warning_count
+        self._log_error_count = log_error_count
         self._record_result(
             successful_execution=False,
             result="N/A",
@@ -264,6 +300,8 @@ class GameDatabaseRecorder(GameRunObserver):
             "execution_id": self._execution_id,
             "successful_execution": successful_execution,
             "result": result or "N/A",
+            "log_warning_count": int(self._log_warning_count or 0),
+            "log_error_count": int(self._log_error_count or 0),
         }
         if error_info:
             payload["error_info"] = error_info
@@ -276,6 +314,9 @@ class GameDatabaseRecorder(GameRunObserver):
         self._cached_credibility_targets = None
         self._faction_triplet_counts = None
         self._result_recorded = False
+        self._log_filename = None
+        self._log_warning_count = 0
+        self._log_error_count = 0
 
 
 __all__ = ["GameRunObserver", "GameDatabaseRecorder"]

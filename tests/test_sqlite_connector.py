@@ -37,6 +37,11 @@ def test_dynamic_schema_and_inserts(tmp_path: Path) -> None:
     assert "action_time_cost_years" in execution_columns
     assert "format_prompt_character_limit" in execution_columns
     assert "conversation_force_action_after" in execution_columns
+    assert "log_filename" in execution_columns
+
+    results_columns = _get_columns(connector.connection, "results")
+    assert "log_warning_count" in results_columns
+    assert "log_error_count" in results_columns
 
     execution_id = connector.insert_execution(
         {
@@ -98,14 +103,18 @@ def test_dynamic_schema_and_inserts(tmp_path: Path) -> None:
             "execution_id": execution_id,
             "successful_execution": True,
             "result": "Win",
+            "log_warning_count": 2,
+            "log_error_count": 1,
         }
     )
     row = connector.connection.execute(
-        "SELECT result, successful_execution FROM results WHERE execution_id = ?",
+        "SELECT result, successful_execution, log_warning_count, log_error_count FROM results WHERE execution_id = ?",
         (execution_id,),
     ).fetchone()
     assert row["result"] == "Win"
     assert row["successful_execution"] == 1
+    assert row["log_warning_count"] == 2
+    assert row["log_error_count"] == 1
 
     connector.commit()
     connector.close()

@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS executions (
   action_time_cost_years          REAL,
   format_prompt_character_limit   INTEGER,
   conversation_force_action_after INTEGER,
+  log_filename                    TEXT,
   notes                           TEXT,
   created_at                      TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -78,6 +79,8 @@ CREATE TABLE IF NOT EXISTS results (
   successful_execution  INTEGER NOT NULL,
   result                TEXT,
   error_info            TEXT,
+  log_warning_count     INTEGER DEFAULT 0,
+  log_error_count       INTEGER DEFAULT 0,
   created_at            TEXT DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (execution_id) REFERENCES executions(execution_id) ON DELETE CASCADE
 );

@@ -68,6 +68,8 @@ class _ClosingGameDatabaseRecorder(GameDatabaseRecorder):
         result,
         successful,
         error=None,
+        log_warning_count=0,
+        log_error_count=0,
     ):
         try:
             super().on_game_end(
@@ -75,13 +77,27 @@ class _ClosingGameDatabaseRecorder(GameDatabaseRecorder):
                 result=result,
                 successful=successful,
                 error=error,
+                log_warning_count=log_warning_count,
+                log_error_count=log_error_count,
             )
         finally:
             self._close_connector()
 
-    def on_game_error(self, state, error):
+    def on_game_error(
+        self,
+        state,
+        error,
+        *,
+        log_warning_count=0,
+        log_error_count=0,
+    ):
         try:
-            super().on_game_error(state, error)
+            super().on_game_error(
+                state,
+                error,
+                log_warning_count=log_warning_count,
+                log_error_count=log_error_count,
+            )
         finally:
             self._close_connector()
 
@@ -202,7 +218,14 @@ def create_app(log_dir: str | None = None) -> Flask:
     def _resolve_scenario(requested: str | None, fallback: str) -> str:
         if not requested:
             return fallback
-        return scenario_lookup.get(requested.lower(), fallback)
+        key = requested.strip().lower()
+        if not key:
+            return fallback
+        if key not in scenario_lookup:
+            message = f"Unknown scenario '{requested}'"
+            logger.error(message)
+            raise ValueError(message)
+        return scenario_lookup[key]
     if log_dir is None:
         try:
             os.makedirs(app.instance_path, exist_ok=True)
@@ -246,10 +269,13 @@ def create_app(log_dir: str | None = None) -> Flask:
                     "Unknown player key '%s'; defaulting to random", default_player
                 )
                 default_player = "random"
-            default_scenario = _resolve_scenario(
-                request.form.get("scenario"),
-                last_form.get("scenario", current_scenario_name),
-            )
+            try:
+                default_scenario = _resolve_scenario(
+                    request.form.get("scenario"),
+                    last_form.get("scenario", current_scenario_name),
+                )
+            except ValueError as exc:
+                abort(400, description=str(exc))
             default_games = _parse_positive_int(
                 request.form.get("games", last_form.get("games", 1)), 1
             )
@@ -290,9 +316,12 @@ def create_app(log_dir: str | None = None) -> Flask:
                             "Unknown player key '%s'; defaulting to random", entry_player
                         )
                         entry_player = "random"
-                    entry_scenario = _resolve_scenario(
-                        entry.get("scenario"), default_scenario
-                    )
+                    try:
+                        entry_scenario = _resolve_scenario(
+                            entry.get("scenario"), default_scenario
+                        )
+                    except ValueError as exc:
+                        abort(400, description=str(exc))
                     entry_games = _parse_positive_int(
                         entry.get("games", default_games), default_games
                     )
@@ -373,6 +402,7 @@ def create_app(log_dir: str | None = None) -> Flask:
                     assessor,
                     log_dir,
                     game_observer_factory=game_observer_factory,
+                    scenario=scenario_key,
                 )
                 logger.info(
                     "Starting sequence for player %s on scenario %s: %d games with %d rounds each",
@@ -428,6 +458,8 @@ def create_app(log_dir: str | None = None) -> Flask:
                             "rounds_completed": entry.get("iterations", 0),
                             "result": entry.get("result"),
                             "log_filename": filename,
+                            "log_warning_count": entry.get("log_warning_count", 0),
+                            "log_error_count": entry.get("log_error_count", 0),
                             "error": entry.get("error"),
                         }
                     )

@@ -14,6 +14,7 @@ except ModuleNotFoundError:  # pragma: no cover
     genai = None
 
 from .character import Character
+from .logging_utils import collapse_prompt_sections
 from .genai_cache import get_cache_manager
 
 logger = logging.getLogger(__name__)
@@ -112,7 +113,11 @@ class AssessmentAgent:
             f"Performed actions: {history_text}\n"
             "Output ONLY an ordered list of 0-100 integers one for each triplet line-by-line. For example, 0 means that no relevant actions have been performed for a triplet (i.e. still the 'initial state' stands), while ~50 means that the 'gap' has been reduced by a lot, but significant gap remains, finally 100 means that the performed actions equivalently describe the 'end state'."
         )
-        logger.debug("Assessment prompt for %s: %s", char.name, prompt)
+        logger.debug(
+            "Assessment prompt for %s: %s",
+            char.name,
+            collapse_prompt_sections(prompt),
+        )
         if cache_config is not None:
             response = self._get_model().generate_content(prompt, config=cache_config)
         else:

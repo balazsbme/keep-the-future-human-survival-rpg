@@ -60,6 +60,7 @@ def test_recorder_writes_expected_payloads() -> None:
         player_class="PlayerChar",
         automated_player_class="AutoPlayer",
         game_index=1,
+        log_filename="alpha_game_1.log",
     )
     connector.ensure_columns.assert_any_call(
         "executions",
@@ -67,10 +68,20 @@ def test_recorder_writes_expected_payloads() -> None:
             "action_time_cost_years": "REAL",
             "format_prompt_character_limit": "INTEGER",
             "conversation_force_action_after": "INTEGER",
+            "log_filename": "TEXT",
+        },
+    )
+    connector.ensure_columns.assert_any_call(
+        "results",
+        {
+            "log_warning_count": "INTEGER",
+            "log_error_count": "INTEGER",
         },
     )
     connector.ensure_dynamic_schema.assert_called_once()
     connector.insert_execution.assert_called_once()
+    execution_payload = connector.insert_execution.call_args.args[0]
+    assert execution_payload["log_filename"] == "alpha_game_1.log"
 
     recorder.before_turn(state, 1)
     state.progress = {"Governments": [20, 30], "CivilSociety": [40]}
@@ -115,12 +126,21 @@ def test_recorder_writes_expected_payloads() -> None:
     assert credibility_payload["credibility_governments"] == 55
     assert credibility_payload["credibility_civilsociety"] == 100
 
-    recorder.on_game_end(state, result="Win", successful=True, error=None)
+    recorder.on_game_end(
+        state,
+        result="Win",
+        successful=True,
+        error=None,
+        log_warning_count=3,
+        log_error_count=1,
+    )
     connector.insert_result.assert_called_once()
     result_payload = connector.insert_result.call_args.args[0]
     assert result_payload["execution_id"] == 3
     assert result_payload["successful_execution"] is True
     assert result_payload["result"] == "Win"
+    assert result_payload["log_warning_count"] == 3
+    assert result_payload["log_error_count"] == 1
     assert connector.commit.call_count >= 2
 
 
@@ -137,9 +157,15 @@ def test_recorder_records_error_outcome() -> None:
         player_class="PlayerChar",
         automated_player_class="AutoPlayer",
         game_index=2,
+        log_filename="beta_game_2.log",
     )
 
-    recorder.on_game_error(state, RuntimeError("boom"))
+    recorder.on_game_error(
+        state,
+        RuntimeError("boom"),
+        log_warning_count=5,
+        log_error_count=2,
+    )
 
     connector.insert_result.assert_called_once()
     result_payload = connector.insert_result.call_args.args[0]
@@ -147,4 +173,6 @@ def test_recorder_records_error_outcome() -> None:
     assert result_payload["successful_execution"] is False
     assert result_payload["result"] == "N/A"
     assert "boom" in result_payload["error_info"]
+    assert result_payload["log_warning_count"] == 5
+    assert result_payload["log_error_count"] == 2
     connector.commit.assert_called()
