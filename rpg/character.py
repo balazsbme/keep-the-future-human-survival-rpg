@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Iterable, List, Mapping, Sequence, Tuple
 
 from .conversation import ConversationEntry, ConversationType
+from .logging_utils import collapse_prompt_sections
 from .config import GameConfig, load_game_config
 from .credibility import CREDIBILITY_PENALTY
 from .genai_cache import get_cache_manager
@@ -126,6 +127,18 @@ class ResponseOption:
 
         triplet = _normalize_triplet(data.get("related-triplet"))
         attribute = _normalize_attribute(data.get("related-attribute"))
+        if kind == "action":
+            if attribute is None:
+                logger.error(
+                    "Action option missing related attribute (text=%r, payload=%r)",
+                    text or "",
+                    data,
+                )
+            if "{" in text:
+                logger.error(
+                    "Action option text appears malformed and contains '{': %r",
+                    text,
+                )
         return cls(text=text, type=kind, related_triplet=triplet, related_attribute=attribute)
 
 
@@ -594,10 +607,16 @@ class YamlCharacter(Character):
             f"{base_prompt}{context_block}{history_block}{conversation_block}{action_requirement}{guidance}\n"
             f"{self._format_prompt_instructions()}"
         )
-        logger.debug("Prompt for %s: %s", self.name, prompt)
+        logger.debug(
+            "Prompt for %s: %s", self.name, collapse_prompt_sections(prompt)
+        )
         response = self._generate_with_context(prompt)
         response_text = getattr(response, "text", "").strip()
-        logger.debug("Raw response for %s: %s", self.name, response_text)
+        logger.debug(
+            "Raw response for %s: %s",
+            self.name,
+            collapse_prompt_sections(response_text),
+        )
         options = self._parse_response_payload(response_text, len(self.triplets))
         if restricted_triplets and any(
             option.is_action and option.related_triplet is not None for option in options
@@ -688,11 +707,11 @@ class YamlCharacter(Character):
             f"{context_block}Action history:\n{self._history_text(full_history)}\n"
             "Provide progress (0-100) for each triplet on separate lines."
         )
-        logger.debug("Assess prompt: %s", assess_prompt)
+        logger.debug("Assess prompt: %s", collapse_prompt_sections(assess_prompt))
         assess_resp = self._generate_with_context(assess_prompt)
         assess_text = getattr(assess_resp, "text", "")
         logger.info("Assessment for %s: %s", self.name, assess_text[:50])
-        logger.debug("Assess response: %s", assess_text)
+        logger.debug("Assess response: %s", collapse_prompt_sections(assess_text))
         scores: List[int] = []
         for line in assess_text.splitlines():
             line = line.strip()
@@ -926,10 +945,12 @@ class PlayerCharacter(Character):
             f"{other_conversations}"
             f"{self._format_prompt_instructions()}"
         )
-        logger.debug("Player prompt: %s", prompt)
+        logger.debug("Player prompt: %s", collapse_prompt_sections(prompt))
         response = self._generate_with_context(prompt)
         response_text = getattr(response, "text", "").strip()
-        logger.debug("Raw player response: %s", response_text)
+        logger.debug(
+            "Raw player response: %s", collapse_prompt_sections(response_text)
+        )
         options = self._parse_response_payload(response_text, len(partner.triplets))
         if any(option.is_action for option in options):
             logger.warning(

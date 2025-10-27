@@ -7,10 +7,12 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from dataclasses import replace
+from datetime import datetime, timezone
 from typing import Callable, Dict, Iterable, List, Optional
-from uuid import uuid4
 
 from rpg.assessment_agent import AssessmentAgent
+from rpg.config import GameConfig, load_game_config
 from rpg.game_state import GameState
 
 from .game_database import GameRunObserver
@@ -27,7 +29,22 @@ _LOGGING_STATE: Dict[str, object] = {
 }
 
 
-def _configure_root_logger(file_handler: logging.Handler) -> None:
+class _LevelCountingHandler(logging.Handler):
+    """Count warning and error log records emitted during a game run."""
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.WARNING)
+        self.warning_count = 0
+        self.error_count = 0
+
+    def emit(self, record: logging.LogRecord) -> None:  # pragma: no cover - trivial
+        if record.levelno >= logging.ERROR:
+            self.error_count += 1
+        elif record.levelno >= logging.WARNING:
+            self.warning_count += 1
+
+
+def _configure_root_logger(*handlers: logging.Handler) -> None:
     """Attach ``file_handler`` capturing logs while preserving global state."""
 
     root_logger = logging.getLogger()
@@ -49,16 +66,18 @@ def _configure_root_logger(file_handler: logging.Handler) -> None:
                 ):
                     handler.setLevel(stream_level)
         _LOGGING_STATE["active_runs"] = active_runs + 1
-        root_logger.addHandler(file_handler)
+        for handler in handlers:
+            root_logger.addHandler(handler)
 
 
-def _restore_root_logger(file_handler: logging.Handler) -> None:
+def _restore_root_logger(*handlers: logging.Handler) -> None:
     """Detach ``file_handler`` and restore root logger state when idle."""
 
     root_logger = logging.getLogger()
     with _LOGGING_LOCK:
-        if file_handler in root_logger.handlers:
-            root_logger.removeHandler(file_handler)
+        for handler in handlers:
+            if handler in root_logger.handlers:
+                root_logger.removeHandler(handler)
         active_runs = max(0, int(_LOGGING_STATE["active_runs"]) - 1)
         _LOGGING_STATE["active_runs"] = active_runs
         if active_runs == 0:
@@ -83,6 +102,9 @@ class PlayerManager:
         log_dir: str,
         game_observer_factory: Callable[[GameState, Player, str, int], GameRunObserver]
         | None = None,
+        *,
+        scenario: str | None = None,
+        config_override: GameConfig | None = None,
     ) -> None:
         """Store the characters, assessor, and logging directory for runs."""
 
@@ -91,6 +113,14 @@ class PlayerManager:
         self._log_dir = log_dir
         os.makedirs(log_dir, exist_ok=True)
         self._game_observer_factory = game_observer_factory
+        base_config = config_override or load_game_config()
+        scenario_name = scenario.strip().lower() if scenario else ""
+        if scenario_name:
+            base_config = replace(base_config, scenario=scenario_name)
+            self._scenario_name = scenario_name
+        else:
+            self._scenario_name = base_config.scenario
+        self._config_override = base_config
 
     def run_sequence(
         self,
@@ -136,6 +166,8 @@ class PlayerManager:
                     "iterations": 0,
                     "actions": 0,
                     "log_filename": None,
+                    "log_warning_count": 0,
+                    "log_error_count": 0,
                     "error": str(exc),
                 }
             results.append(game_result)
@@ -150,7 +182,16 @@ class PlayerManager:
     ) -> Dict[str, object]:
         """Execute a single game and capture detailed progress information."""
 
-        state = GameState(list(self._characters))
+        state = GameState(list(self._characters), config_override=self._config_override)
+        log_filename = self._log_filename(player_key, game_index)
+        log_path = os.path.join(self._log_dir, log_filename)
+        file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s %(name)s %(levelname)s: %(message)s")
+        )
+        counter_handler = _LevelCountingHandler()
+        _configure_root_logger(file_handler, counter_handler)
         observer: Optional[GameRunObserver] = None
         if self._game_observer_factory is not None:
             observer_candidate = self._game_observer_factory(
@@ -164,17 +205,12 @@ class PlayerManager:
                     player_class=state.player_character.__class__.__name__,
                     automated_player_class=player.__class__.__name__,
                     game_index=game_index,
+                    log_filename=log_filename,
                 )
-        log_filename = self._log_filename(player_key, game_index)
-        log_path = os.path.join(self._log_dir, log_filename)
-        file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(
-            logging.Formatter("%(asctime)s %(name)s %(levelname)s: %(message)s")
-        )
-        _configure_root_logger(file_handler)
 
         rounds_progress: List[Dict[str, object]] = []
+        warning_count = 0
+        error_count = 0
         try:
             for round_index in range(1, rounds + 1):
                 logger.info("Beginning round %d", round_index)
@@ -224,10 +260,17 @@ class PlayerManager:
                     break
         except Exception as exc:
             if observer is not None:
-                observer.on_game_error(state, exc)
+                observer.on_game_error(
+                    state,
+                    exc,
+                    log_warning_count=counter_handler.warning_count,
+                    log_error_count=counter_handler.error_count,
+                )
             raise
         finally:
-            _restore_root_logger(file_handler)
+            warning_count = counter_handler.warning_count
+            error_count = counter_handler.error_count
+            _restore_root_logger(file_handler, counter_handler)
             file_handler.close()
 
         final_score = state.final_weighted_score()
@@ -239,6 +282,8 @@ class PlayerManager:
             "iterations": len(rounds_progress),
             "actions": len(state.history),
             "log_filename": log_filename,
+            "log_warning_count": warning_count,
+            "log_error_count": error_count,
             "final_factions": {
                 state.faction_labels.get(key, key): {
                     "scores": list(scores),
@@ -259,14 +304,17 @@ class PlayerManager:
                 result=game_result["result"],
                 successful=True,
                 error=None,
+                log_warning_count=warning_count,
+                log_error_count=error_count,
             )
         return game_result
 
     def _log_filename(self, player_key: str, game_index: int) -> str:
         """Return a unique log filename for a specific game run."""
 
-        unique_id = uuid4().hex
-        return f"{player_key}_game_{game_index}_{unique_id}.log"
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        safe_player = player_key.replace(os.sep, "_").replace(" ", "_")
+        return f"{safe_player}_game_{game_index}_{timestamp}.log"
 
 
 __all__ = ["PlayerManager"]
