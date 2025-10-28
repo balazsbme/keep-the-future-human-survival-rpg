@@ -6,6 +6,7 @@ import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
+from dotenv import load_dotenv
 import yaml
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -26,6 +27,8 @@ CHARACTERS_FILE = os.path.join(
 SCENARIO_FILE = os.path.join(
     os.path.dirname(__file__), "fixtures", "scenarios", "complete.yaml"
 )
+
+load_dotenv()
 
 
 def _load_test_character() -> YamlCharacter:
@@ -154,6 +157,8 @@ class PlayerTests(unittest.TestCase):
     @patch("evaluations.players.genai")
     @patch("rpg.character.genai")
     def test_gemini_win_prompt(self, mock_char_genai, mock_players_genai):
+        if not os.environ.get("GEMINI_API_KEY"):
+            self.skipTest("GEMINI_API_KEY environment variable not set")
         mock_model = MagicMock()
         mock_model.generate_content.return_value = MagicMock(text="1")
         mock_players_genai.GenerativeModel.return_value = mock_model
@@ -174,6 +179,8 @@ class PlayerTests(unittest.TestCase):
     @patch("evaluations.players.genai")
     @patch("rpg.character.genai")
     def test_corporation_context(self, mock_char_genai, mock_players_genai):
+        if not os.environ.get("GEMINI_API_KEY"):
+            self.skipTest("GEMINI_API_KEY environment variable not set")
         mock_model = MagicMock()
         mock_model.generate_content.return_value = MagicMock(text="1")
         mock_players_genai.GenerativeModel.return_value = mock_model
