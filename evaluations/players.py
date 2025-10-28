@@ -19,6 +19,7 @@ from rpg.game_state import ActionAttempt, GameState
 from rpg.character import Character, ResponseOption
 from rpg.conversation import ConversationEntry
 from rpg.assessment_agent import AssessmentAgent
+from rpg.logging_utils import collapse_prompt_sections
 
 
 logger = logging.getLogger(__name__)
@@ -81,6 +82,19 @@ def _format_conversation(conversation: Sequence[ConversationEntry]) -> str:
     return "\n".join(
         f"{entry.speaker}: {entry.text} [{entry.type}]" for entry in conversation
     )
+
+
+def _extract_choice_index(response_text: str, option_count: int) -> int | None:
+    """Return the first valid option index parsed from ``response_text``."""
+
+    for token in response_text.replace(",", " ").split():
+        stripped = token.strip().strip(".,;:()[]{}")
+        if not stripped.isdigit():
+            continue
+        idx = int(stripped) - 1
+        if 0 <= idx < option_count:
+            return idx
+    return None
 
 
 class Player(ABC):
@@ -317,7 +331,10 @@ class GeminiCivilSocietyPlayer(Player):
             f"Available characters: {names}.\n"
             "Respond with the name of the character only."
         )
-        logger.debug("GeminiCivilSocietyPlayer character prompt: %s", prompt)
+        logger.debug(
+            "GeminiCivilSocietyPlayer character prompt: %s",
+            collapse_prompt_sections(prompt),
+        )
         resp = self._model.generate_content(prompt).text
         logger.debug("GeminiCivilSocietyPlayer character response: %s", resp)
         for char in state.characters:
@@ -352,19 +369,20 @@ class GeminiCivilSocietyPlayer(Player):
             f"Possible actions:\n{numbered}\n"
             "Respond with the number of the best action."
         )
-        logger.debug("GeminiCivilSocietyPlayer action prompt: %s", prompt)
+        logger.debug(
+            "GeminiCivilSocietyPlayer action prompt: %s",
+            collapse_prompt_sections(prompt),
+        )
         resp = self._model.generate_content(prompt).text
         logger.debug("GeminiCivilSocietyPlayer action response: %s", resp)
-        for token in resp.split():
-            if token.isdigit():
-                idx = int(token) - 1
-                if 0 <= idx < len(actions):
-                    logger.info(
-                        "GeminiCivilSocietyPlayer chose action '%s' for %s",
-                        actions[idx].text,
-                        character.name,
-                    )
-                    return actions[idx]
+        idx = _extract_choice_index(resp, len(actions))
+        if idx is not None:
+            logger.info(
+                "GeminiCivilSocietyPlayer chose action '%s' for %s",
+                actions[idx].text,
+                character.name,
+            )
+            return actions[idx]
         logger.info(
             "GeminiCivilSocietyPlayer defaulted to action '%s'", actions[0].text
         )
@@ -393,7 +411,10 @@ class GeminiCivilSocietyPlayer(Player):
             f"Next reroll credibility cost: {cost}\n"
             "Reply with YES to reroll if the action is critical for winning; otherwise respond NO."
         )
-        logger.debug("GeminiCivilSocietyPlayer reroll prompt: %s", prompt)
+        logger.debug(
+            "GeminiCivilSocietyPlayer reroll prompt: %s",
+            collapse_prompt_sections(prompt),
+        )
         try:
             response = self._model.generate_content(prompt).text
         except Exception:  # pragma: no cover - defensive fallback
@@ -426,7 +447,10 @@ class GeminiCorporationPlayer(Player):
             "Choose the character whose move would best advance the corporation faction objectives.\n"
             "Respond with the name only."
         )
-        logger.debug("GeminiCorporationPlayer character prompt: %s", prompt)
+        logger.debug(
+            "GeminiCorporationPlayer character prompt: %s",
+            collapse_prompt_sections(prompt),
+        )
         resp = self._model.generate_content(prompt).text
         logger.debug("GeminiCorporationPlayer character response: %s", resp)
         for char in state.characters:
@@ -462,19 +486,20 @@ class GeminiCorporationPlayer(Player):
             f"Possible actions:\n{numbered}\n"
             "Select the action number that best aligns with the corporation faction objectives."
         )
-        logger.debug("GeminiCorporationPlayer action prompt: %s", prompt)
+        logger.debug(
+            "GeminiCorporationPlayer action prompt: %s",
+            collapse_prompt_sections(prompt),
+        )
         resp = self._model.generate_content(prompt).text
         logger.debug("GeminiCorporationPlayer action response: %s", resp)
-        for token in resp.split():
-            if token.isdigit():
-                idx = int(token) - 1
-                if 0 <= idx < len(actions):
-                    logger.info(
-                        "GeminiCorporationPlayer chose action '%s' for %s",
-                        actions[idx].text,
-                        character.name,
-                    )
-                    return actions[idx]
+        idx = _extract_choice_index(resp, len(actions))
+        if idx is not None:
+            logger.info(
+                "GeminiCorporationPlayer chose action '%s' for %s",
+                actions[idx].text,
+                character.name,
+            )
+            return actions[idx]
         logger.info(
             "GeminiCorporationPlayer defaulted to action '%s'", actions[0].text
         )

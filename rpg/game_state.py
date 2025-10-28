@@ -454,9 +454,15 @@ class GameState:
         if not attempt:
             logger.info("No pending failure to finalize for %s", option.text)
             return
-        failure_text = attempt.failure_text or (
-            f"Failed {attempt.label} (attribute {attempt.attribute or 'none'}: {attempt.effective_score}, roll={attempt.roll:.2f})"
-        )
+        failure_text = attempt.failure_text
+        if not failure_text:
+            attribute_label = attempt.attribute or "none"
+            total = attempt.effective_score + attempt.roll
+            failure_text = (
+                f"Failed {attempt.label} (attribute {attribute_label}: {attempt.effective_score}, "
+                f"roll={attempt.roll}, total={total}, "
+                f"threshold={self.config.roll_success_threshold})"
+            )
         logger.info("Recording failed action for %s: %s", character.name, failure_text)
         self.history.append((character.display_name, failure_text))
 

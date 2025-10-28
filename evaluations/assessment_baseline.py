@@ -31,8 +31,7 @@ def run_baseline_assessment(scenario_name: str | None = None) -> str:
         return "optional dependencies not installed"
     load_dotenv()
     api_key = os.environ.get("GEMINI_API_KEY")
-    placeholder = "AIzaSyBritn92DCiuHReGBvFl16xfCi-5gQOOgk"
-    if not api_key or api_key == placeholder:
+    if not api_key:
         return "GEMINI_API_KEY environment variable not set"
     genai.configure(api_key=api_key)
     characters = load_characters(scenario_name=scenario_name)
