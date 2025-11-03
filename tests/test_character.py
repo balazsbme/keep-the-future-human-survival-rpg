@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from cli_game import load_characters
 from types import SimpleNamespace
 
-from rpg.character import PlayerCharacter, ResponseOption, YamlCharacter
+from rpg.character import PlayerCharacter, YamlCharacter
 from rpg.assessment_agent import AssessmentAgent
 
 CHARACTERS_FILE = os.path.join(
@@ -37,16 +37,16 @@ class YamlCharacterTest(unittest.TestCase):
             + json.dumps(
                 [
                     {
-                        "text": "Tell me about your readiness.",
-                        "type": "chat",
-                        "related-triplet": "None",
-                        "related-attribute": "None",
-                    },
-                    {
                         "text": "Act1",
                         "type": "action",
                         "related-triplet": 1,
                         "related-attribute": "leadership",
+                    },
+                    {
+                        "text": "Tell me about your readiness.",
+                        "type": "chat",
+                        "related-triplet": "None",
+                        "related-attribute": "None",
                     },
                     {
                         "text": "How could allies help?",
@@ -79,7 +79,8 @@ class YamlCharacterTest(unittest.TestCase):
         partner = SimpleNamespace(
             display_name="Player", faction="CivilSociety", triplets=char.triplets
         )
-        actions = char.generate_responses([], [], partner, partner_credibility=50)
+        with self.assertLogs("rpg.character", level="WARNING") as log_ctx:
+            actions = char.generate_responses([], [], partner, partner_credibility=50)
         prompt_used = mock_action_model.generate_content.call_args_list[0][0][0]
         self.assertIn("end1", prompt_used)
         self.assertIn("size: Small", prompt_used)
@@ -89,9 +90,14 @@ class YamlCharacterTest(unittest.TestCase):
         self.assertIn("Weaknesses: Struggles to prioritize", prompt_used)
         self.assertIn("Return the result as a JSON array", prompt_used)
         self.assertIn("related-attribute", prompt_used)
-        self.assertEqual([action.type for action in actions], ["chat", "action", "chat"])
-        self.assertEqual(actions[1].related_triplet, 1)
-        self.assertEqual(actions[1].related_attribute, "leadership")
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0].type, "action")
+        self.assertEqual(actions[0].related_triplet, 1)
+        self.assertEqual(actions[0].related_attribute, "leadership")
+        self.assertTrue(
+            any("using top suggestions" in entry for entry in log_ctx.output),
+            log_ctx.output,
+        )
         assessor = AssessmentAgent()
         scores = assessor.assess([char], "baseline", [])[char.progress_key]
         self.assertEqual(scores, [10, 20, 30])
@@ -189,9 +195,9 @@ class YamlCharacterTest(unittest.TestCase):
         with self.assertLogs("rpg.character", level="WARNING") as log_ctx:
             actions = char.generate_responses([], [], partner, partner_credibility=50)
 
-        self.assertEqual([action.text for action in actions], ["Act1", "Act2", "Act3"])
+        self.assertEqual([action.text for action in actions], ["Act1"])
         self.assertTrue(
-            any("Expected at least one chat option" in msg for msg in log_ctx.output)
+            any("using top suggestions" in msg for msg in log_ctx.output)
         )
 
     @patch("rpg.assessment_agent.get_cache_manager")

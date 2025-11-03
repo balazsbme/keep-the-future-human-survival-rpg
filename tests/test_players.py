@@ -55,16 +55,16 @@ class PlayerTests(unittest.TestCase):
             text=json.dumps(
                 [
                     {
-                        "text": "Ask status",
-                        "type": "chat",
-                        "related-triplet": "None",
-                        "related-attribute": "None",
-                    },
-                    {
                         "text": "A",
                         "type": "action",
                         "related-triplet": 1,
                         "related-attribute": "leadership",
+                    },
+                    {
+                        "text": "Ask status",
+                        "type": "chat",
+                        "related-triplet": "None",
+                        "related-attribute": "None",
                     },
                     {
                         "text": "Offer help",
@@ -115,13 +115,16 @@ class PlayerTests(unittest.TestCase):
             text=json.dumps(
                 [
                     {
-                        "text": "Discuss", "type": "chat", "related-triplet": "None"
-                    },
-                    {
                         "text": "A",
                         "type": "action",
                         "related-triplet": 1,
                         "related-attribute": "leadership",
+                    },
+                    {
+                        "text": "Discuss",
+                        "type": "chat",
+                        "related-triplet": "None",
+                        "related-attribute": "None",
                     },
                 ]
             )
