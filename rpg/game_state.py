@@ -55,6 +55,7 @@ class GameState:
     )
     npc_actions: Dict[str, Dict[str, ResponseOption]] = field(default_factory=dict)
     action_labels: Dict[str, Dict[str, str]] = field(default_factory=dict)
+    action_label_indices: Dict[str, Dict[str, int]] = field(default_factory=dict)
     progress: Dict[str, List[int]] = field(init=False)
     weights: Dict[str, List[int]] = field(init=False)
     how_to_win: str = field(init=False)
@@ -75,6 +76,7 @@ class GameState:
     last_action_actor: str | None = field(default=None, init=False)
     last_reroll_count: int = field(default=0, init=False)
     time_elapsed_years: float = field(default=0.0, init=False)
+    next_action_label_index: int = field(default=1, init=False)
 
     def __post_init__(self) -> None:
         """Initialize progress tracking and load "how to win" instructions.
@@ -236,18 +238,32 @@ class GameState:
     def _refresh_action_labels(self, key: str) -> None:
         bucket = self.npc_actions.get(key, {})
         labels = self.action_labels.setdefault(key, {})
-        previous_labels = dict(labels)
-        labels.clear()
-        for idx, option in enumerate(bucket.values(), 1):
-            label = self._format_action_label(idx, option)
-            if previous_labels.get(option.text) != label:
+        indices = self.action_label_indices.setdefault(key, {})
+        active_option_texts = set()
+        for option in bucket.values():
+            option_text = option.text
+            active_option_texts.add(option_text)
+            if option_text not in indices:
+                index = self.next_action_label_index
+                self.next_action_label_index += 1
+                indices[option_text] = index
+                labels[option_text] = self._format_action_label(index, option)
+                continue
+            index = indices[option_text]
+            new_label = self._format_action_label(index, option)
+            previous_label = labels.get(option_text)
+            if previous_label is not None and previous_label != new_label:
                 logger.warning(
                     "Using default action label '%s' for %s option '%s'",
-                    label,
+                    new_label,
                     key,
-                    option.text,
+                    option_text,
                 )
-            labels[option.text] = label
+            labels[option_text] = new_label
+        stale_texts = [text for text in labels if text not in active_option_texts]
+        for text in stale_texts:
+            labels.pop(text, None)
+            indices.pop(text, None)
 
     def _resolve_action_label(self, character: Character, option: ResponseOption) -> str:
         key = self._conversation_key(character)
@@ -256,7 +272,18 @@ class GameState:
             bucket[option.text] = option
         self._refresh_action_labels(key)
         labels = self.action_labels.setdefault(key, {})
-        return labels.get(option.text) or self._format_action_label(len(bucket), option)
+        label = labels.get(option.text)
+        if label is not None:
+            return label
+        indices = self.action_label_indices.setdefault(key, {})
+        index = indices.get(option.text)
+        if index is None:
+            index = self.next_action_label_index
+            self.next_action_label_index += 1
+            indices[option.text] = index
+        label = self._format_action_label(index, option)
+        labels[option.text] = label
+        return label
 
     def action_label_map(self, character: Character) -> Dict[str, str]:
         key = self._conversation_key(character)
@@ -270,6 +297,7 @@ class GameState:
         key = self._conversation_key(character)
         self.npc_actions[key] = {}
         self.action_labels[key] = {}
+        self.action_label_indices[key] = {}
 
     def current_credibility(self, target_faction: str | None) -> int | None:
         if not target_faction:
