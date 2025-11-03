@@ -29,6 +29,17 @@ _LOGGING_STATE: Dict[str, object] = {
 }
 
 
+class _ThreadFilter(logging.Filter):
+    """Limit log propagation to records emitted by a specific thread."""
+
+    def __init__(self, thread_id: int) -> None:
+        super().__init__()
+        self._thread_id = thread_id
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.thread == self._thread_id
+
+
 class _LevelCountingHandler(logging.Handler):
     """Count warning and error log records emitted during a game run."""
 
@@ -191,6 +202,9 @@ class PlayerManager:
             logging.Formatter("%(asctime)s %(name)s %(levelname)s: %(message)s")
         )
         counter_handler = _LevelCountingHandler()
+        thread_filter = _ThreadFilter(threading.get_ident())
+        file_handler.addFilter(thread_filter)
+        counter_handler.addFilter(thread_filter)
         _configure_root_logger(file_handler, counter_handler)
         observer: Optional[GameRunObserver] = None
         if self._game_observer_factory is not None:
