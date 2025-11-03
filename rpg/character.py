@@ -353,6 +353,8 @@ class Character(ABC):
         payload = parsed_payload
         if isinstance(payload, dict) and "actions" in payload:
             payload = payload["actions"]
+        elif isinstance(payload, dict):
+            payload = [payload]
         if isinstance(payload, list):
             for entry in payload:
                 if not isinstance(entry, dict):
@@ -378,7 +380,7 @@ class Character(ABC):
             lines = [line.strip() for line in response_text.splitlines() if line.strip()]
             cleaned_lines = [line for line in lines if not line.startswith("```")]
             if cleaned_lines:
-                logger.info(
+                logger.warning(
                     "Falling back to line-by-line responses for %s", self.name
                 )
             for line in cleaned_lines:
@@ -1063,4 +1065,3 @@ def _mapping_from_payload(payload: object) -> dict:
             return {k: v for k, v in factions.items() if isinstance(v, dict)}
         return {k: v for k, v in payload.items() if isinstance(v, dict)}
     return {}
-

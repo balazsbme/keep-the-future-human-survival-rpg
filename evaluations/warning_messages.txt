@@ -41,3 +41,4 @@ Unknown player key '%s'; defaulting to random|Unknown player key
 Using default action label '%s' for %s option '%s'|Using default action label
 Using default faction label '%s' for %s|Using default faction label
 Using hardcoded fallback action for %s due to empty option list; text='%s', attribute='%s'|Using hardcoded fallback action
+Falling back to line-by-line responses for %s|Falling back to line-by-line responses for

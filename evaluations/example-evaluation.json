@@ -4,6 +4,11 @@
   {"player": "civil-society", "scenario": "01-race-to-contain-power", "games": 1, "rounds": 2, "log_to_db": true},
   {"player": "corporation", "scenario": "01-race-to-contain-power", "games": 1, "rounds": 2, "log_to_db": true},
 
+  {"player": "random", "scenario": "complete", "games": 1, "rounds": 2, "log_to_db": true},
+  {"player": "action-first", "scenario": "complete", "games": 1, "rounds": 2, "log_to_db": true},
+  {"player": "civil-society", "scenario": "complete", "games": 1, "rounds": 2, "log_to_db": true},
+  {"player": "corporation", "scenario": "complete", "games": 1, "rounds": 2, "log_to_db": true},
+
   {"player": "random", "scenario": "02-building-the-gates", "games": 1, "rounds": 2, "log_to_db": true},
   {"player": "action-first", "scenario": "02-building-the-gates", "games": 1, "rounds": 2, "log_to_db": true},
   {"player": "civil-society", "scenario": "02-building-the-gates", "games": 1, "rounds": 2, "log_to_db": true},
