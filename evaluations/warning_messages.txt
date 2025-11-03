@@ -1,0 +1,43 @@
+'factions_file' parameter is deprecated; please supply a scenario file instead.|'factions_file' parameter is deprecated; please supply a scenario file instead.
+Action for %s has no related attribute; defaulting score to 0|has no related attribute; defaulting score to 0
+Character loading interrupted by exhausted mock; reusing existing roster|Character loading interrupted by exhausted mock
+Credibility matrix JSON root must be an object; using fallback|Credibility matrix JSON root must be an object; using fallback
+Faction context file %s not found; using empty context|using empty context
+Failed to create cached content for %s: %s|Failed to create cached content
+Failed to initialise Gemini cache manager: %s|Failed to initialise Gemini cache manager
+Failed to list Gemini caches: %s|Failed to list Gemini caches
+Failed to parse credibility matrix JSON: %s|Failed to parse credibility matrix JSON
+Failed to parse game configuration %s: %s; using defaults|Failed to parse game configuration
+Failed to parse response JSON for %s: %s|Failed to parse response JSON
+Failed to prepare assessment cache for %s: %s|Failed to prepare assessment cache
+Falling back to temporary instance directory at %s due to permission error|Falling back to temporary instance directory
+Force action required for %s but none returned; coercing first option to action|Force action required for
+Game configuration file %s not found; falling back to defaults|Game configuration file
+Gemini cache disabled: no API key present|Gemini cache disabled
+Invalid AUTOMATED_AGENT_MAX_EXCHANGES value %r; falling back to %d|Invalid AUTOMATED_AGENT_MAX_EXCHANGES value
+AUTOMATED_AGENT_MAX_EXCHANGES must be at least 1; using default %d|AUTOMATED_AGENT_MAX_EXCHANGES must be at least 1
+Invalid GEMINI_CACHE_TTL_SECONDS value %r; defaulting to %d seconds|Invalid GEMINI_CACHE_TTL_SECONDS value
+GEMINI_CACHE_TTL_SECONDS must be at least 1; using default %d|GEMINI_CACHE_TTL_SECONDS must be at least 1
+Invalid float value %r encountered in configuration; using %s|Invalid float value
+Invalid integer value %r encountered in configuration; using %d|Invalid integer value
+Missing 'credibility' mapping in matrix; using fallback values|Missing 'credibility' mapping
+Missing 'factions' list in credibility matrix; using fallback order|Missing 'factions' list
+Model returned %d options for %s; using top suggestions|using top suggestions
+Model returned no usable responses for %s|Model returned no usable responses
+No chat options generated for player; using fallback prompts|No chat options generated for player
+No faction specification found for %s (character %s)|No faction specification found for
+Overwriting related triplet %s for %s action '%s' due to credibility restriction|due to credibility restriction
+Overwriting related triplet %s for %s option '%s' due to out-of-range index (max=%d)|due to out-of-range index
+Player character reset interrupted by exhausted mock; reusing existing persona|Player character reset interrupted by exhausted mock
+Player model produced blank text; using default prompt for %s|Player model produced blank text
+Player model suggested action-oriented responses; using scripted prompts instead|Player model suggested action-oriented responses
+Restricted prompt for %s still produced triplet-related actions|Restricted prompt for
+Scenario file %s not found; player triplets unavailable|player triplets unavailable
+Selected option for %s not in available list; defaulting to first|not in available list; defaulting to first
+Skipping character with missing name or faction: %s|Skipping character with missing name or faction
+Skipping credibility adjustment due to missing source/target: %s -> %s|missing source/target
+Skipping credibility adjustment for %s -> %s because delta is zero|because delta is zero
+Unknown player key '%s'; defaulting to random|Unknown player key
+Using default action label '%s' for %s option '%s'|Using default action label
+Using default faction label '%s' for %s|Using default faction label
+Using hardcoded fallback action for %s due to empty option list; text='%s', attribute='%s'|Using hardcoded fallback action

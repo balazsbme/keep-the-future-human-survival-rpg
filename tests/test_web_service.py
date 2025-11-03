@@ -92,16 +92,16 @@ class WebServiceTest(unittest.TestCase):
                 text=json.dumps(
                     [
                         {
-                            "text": "We should gather more intel first.",
-                            "type": "chat",
-                            "related-triplet": "None",
-                            "related-attribute": "None",
-                        },
-                        {
                             "text": npc_action_text,
                             "type": "action",
                             "related-triplet": 1,
                             "related-attribute": "leadership",
+                        },
+                        {
+                            "text": "We should gather more intel first.",
+                            "type": "chat",
+                            "related-triplet": "None",
+                            "related-attribute": "None",
                         },
                     ]
                 )

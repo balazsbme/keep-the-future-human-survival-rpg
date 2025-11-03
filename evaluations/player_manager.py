@@ -9,7 +9,8 @@ import os
 import threading
 from dataclasses import replace
 from datetime import datetime, timezone
-from typing import Callable, Dict, Iterable, List, Optional
+from pathlib import Path
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 from rpg.assessment_agent import AssessmentAgent
 from rpg.config import GameConfig, load_game_config
@@ -185,6 +186,7 @@ class PlayerManager:
         state = GameState(list(self._characters), config_override=self._config_override)
         log_filename = self._log_filename(player_key, game_index)
         log_path = os.path.join(self._log_dir, log_filename)
+        file_path = Path(log_path)
         file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(
@@ -272,6 +274,16 @@ class PlayerManager:
             error_count = counter_handler.error_count
             _restore_root_logger(file_handler, counter_handler)
             file_handler.close()
+            try:
+                log_text = file_path.read_text(encoding="utf-8")
+            except OSError:
+                pass
+            else:
+                snippets = _warning_snippets()
+                if snippets:
+                    snippet_count = sum(log_text.count(snippet) for snippet in snippets)
+                    if snippet_count > warning_count:
+                        warning_count = snippet_count
 
         final_score = state.final_weighted_score()
         game_result = {
@@ -318,3 +330,36 @@ class PlayerManager:
 
 
 __all__ = ["PlayerManager"]
+_WARNING_SNIPPETS: Tuple[str, ...] | None = None
+
+
+def _warning_snippets() -> Tuple[str, ...]:
+    """Return cached substrings for warning messages listed in the catalogue."""
+
+    global _WARNING_SNIPPETS
+    if _WARNING_SNIPPETS is not None:
+        return _WARNING_SNIPPETS
+
+    snippets: List[str] = []
+    catalogue_path = Path(__file__).with_name("warning_messages.txt")
+    try:
+        lines = catalogue_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        _WARNING_SNIPPETS = tuple()
+        return _WARNING_SNIPPETS
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "|" in line:
+            _, snippet = line.split("|", 1)
+        else:
+            snippet = line
+        snippet = snippet.strip()
+        if snippet:
+            snippets.append(snippet)
+
+    _WARNING_SNIPPETS = tuple(snippets)
+    return _WARNING_SNIPPETS
+
