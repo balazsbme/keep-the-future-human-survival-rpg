@@ -203,14 +203,14 @@ class CredibilityMatrix:
         """Modify credibility from ``source`` to ``target`` by ``delta`` within [0, 100]."""
 
         if not source or not target:
-            logger.debug(
+            logger.warning(
                 "Skipping credibility adjustment due to missing source/target: %s -> %s",
                 source,
                 target,
             )
             return
         if delta == 0:
-            logger.debug(
+            logger.warning(
                 "Skipping credibility adjustment for %s -> %s because delta is zero",
                 source,
                 target,

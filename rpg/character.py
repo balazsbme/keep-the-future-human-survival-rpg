@@ -581,9 +581,9 @@ class YamlCharacter(Character):
         action_requirement = ""
         if force_action:
             action_requirement = (
-                "The exchange limit has been reached. You must include at least one concrete "
+                "The exchange limit has been reached. You MUST reply with one concrete "
                 "'action' commitment in your JSON response that demonstrates forward movement "
-                "without contradicting your core interests."
+                "without contradicting your core interests (i.e. and 'chat' option is FORBIDDEN)."
             )
         if restricted_triplets:
             guidance = (
@@ -645,19 +645,14 @@ class YamlCharacter(Character):
         if not options:
             logger.warning("Model returned no usable responses for %s", self.name)
             return []
-        if not any(not option.is_action for option in options):
-            logger.warning(
-                "Expected at least one chat option from %s; defaulting to action proposals",
-                self.name,
-            )
         if len(options) > 1:
-            logger.info(
+            logger.warning(
                 "Model returned %d options for %s; using top suggestions",
                 len(options),
                 self.name,
             )
         if force_action and not any(option.is_action for option in options):
-            logger.info(
+            logger.warning(
                 "Force action required for %s but none returned; coercing first option to action",
                 self.name,
             )
@@ -688,7 +683,7 @@ class YamlCharacter(Character):
                         related_attribute=fallback_attribute,
                     )
                 ]
-        return options[:3]
+        return options[:1]
 
     def perform_action(
         self,
@@ -964,7 +959,7 @@ class PlayerCharacter(Character):
             raw_text = option.text.strip()
             if not raw_text:
                 text = "Can you elaborate on that?"
-                logger.info(
+                logger.warning(
                     "Player model produced blank text; using default prompt for %s",
                     partner_name,
                 )

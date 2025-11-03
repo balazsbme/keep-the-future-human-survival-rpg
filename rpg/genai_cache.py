@@ -20,7 +20,7 @@ except (ModuleNotFoundError, ImportError):  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_TTL_SECONDS = 3600
+_DEFAULT_TTL_SECONDS = 360
 _TTL_ENV_KEY = "GEMINI_CACHE_TTL_SECONDS"
 
 
@@ -171,7 +171,7 @@ def get_cache_manager() -> GeminiCacheManager | None:
             return _cached_manager
         api_key = _resolve_api_key()
         if not api_key:
-            logger.debug("Gemini cache disabled: no API key present")
+            logger.warning("Gemini cache disabled: no API key present")
             return None
         try:
             _cached_manager = GeminiCacheManager(api_key=api_key)

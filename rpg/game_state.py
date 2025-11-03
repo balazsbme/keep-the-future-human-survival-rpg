@@ -326,7 +326,7 @@ class GameState:
                 "Action related attribute for %s: %s", character.name, attribute_name
             )
         else:
-            logger.info(
+            logger.warning(
                 "Action for %s has no related attribute; defaulting score to 0",
                 character.name,
             )
