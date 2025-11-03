@@ -171,22 +171,41 @@ class Player(ABC):
                         "No conversation options available for %s", char.name
                     )
                     break
+                available_options = options
+                if (
+                    isinstance(
+                        self,
+                        (GeminiCivilSocietyPlayer, GeminiCorporationPlayer),
+                    )
+                    and exchange == max_exchanges
+                ):
+                    action_options = [
+                        option for option in options if option.is_action
+                    ]
+                    if action_options:
+                        logger.info(
+                            "%s reached %d exchanges for %s; limiting options to actions",
+                            type(self).__name__,
+                            max_exchanges,
+                            char.name,
+                        )
+                        available_options = action_options
                 try:
                     selection = self.select_action(
-                        char, conversation, options, state
+                        char, conversation, available_options, state
                     )
                 except Exception:  # pragma: no cover - defensive fallback
                     logger.exception(
                         "Error selecting option for %s; defaulting to first choice",
                         char.name,
                     )
-                    selection = options[0]
-                if selection not in options:
+                    selection = available_options[0]
+                if selection not in available_options:
                     logger.warning(
                         "Selected option for %s not in available list; defaulting to first",
                         char.name,
                     )
-                    selection = options[0]
+                    selection = available_options[0]
                 logger.info(
                     "Selected option for %s: %s (%s)",
                     char.name,
