@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CharacterResponseList",
+  "$defs": {
+    "TextField": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 400
+    },
+    "PlayerCharacterEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "text",
+        "type",
+        "related-triplet",
+        "related-attribute"
+      ],
+      "properties": {
+        "text": {
+          "$ref": "#/$defs/TextField"
+        },
+        "type": {
+          "const": "chat"
+        },
+        "related-triplet": {
+          "const": "None"
+        },
+        "related-attribute": {
+          "const": "None"
+        }
+      }
+    },
+    "YamlCharacterEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "text",
+        "type",
+        "related-triplet",
+        "related-attribute"
+      ],
+      "properties": {
+        "text": {
+          "$ref": "#/$defs/TextField"
+        },
+        "type": {
+          "enum": [
+            "chat",
+            "action"
+          ]
+        },
+        "related-triplet": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "related-attribute": {
+          "enum": [
+            "leadership",
+            "technology",
+            "policy",
+            "network"
+          ]
+        }
+      }
+    },
+    "PlayerCharacterResponse": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "$ref": "#/$defs/PlayerCharacterEntry"
+      }
+    },
+    "YamlCharacterResponse": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "$ref": "#/$defs/YamlCharacterEntry"
+      }
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/PlayerCharacterResponse"
+    },
+    {
+      "$ref": "#/$defs/YamlCharacterResponse"
+    }
+  ]
+}
