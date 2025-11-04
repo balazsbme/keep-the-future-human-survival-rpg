@@ -66,16 +66,16 @@
     },
     "PlayerCharacterResponse": {
       "type": "array",
-      "minItems": 1,
-      "maxItems": 1,
+      "minItems": 3,
+      "maxItems": 3,
       "items": {
         "$ref": "#/$defs/PlayerCharacterEntry"
       }
     },
     "YamlCharacterResponse": {
       "type": "array",
-      "minItems": 3,
-      "maxItems": 3,
+      "minItems": 1,
+      "maxItems": 1,
       "items": {
         "$ref": "#/$defs/YamlCharacterEntry"
       }
