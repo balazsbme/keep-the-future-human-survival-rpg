@@ -9,6 +9,7 @@ import logging
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, List, Mapping, Sequence, Tuple
 
@@ -27,6 +28,19 @@ except ModuleNotFoundError:  # pragma: no cover
 
 
 logger = logging.getLogger(__name__)
+
+_RESPONSE_SCHEMA_PATH = Path(__file__).resolve().with_name("response_schema.json")
+
+
+@lru_cache(maxsize=1)
+def _response_schema_text() -> str:
+    """Return the cached response schema text for prompt injection."""
+
+    try:
+        return _RESPONSE_SCHEMA_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        logger.error("Response schema definition missing at %s", _RESPONSE_SCHEMA_PATH)
+        return ""
 
 
 def _summarize_response_payload(payload: object) -> str:
@@ -233,20 +247,31 @@ class Character(ABC):
             lines.append(f"Motivations: {self.motivations}")
         return "\n".join(lines)
 
+    def _response_schema_variant(self) -> str:
+        return "YamlCharacterResponse"
+
     def _format_prompt_instructions(self) -> str:
         limit = getattr(self.config, "format_prompt_character_limit", 400)
-        return (
-            "Return the result as a JSON array with objects in order. Each object must "
-            "contain the keys 'text', 'type', 'related-triplet', and 'related-attribute'. "
-            "The 'text' field holds the natural language response, which should be short, at "
-            f"most 1-2 sentences, with a hard-limit of {limit} characters, finally do not"
-            " apply any formatting such as '*'-s. The 'type' field must be "
-            "either 'chat' or 'action'. For 'action' types provide the 1-based index in "
-            "'related-triplet' or the string 'None' if the action is unrelated to a "
-            "specific triplet, and set 'related-attribute' to one of leadership, technology, "
-            "policy, or network. For 'chat' types set the related fields to 'None'. Do not "
-            "include any additional commentary beyond the JSON."
+        schema_variant = self._response_schema_variant()
+        schema_text = _response_schema_text()
+        instructions = (
+            "Return the result as a JSON array with exactly three objects in order. Each "
+            "object must contain the keys 'text', 'type', 'related-triplet', and "
+            "'related-attribute'. The 'text' field holds the natural language response, "
+            "which should be short, at most 1-2 sentences, with a hard-limit of "
+            f"{limit} characters, finally do not apply any formatting such as '*'-s. The "
+            "'type' field must be either 'chat' or 'action'. Provide the 1-based index in "
+            "'related-triplet', and set 'related-attribute' to one of leadership, "
+            "technology, policy, or network. Do not include any additional commentary "
+            "beyond the JSON."
         )
+        if schema_text:
+            instructions += (
+                f" The JSON must validate against the '{schema_variant}' definition in the "
+                "schema below:\n"
+                f"{schema_text}"
+            )
+        return instructions
 
     def _setup_context_cache(
         self,
@@ -883,6 +908,29 @@ class PlayerCharacter(Character):
             cache_instruction=cache_instruction,
             system_instruction=system_instruction,
         )
+
+    def _response_schema_variant(self) -> str:
+        return "PlayerCharacterResponse"
+
+    def _format_prompt_instructions(self) -> str:
+        limit = getattr(self.config, "format_prompt_character_limit", 400)
+        schema_text = _response_schema_text()
+        instructions = (
+            "Return the result as a JSON array with exactly one object. The object must "
+            "contain the keys 'text', 'type', 'related-triplet', and 'related-attribute'. "
+            "The 'text' field holds the natural language response, which should be short, "
+            f"at most 1-2 sentences, with a hard-limit of {limit} characters, finally do "
+            "not apply any formatting such as '*'-s. The 'type' field must be 'chat'. Set "
+            "both 'related-triplet' and 'related-attribute' to the string 'None'. Do not "
+            "include any additional commentary beyond the JSON."
+        )
+        if schema_text:
+            instructions += (
+                " The JSON must validate against the 'PlayerCharacterResponse' definition "
+                "in the schema below:\n"
+                f"{schema_text}"
+            )
+        return instructions
 
     def attribute_score(self, attribute: str | None) -> int:
         if not attribute:
