@@ -195,7 +195,8 @@ class Player(ABC):
                         self,
                         (GeminiCivilSocietyPlayer, GeminiCorporationPlayer),
                     )
-                    and exchange == max_exchanges
+                    # allow max 3 more action generation, so the players have options to choose by the time we filter out all non-actions
+                    and exchange == max_exchanges + 3
                 ):
                     action_options = [
                         option for option in options if option.is_action
