@@ -118,10 +118,20 @@ class AssessmentAgent:
             char.name,
             collapse_prompt_sections(prompt),
         )
-        if cache_config is not None:
-            response = self._get_model().generate_content(prompt, config=cache_config)
-        else:
-            response = self._get_model().generate_content(prompt)
+        try:
+            if cache_config is not None:
+                response = self._get_model().generate_content(
+                    prompt, config=cache_config
+                )
+            else:
+                response = self._get_model().generate_content(prompt)
+        except Exception as exc:  # pragma: no cover - network/auth failures
+            logger.warning(
+                "Gemini assessment request for %s failed: %s",
+                char.name,
+                exc,
+            )
+            raise
         text = getattr(response, "text", "")
         logger.info("Assessment for %s: %s", char.name, text[:50])
         scores: List[int] = []
