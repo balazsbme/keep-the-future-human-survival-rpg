@@ -289,11 +289,20 @@ class Character(ABC):
     def _generate_with_context(self, prompt: str):
         """Generate content while attaching cached context when available."""
 
-        if self._cached_context_config is not None:
-            return self._model.generate_content(
-                prompt, config=self._cached_context_config
+        try:
+            if self._cached_context_config is not None:
+                return self._model.generate_content(
+                    prompt, config=self._cached_context_config
+                )
+            return self._model.generate_content(prompt)
+        except Exception as exc:  # pragma: no cover - network/auth failures
+            logger.warning(
+                "Gemini request for %s using model %s failed: %s",
+                self.name,
+                getattr(self, "_model_name", "unknown"),
+                exc,
             )
-        return self._model.generate_content(prompt)
+            raise
 
     @property
     def cached_context_config(self) -> object | None:

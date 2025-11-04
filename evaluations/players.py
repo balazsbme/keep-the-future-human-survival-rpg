@@ -97,6 +97,24 @@ def _extract_choice_index(response_text: str, option_count: int) -> int | None:
     return None
 
 
+def _generate_with_warning(
+    model: "genai.GenerativeModel",  # type: ignore[name-defined]
+    prompt: str,
+    *,
+    context: str,
+    suppress: bool = False,
+):
+    """Call ``model.generate_content`` and log a warning if it fails."""
+
+    try:
+        return model.generate_content(prompt)
+    except Exception as exc:  # pragma: no cover - network/auth failures
+        logger.warning("Gemini request failed during %s: %s", context, exc)
+        if suppress:
+            return None
+        raise
+
+
 class Player(ABC):
     """Abstract player interface for extending player logic."""
 
@@ -354,7 +372,11 @@ class GeminiCivilSocietyPlayer(Player):
             "GeminiCivilSocietyPlayer character prompt: %s",
             collapse_prompt_sections(prompt),
         )
-        resp = self._model.generate_content(prompt).text
+        resp = _generate_with_warning(
+            self._model,
+            prompt,
+            context="civil society character selection",
+        ).text
         logger.debug("GeminiCivilSocietyPlayer character response: %s", resp)
         for char in state.characters:
             if char.name in resp:
@@ -392,7 +414,11 @@ class GeminiCivilSocietyPlayer(Player):
             "GeminiCivilSocietyPlayer action prompt: %s",
             collapse_prompt_sections(prompt),
         )
-        resp = self._model.generate_content(prompt).text
+        resp = _generate_with_warning(
+            self._model,
+            prompt,
+            context="civil society action selection",
+        ).text
         logger.debug("GeminiCivilSocietyPlayer action response: %s", resp)
         idx = _extract_choice_index(resp, len(actions))
         if idx is not None:
@@ -434,11 +460,15 @@ class GeminiCivilSocietyPlayer(Player):
             "GeminiCivilSocietyPlayer reroll prompt: %s",
             collapse_prompt_sections(prompt),
         )
-        try:
-            response = self._model.generate_content(prompt).text
-        except Exception:  # pragma: no cover - defensive fallback
-            logger.exception("GeminiCivilSocietyPlayer reroll query failed")
+        response_obj = _generate_with_warning(
+            self._model,
+            prompt,
+            context="civil society reroll decision",
+            suppress=True,
+        )
+        if response_obj is None:  # pragma: no cover - defensive fallback
             return False
+        response = response_obj.text
         logger.debug("GeminiCivilSocietyPlayer reroll response: %s", response)
         return "yes" in response.lower()
 
@@ -470,7 +500,11 @@ class GeminiCorporationPlayer(Player):
             "GeminiCorporationPlayer character prompt: %s",
             collapse_prompt_sections(prompt),
         )
-        resp = self._model.generate_content(prompt).text
+        resp = _generate_with_warning(
+            self._model,
+            prompt,
+            context="corporation character selection",
+        ).text
         logger.debug("GeminiCorporationPlayer character response: %s", resp)
         for char in state.characters:
             if char.name in resp:
@@ -509,7 +543,11 @@ class GeminiCorporationPlayer(Player):
             "GeminiCorporationPlayer action prompt: %s",
             collapse_prompt_sections(prompt),
         )
-        resp = self._model.generate_content(prompt).text
+        resp = _generate_with_warning(
+            self._model,
+            prompt,
+            context="corporation action selection",
+        ).text
         logger.debug("GeminiCorporationPlayer action response: %s", resp)
         idx = _extract_choice_index(resp, len(actions))
         if idx is not None:
