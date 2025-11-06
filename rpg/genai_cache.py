@@ -95,11 +95,12 @@ class GeminiCacheManager:
     def _format_ttl(seconds: int) -> str:
         return f"{max(1, seconds)}s"
 
-    def _text_to_content(self, text: str):
+    def _text_to_content(self, text: str, role: str = "user"):
         """Return a ``types.Content`` instance for ``text``."""
 
         return google_genai_types.Content(
-            parts=[google_genai_types.Part.from_text(text=text)]
+            role=role,
+            parts=[google_genai_types.Part.from_text(text=text)],
         )
 
     def _find_existing_cache(self, display_name: str):
@@ -117,6 +118,7 @@ class GeminiCacheManager:
         display_name: str,
         model: str,
         texts: Iterable[str],
+        content_role: str = "user",
         system_instruction: str | None = None,
     ) -> Optional[object]:
         """Return a ``GenerateContentConfig`` referencing cached ``texts``.
@@ -130,7 +132,9 @@ class GeminiCacheManager:
         filtered: List[str] = [part.strip() for part in texts if str(part).strip()]
         if not filtered:
             return None
-        contents = [self._text_to_content(text) for text in filtered]
+        contents = [
+            self._text_to_content(text, role=content_role) for text in filtered
+        ]
         with self._lock:
             cache_name = self._cache_names.get(display_name)
             if not cache_name:

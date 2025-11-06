@@ -3,7 +3,7 @@
 import os
 from types import SimpleNamespace
 from unittest import TestCase
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from rpg.genai_cache import GeminiCacheManager
 
@@ -37,6 +37,13 @@ class GeminiCacheManagerTest(TestCase):
             texts=["alpha", "beta"],
         )
         self.assertEqual(config, {"generate": {"cached_content": "cached/1"}})
+        self.assertEqual(
+            [call.kwargs for call in mock_types.Content.call_args_list],
+            [
+                {"role": "user", "parts": [{"text": "alpha"}]},
+                {"role": "user", "parts": [{"text": "beta"}]},
+            ],
+        )
         mock_client.caches.create.assert_called_once()
         mock_client.caches.update.assert_not_called()
 
