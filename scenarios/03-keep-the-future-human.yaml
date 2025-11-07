@@ -11,13 +11,13 @@ Governments:
     - severity: Critical
       explanation: No international treaties or institutions; rivalry (e.g., US–China) intensifies
   referenced_quotes:
-    - "The US, China, and any other countries hosting advanced chip manufacturing capability negotiate an international agreement." :contentReference[oaicite:0]{index=0}
-    - "This agreement creates a new international agency, analogous to the International Atomic Energy Agency, charged with overseeing AI training and execution." :contentReference[oaicite:1]{index=1}
-    - "The agency... agrees on computation limitations which then take legal force in the signatory countries." :contentReference[oaicite:2]{index=2}
-    - "In parallel, a set of international standards may be developed so that training and running of AIs above a threshold of computation... are required to adhere to those standards." :contentReference[oaicite:3]{index=3}
-    - "At least China and the US must independently decide... not to build superintelligence. Then an international agreement between them and others, with a strong verification and enforcement mechanism, is needed..." :contentReference[oaicite:4]{index=4}
-    - "Races for AI supremacy... drive us toward uncontrolled powerful AI systems... An AGI race between the US and China is a race to determine which nation superintelligence gets first." :contentReference[oaicite:5]{index=5}
-    - "It would take a combination of intervention from the outside (i.e. governments) to stop corporations, and agreements between governments to stop themselves." :contentReference[oaicite:6]{index=6}
+    - "The US, China, and any other countries hosting advanced chip manufacturing capability negotiate an international agreement."
+    - "This agreement creates a new international agency, analogous to the International Atomic Energy Agency, charged with overseeing AI training and execution."
+    - "The agency... agrees on computation limitations which then take legal force in the signatory countries."
+    - "In parallel, a set of international standards may be developed so that training and running of AIs above a threshold of computation... are required to adhere to those standards."
+    - "At least China and the US must independently decide... not to build superintelligence. Then an international agreement between them and others, with a strong verification and enforcement mechanism, is needed..."
+    - "Races for AI supremacy... drive us toward uncontrolled powerful AI systems... An AGI race between the US and China is a race to determine which nation superintelligence gets first."
+    - "It would take a combination of intervention from the outside (i.e. governments) to stop corporations, and agreements between governments to stop themselves."
 
 Corporations:
   initial_states:
@@ -28,11 +28,11 @@ Corporations:
     - severity: Large
       explanation: Some cultural dissent, but weak relative to leadership and profit incentives
   referenced_quotes:
-    - "It is that AGI can directly, one-for-one, replace workers. Not augment, not empower, not make more productive." :contentReference[oaicite:7]{index=7}
-    - "AI companies are also cognizant of who is willing to pay... a company will pay thousands of dollars per year to replace your labor, if they can." :contentReference[oaicite:8]{index=8}
-    - "The key missing ingredient is political and social will to take control of the AI development process." :contentReference[oaicite:9]{index=9}
-    - "Longer-term containment... would require international agreements... But we can start immediately with enhanced oversight and liability, while building toward more comprehensive governance." :contentReference[oaicite:10]{index=10}
-    - "This approach... is practical: while international coordination will be needed, verification and enforcement can work through the small number of companies controlling the specialized hardware supply chain." :contentReference[oaicite:11]{index=11}
+    - "It is that AGI can directly, one-for-one, replace workers. Not augment, not empower, not make more productive."
+    - "AI companies are also cognizant of who is willing to pay... a company will pay thousands of dollars per year to replace your labor, if they can."
+    - "The key missing ingredient is political and social will to take control of the AI development process."
+    - "Longer-term containment... would require international agreements... But we can start immediately with enhanced oversight and liability, while building toward more comprehensive governance."
+    - "This approach... is practical: while international coordination will be needed, verification and enforcement can work through the small number of companies controlling the specialized hardware supply chain."
 
 HardwareManufacturers:
   initial_states:
@@ -43,11 +43,11 @@ HardwareManufacturers:
     - severity: Large
       explanation: Global standards absent due to geopolitical rivalry
   referenced_quotes:
-    - "Because specialized AI hardware is made by only a handful of companies, verification and enforcement are feasible through the existing supply chain." :contentReference[oaicite:12]{index=12}
-    - "Similar hardware features embedded in cutting edge AI-relevant computing hardware could play an extremely useful role in AI security and governance." :contentReference[oaicite:13]{index=13}
-    - "Geolocation... Allow-listed connections... Metered inference or training (and auto-offswitch)..." :contentReference[oaicite:14]{index=14}
-    - "Implementation and enforcement rely on standard legal restrictions... backed up by terms-of-use of the hardware and by hardware controls, vastly simplifying enforcement and forestalling cheating." :contentReference[oaicite:15]{index=15}
-    - "Additional countries are strongly encouraged to join the existing international agreement: export controls by signatory countries restrict access to high-end hardware by non-signatories..." :contentReference[oaicite:16]{index=16}
+    - "Because specialized AI hardware is made by only a handful of companies, verification and enforcement are feasible through the existing supply chain."
+    - "Similar hardware features embedded in cutting edge AI-relevant computing hardware could play an extremely useful role in AI security and governance."
+    - "Geolocation... Allow-listed connections... Metered inference or training (and auto-offswitch)..."
+    - "Implementation and enforcement rely on standard legal restrictions... backed up by terms-of-use of the hardware and by hardware controls, vastly simplifying enforcement and forestalling cheating."
+    - "Additional countries are strongly encouraged to join the existing international agreement: export controls by signatory countries restrict access to high-end hardware by non-signatories..."
 
 Regulators:
   initial_states:
@@ -58,10 +58,10 @@ Regulators:
     - severity: Critical
       explanation: No international enforcement mechanisms; rival governments do not cooperate
   referenced_quotes:
-    - "This agreement creates a new international agency, analogous to the International Atomic Energy Agency, charged with overseeing AI training and execution." :contentReference[oaicite:17]{index=17}
-    - "Agreements to bring such measures to the international level, including international bodies to harmonize norms and standards, and potentially international agencies to review safety cases." :contentReference[oaicite:18]{index=18}
-    - "It is likely that at least some measures addressing large-scale safety risks will require agreement at the international level, with individual jurisdictions enforcing rules based on international agreements." :contentReference[oaicite:19]{index=19}
-    - "A standards organization... should codify a detailed technical standard for the total compute used in training and operating AI models, in FLOP, and the speed in FLOP/s at which they operate." :contentReference[oaicite:20]{index=20}
+    - "This agreement creates a new international agency, analogous to the International Atomic Energy Agency, charged with overseeing AI training and execution."
+    - "Agreements to bring such measures to the international level, including international bodies to harmonize norms and standards, and potentially international agencies to review safety cases."
+    - "It is likely that at least some measures addressing large-scale safety risks will require agreement at the international level, with individual jurisdictions enforcing rules based on international agreements."
+    - "A standards organization... should codify a detailed technical standard for the total compute used in training and operating AI models, in FLOP, and the speed in FLOP/s at which they operate."
 
 CivilSociety:
   initial_states:
@@ -72,12 +72,12 @@ CivilSociety:
     - severity: Moderate
       explanation: Public instincts align but education and awareness are lacking
   referenced_quotes:
-    - "We can engineer Tool AI to empower humanity... Tool AI systems can be extremely capable while avoiding the dangerous triple-intersection... When properly governed, it can make human experts and institutions more effective rather than replacing them." :contentReference[oaicite:21]{index=21}
-    - "Decent human institutions, empowered by AI tools, can do it." :contentReference[oaicite:22]{index=22}
-    - "The key missing ingredient is political and social will to take control of the AI development process." :contentReference[oaicite:23]{index=23}
-    - "By imposing some hard, global limits, we can keep AI’s general capability to approximately human level... Imposing limits would require international cooperation..." :contentReference[oaicite:24]{index=24}
-    - "Our society’s failure to control these dynamics so far does not bode well." :contentReference[oaicite:25]{index=25}
-    - "AI could facilitate genuine dialogue... helping each side better understand the other’s actual concerns and values... Current AI is totally capable of doing this work, but the tools... will not come into being by themselves, or via market incentives." :contentReference[oaicite:26]{index=26}
+    - "We can engineer Tool AI to empower humanity... Tool AI systems can be extremely capable while avoiding the dangerous triple-intersection... When properly governed, it can make human experts and institutions more effective rather than replacing them."
+    - "Decent human institutions, empowered by AI tools, can do it."
+    - "The key missing ingredient is political and social will to take control of the AI development process."
+    - "By imposing some hard, global limits, we can keep AI’s general capability to approximately human level... Imposing limits would require international cooperation..."
+    - "Our society’s failure to control these dynamics so far does not bode well."
+    - "AI could facilitate genuine dialogue... helping each side better understand the other’s actual concerns and values... Current AI is totally capable of doing this work, but the tools... will not come into being by themselves, or via market incentives."
 
 ScientificCommunity:
   initial_states:
@@ -88,8 +88,8 @@ ScientificCommunity:
     - severity: Small
       explanation: Advocacy growing and aligned, but not yet mainstreamed
   referenced_quotes:
-    - "This is not inevitable; humanity can, very concretely, decide not to build our replacement." :contentReference[oaicite:27]{index=27}
-    - "We may eventually choose to develop yet more powerful and more sovereign systems... only after we have developed the scientific understanding and governance capacity to do so safely." :contentReference[oaicite:28]{index=28}
-    - "A national investment project in scientific advancement using AI... running as a partnership between the DOE, NSF, and NIH." :contentReference[oaicite:29]{index=29}
-    - "Agreements to bring such measures to the international level, including international bodies to harmonize norms and standards..." :contentReference[oaicite:30]{index=30}
-    - "Prediction is very difficult, but there are some dynamics that are well enough understood... despite AI’s promise, they give good reason to be profoundly pessimistic about how our current trajectory will play out." :contentReference[oaicite:31]{index=31}
+    - "This is not inevitable; humanity can, very concretely, decide not to build our replacement."
+    - "We may eventually choose to develop yet more powerful and more sovereign systems... only after we have developed the scientific understanding and governance capacity to do so safely."
+    - "A national investment project in scientific advancement using AI... running as a partnership between the DOE, NSF, and NIH."
+    - "Agreements to bring such measures to the international level, including international bodies to harmonize norms and standards..."
+    - "Prediction is very difficult, but there are some dynamics that are well enough understood... despite AI’s promise, they give good reason to be profoundly pessimistic about how our current trajectory will play out."

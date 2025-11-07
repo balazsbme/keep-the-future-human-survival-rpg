@@ -12,17 +12,17 @@ Governments:
     - severity: Critical
       explanation: National security establishments view AGI race as winnable, opposite of the plan
   referenced_quotes:
-    - "Nations feel compelled to join this race, publicly citing economic and scientific leadership, but privately viewing AGI as a potential revolution in military affairs comparable to nuclear weapons." :contentReference[oaicite:0]{index=0}
-    - "Fear that rivals might gain a decisive strategic advantage creates a classic arms race dynamic." :contentReference[oaicite:1]{index=1}
-    - "Races for AI supremacy – driven by national security or other motivations – drive us toward uncontrolled powerful AI systems that would tend to absorb, rather than bestow, power." :contentReference[oaicite:2]{index=2}
-    - "An AGI race between the US and China is a race to determine which nation superintelligence gets first." :contentReference[oaicite:3]{index=3}
-    - "Instead of a reckless 'Manhattan project' toward AGI, the US government could launch an Apollo project for controllable, secure, trustworthy systems." :contentReference[oaicite:4]{index=4}
-    - "This is not inevitable; humanity can, very concretely, decide not to build our replacement." :contentReference[oaicite:5]{index=5}
-    - "First, we need robust accounting and oversight of AI computation ('compute')..." :contentReference[oaicite:6]{index=6}
-    - "Second, we should implement hard caps on AI computation, both for training and for operation..." :contentReference[oaicite:7]{index=7}
-    - "The US, China, and any other countries hosting advanced chip manufacturing capability negotiate an international agreement... [creating] a new international agency, analogous to the International Atomic Energy Agency, charged with overseeing AI training and execution." :contentReference[oaicite:8]{index=8}
-    - "The agency... agrees on computation limitations which then take legal force in the signatory countries." :contentReference[oaicite:9]{index=9}
-    - "They would see both an existential threat and – crucially – that the only way this 'race' ends is through their own disempowerment." :contentReference[oaicite:10]{index=10}
+    - "Nations feel compelled to join this race, publicly citing economic and scientific leadership, but privately viewing AGI as a potential revolution in military affairs comparable to nuclear weapons."
+    - "Fear that rivals might gain a decisive strategic advantage creates a classic arms race dynamic."
+    - "Races for AI supremacy – driven by national security or other motivations – drive us toward uncontrolled powerful AI systems that would tend to absorb, rather than bestow, power."
+    - "An AGI race between the US and China is a race to determine which nation superintelligence gets first."
+    - "Instead of a reckless 'Manhattan project' toward AGI, the US government could launch an Apollo project for controllable, secure, trustworthy systems."
+    - "This is not inevitable; humanity can, very concretely, decide not to build our replacement."
+    - "First, we need robust accounting and oversight of AI computation ('compute')..."
+    - "Second, we should implement hard caps on AI computation, both for training and for operation..."
+    - "The US, China, and any other countries hosting advanced chip manufacturing capability negotiate an international agreement... [creating] a new international agency, analogous to the International Atomic Energy Agency, charged with overseeing AI training and execution."
+    - "The agency... agrees on computation limitations which then take legal force in the signatory countries."
+    - "They would see both an existential threat and – crucially – that the only way this 'race' ends is through their own disempowerment."
 
 Corporations:
   initial_states:
@@ -33,14 +33,14 @@ Corporations:
     - severity: Critical
       explanation: Pivot to Tool AI conflicts with profit logic of automation
   referenced_quotes:
-    - "Major technology companies see AGI as the ultimate automation technology – not just augmenting human workers but replacing them largely or entirely." :contentReference[oaicite:11]{index=11}
-    - "It is that AGI can directly, one-for-one, replace workers. Not augment, not empower, not make more productive." :contentReference[oaicite:12]{index=12}
-    - "AI companies are also cognizant of who is willing to pay... a company will pay thousands of dollars per year to replace your labor, if they can." :contentReference[oaicite:13]{index=13}
-    - "Less charitably, what drives the race is power... AGI will absorb and seek power rather than grant it... racing dynamics – both corporate and geopolitical – make large-scale risks... nearly inevitable unless decisively interrupted." :contentReference[oaicite:14]{index=14}
-    - "Rather than pursuing uncontrollable AGI, we can develop powerful 'Tool AI' that enhances human capability while remaining under meaningful human control." :contentReference[oaicite:15]{index=15}
-    - "New models of public AI development and ownership would help... explicitly chartered to serve the public interest while operating under strong safety constraints." :contentReference[oaicite:16]{index=16}
-    - "Companies often represent that they are in favor of reasonable regulation. But somehow they nearly always seem to oppose any particular regulation." :contentReference[oaicite:17]{index=17}
-    - "The default outcome of such high levels of liability... is likely... for companies to simply not develop full AGI until... trustworthy, safe, and controllable." :contentReference[oaicite:18]{index=18}
+    - "Major technology companies see AGI as the ultimate automation technology – not just augmenting human workers but replacing them largely or entirely."
+    - "It is that AGI can directly, one-for-one, replace workers. Not augment, not empower, not make more productive."
+    - "AI companies are also cognizant of who is willing to pay... a company will pay thousands of dollars per year to replace your labor, if they can."
+    - "Less charitably, what drives the race is power... AGI will absorb and seek power rather than grant it... racing dynamics – both corporate and geopolitical – make large-scale risks... nearly inevitable unless decisively interrupted."
+    - "Rather than pursuing uncontrollable AGI, we can develop powerful 'Tool AI' that enhances human capability while remaining under meaningful human control."
+    - "New models of public AI development and ownership would help... explicitly chartered to serve the public interest while operating under strong safety constraints."
+    - "Companies often represent that they are in favor of reasonable regulation. But somehow they nearly always seem to oppose any particular regulation."
+    - "The default outcome of such high levels of liability... is likely... for companies to simply not develop full AGI until... trustworthy, safe, and controllable."
 
 HardwareManufacturers:
   initial_states:
@@ -51,15 +51,15 @@ HardwareManufacturers:
     - severity: Large
       explanation: Commercial incentives oppose restraint; alignment requires regulation
   referenced_quotes:
-    - "Because specialized AI hardware is made by only a handful of companies, verification and enforcement are feasible through the existing supply chain." :contentReference[oaicite:19]{index=19}
-    - "Similar hardware features embedded in cutting edge AI-relevant computing hardware could play an extremely useful role in AI security and governance." :contentReference[oaicite:20]{index=20}
-    - "Allow-listed connections... can cap the size of communicative clusters of chips." :contentReference[oaicite:21]{index=21}
-    - "Metered inference or training... The model can then be 'turned off' simply by withholding this license signal." :contentReference[oaicite:22]{index=22}
-    - "There is ample precedent for hardware companies placing remote restrictions on their hardware usage, and locking/unlocking particular capabilities externally." :contentReference[oaicite:23]{index=23}
-    - "All AI-relevant hardware manufacturers... adhere to a set of requirements... including... regular permission by a remote 'governor' who receives both telemetry and requests..." :contentReference[oaicite:24]{index=24}
-    - "Additional countries are strongly encouraged to join... export controls by signatory countries restrict access to high-end hardware by non-signatories..." :contentReference[oaicite:25]{index=25}
-    - "A major program to... develop the on-chip hardware security mechanisms... could build off of the US CHIPS act and export control regime." :contentReference[oaicite:26]{index=26}
-    - "However, large-scale regulation... sure to be opposed by industry, takes time..." :contentReference[oaicite:27]{index=27}
+    - "Because specialized AI hardware is made by only a handful of companies, verification and enforcement are feasible through the existing supply chain."
+    - "Similar hardware features embedded in cutting edge AI-relevant computing hardware could play an extremely useful role in AI security and governance."
+    - "Allow-listed connections... can cap the size of communicative clusters of chips."
+    - "Metered inference or training... The model can then be 'turned off' simply by withholding this license signal."
+    - "There is ample precedent for hardware companies placing remote restrictions on their hardware usage, and locking/unlocking particular capabilities externally."
+    - "All AI-relevant hardware manufacturers... adhere to a set of requirements... including... regular permission by a remote 'governor' who receives both telemetry and requests..."
+    - "Additional countries are strongly encouraged to join... export controls by signatory countries restrict access to high-end hardware by non-signatories..."
+    - "A major program to... develop the on-chip hardware security mechanisms... could build off of the US CHIPS act and export control regime."
+    - "However, large-scale regulation... sure to be opposed by industry, takes time..."
 
 Regulators:
   initial_states:
@@ -70,14 +70,14 @@ Regulators:
     - severity: Large
       explanation: Regulators heavily influenced by corporate lobbying and national agendas
   referenced_quotes:
-    - "The EU AI Act... has two key flaws... military AI is exempt... [and] it fails to recognize AGI or superintelligence as unacceptable risks or prevent their development—only their EU deployment." :contentReference[oaicite:28]{index=28}
-    - "Companies often represent that they are in favor of reasonable regulation. But somehow they nearly always seem to oppose any particular regulation." :contentReference[oaicite:29]{index=29}
-    - "This agreement creates a new international agency, analogous to the International Atomic Energy Agency, charged with overseeing AI training and execution." :contentReference[oaicite:30]{index=30}
-    - "The agency... agrees on computation limitations which then take legal force in the signatory countries." :contentReference[oaicite:31]{index=31}
-    - "A standards organization (e.g., NIST... followed by ISO/IEEE internationally) should codify a detailed technical standard for the total compute used..." :contentReference[oaicite:32]{index=32}
-    - "Safety case... plus independent safety audits... approved by national authorities wherever the model can be used." :contentReference[oaicite:33]{index=33}
-    - "Those developing AI that combines high autonomy, broad generality, and superior intelligence should face strict liability for harms, while safe harbors... encourage development of more limited and controllable systems." :contentReference[oaicite:34]{index=34}
-    - "The key missing ingredient is political and social will to take control of the AI development process." :contentReference[oaicite:35]{index=35}
+    - "The EU AI Act... has two key flaws... military AI is exempt... [and] it fails to recognize AGI or superintelligence as unacceptable risks or prevent their development—only their EU deployment."
+    - "Companies often represent that they are in favor of reasonable regulation. But somehow they nearly always seem to oppose any particular regulation."
+    - "This agreement creates a new international agency, analogous to the International Atomic Energy Agency, charged with overseeing AI training and execution."
+    - "The agency... agrees on computation limitations which then take legal force in the signatory countries."
+    - "A standards organization (e.g., NIST... followed by ISO/IEEE internationally) should codify a detailed technical standard for the total compute used..."
+    - "Safety case... plus independent safety audits... approved by national authorities wherever the model can be used."
+    - "Those developing AI that combines high autonomy, broad generality, and superior intelligence should face strict liability for harms, while safe harbors... encourage development of more limited and controllable systems."
+    - "The key missing ingredient is political and social will to take control of the AI development process."
 
 CivilSociety:
   initial_states:
@@ -88,12 +88,12 @@ CivilSociety:
     - severity: Large
       explanation: Democratic pressure weak compared to corporate lobbying and declining institutional trust
   referenced_quotes:
-    - "The key missing ingredient is political and social will to take control of the AI development process." :contentReference[oaicite:36]{index=36}
-    - "Decent human institutions, empowered by AI tools, can do it." :contentReference[oaicite:37]{index=37}
-    - "By undermining human discourse, debate, and election systems, they could reduce the credibility of democratic institutions... ending democracy in states where it currently exists." :contentReference[oaicite:38]{index=38}
-    - "We can start immediately with enhanced oversight and liability, while building toward more comprehensive governance." :contentReference[oaicite:39]{index=39}
-    - "Our society’s failure to control these dynamics so far does not bode well." :contentReference[oaicite:40]{index=40}
-    - "The very first and most important step... is a Gate closure to smarter-than-human AGI and superintelligence." :contentReference[oaicite:41]{index=41}
+    - "The key missing ingredient is political and social will to take control of the AI development process."
+    - "Decent human institutions, empowered by AI tools, can do it."
+    - "By undermining human discourse, debate, and election systems, they could reduce the credibility of democratic institutions... ending democracy in states where it currently exists."
+    - "We can start immediately with enhanced oversight and liability, while building toward more comprehensive governance."
+    - "Our society’s failure to control these dynamics so far does not bode well."
+    - "The very first and most important step... is a Gate closure to smarter-than-human AGI and superintelligence."
 
 ScientificCommunity:
   initial_states:
@@ -104,10 +104,10 @@ ScientificCommunity:
     - severity: Large
       explanation: Corporate incentives dominate research directions
   referenced_quotes:
-    - "Over the past half-decade... AI has transformed from a relatively pure research field into much more of an engineering and product field, largely driven by some of the world’s largest companies... Researchers... are no longer in charge of the process." :contentReference[oaicite:42]{index=42}
-    - "The human and fiscal resources dedicated to AI advancement now equal those of a dozen Manhattan Projects and several Apollo Projects." :contentReference[oaicite:43]{index=43}
-    - "New models of public AI development and ownership would help... government-developed AI... nonprofit AI development organizations... explicitly chartered to serve the public interest while operating under strong safety constraints." :contentReference[oaicite:44]{index=44}
-    - "A national investment project in scientific advancement using AI... partnership between the DOE, NSF, and NIH." :contentReference[oaicite:45]{index=45}
-    - "We should... give AI-empowered humans a go at the problem first." :contentReference[oaicite:46]{index=46}
-    - "We may eventually choose to develop yet more powerful and more sovereign systems... only after we have developed the scientific understanding and governance capacity to do so safely." :contentReference[oaicite:47]{index=47}
-    - "Corporations pursuing profit develop instrumental goals like acquiring political power... or undermining scientific understanding (if that understanding shows their actions to be harmful)." :contentReference[oaicite:48]{index=48}
+    - "Over the past half-decade... AI has transformed from a relatively pure research field into much more of an engineering and product field, largely driven by some of the world’s largest companies... Researchers... are no longer in charge of the process."
+    - "The human and fiscal resources dedicated to AI advancement now equal those of a dozen Manhattan Projects and several Apollo Projects."
+    - "New models of public AI development and ownership would help... government-developed AI... nonprofit AI development organizations... explicitly chartered to serve the public interest while operating under strong safety constraints."
+    - "A national investment project in scientific advancement using AI... partnership between the DOE, NSF, and NIH."
+    - "We should... give AI-empowered humans a go at the problem first."
+    - "We may eventually choose to develop yet more powerful and more sovereign systems... only after we have developed the scientific understanding and governance capacity to do so safely."
+    - "Corporations pursuing profit develop instrumental goals like acquiring political power... or undermining scientific understanding (if that understanding shows their actions to be harmful)."
