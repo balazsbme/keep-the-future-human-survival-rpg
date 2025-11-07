@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 from rpg.character import PlayerCharacter, YamlCharacter
 from rpg.assessment_agent import AssessmentAgent
+from rpg.config import GameConfig
 
 CHARACTERS_FILE = os.path.join(
     os.path.dirname(__file__), "fixtures", "characters.yaml"
@@ -99,7 +100,7 @@ class YamlCharacterTest(unittest.TestCase):
             log_ctx.output,
         )
         assessor = AssessmentAgent()
-        scores = assessor.assess([char], "baseline", [])[char.progress_key]
+        scores = assessor.assess([char], [])[char.progress_key]
         self.assertEqual(scores, [10, 20, 30])
 
     @patch("rpg.character.get_cache_manager")
@@ -230,11 +231,11 @@ class YamlCharacterTest(unittest.TestCase):
         char = YamlCharacter(profile["name"], faction_spec, profile)
 
         agent = AssessmentAgent()
-        agent.assess([char], "baseline script", [])
+        agent.assess([char], [])
 
         fake_manager.get_cached_config.assert_called()
         args, kwargs = assess_model.generate_content.call_args
-        self.assertIn("Use the cached baseline script", args[0])
+        self.assertIn("Use the cached reference material", args[0])
         self.assertEqual(kwargs.get("config"), cache_config)
 
     @patch("rpg.character.genai")
@@ -275,10 +276,12 @@ class YamlCharacterTest(unittest.TestCase):
     @patch("rpg.character.genai")
     def test_load_characters_merges_markdown_context(self, mock_char_genai):
         mock_char_genai.GenerativeModel.return_value = MagicMock()
+        config = GameConfig(enabled_factions=("test_character",))
         characters = load_characters(
             character_file=CHARACTERS_FILE,
             scenario_file=SCENARIO_FILE,
             factions_file=FACTIONS_FILE,
+            config=config,
         )
         self.assertEqual(len(characters), 1)
         self.assertEqual(

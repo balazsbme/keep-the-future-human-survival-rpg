@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from web_service import create_app
 from rpg.character import ResponseOption, YamlCharacter
+from rpg.config import GameConfig
 
 CHARACTERS_FILE = os.path.join(
     os.path.dirname(__file__), "fixtures", "characters.yaml"
@@ -37,9 +38,12 @@ class WebServiceTest(unittest.TestCase):
         scenario_dir = Path(__file__).resolve().parent.parent / "scenarios"
         expected_values = {p.stem.lower() for p in scenario_dir.glob("*.yaml")}
         self.assertTrue(expected_values, "Expected scenario YAML fixtures to exist")
+        test_config = GameConfig(enabled_factions=("test_character", "CivilSociety"))
         with patch("rpg.character.genai"), patch("rpg.assessment_agent.genai"):
             character = _load_test_character()
-            with patch("web_service.load_characters", return_value=[character]):
+            with patch("web_service.load_characters", return_value=[character]), patch(
+                "web_service.current_config", test_config
+            ):
                 app = create_app()
                 client = app.test_client()
         resp = client.get("/")
@@ -117,7 +121,12 @@ class WebServiceTest(unittest.TestCase):
             ]
             mock_assess_genai.GenerativeModel.return_value = assess_model
             character = _load_test_character()
-            with patch("web_service.load_characters", return_value=[character]):
+            test_config = GameConfig(
+                enabled_factions=("test_character", "CivilSociety")
+            )
+            with patch("web_service.load_characters", return_value=[character]), patch(
+                "web_service.current_config", test_config
+            ):
                 app = create_app()
                 client = app.test_client()
 
@@ -180,6 +189,7 @@ class WebServiceTest(unittest.TestCase):
             inst_page = inst_resp.data.decode()
             self.assertEqual(inst_resp.status_code, 200)
             self.assertIn("Instructions", inst_page)
+            self.assertIn("Reference material", inst_page)
 
             reset_resp = client.post("/reset", follow_redirects=True)
             reset_page = reset_resp.data.decode()

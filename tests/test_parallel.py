@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import yaml
 
 from rpg.character import ResponseOption, YamlCharacter
+from rpg.config import GameConfig
 from web_service import create_app
 
 
@@ -26,6 +27,10 @@ def _load_test_character() -> YamlCharacter:
     profile = character_payload["Characters"][0]
     faction_spec = scenario_payload[profile["faction"]]
     return YamlCharacter(profile["name"], faction_spec, profile)
+
+
+def _enabled_test_config() -> GameConfig:
+    return GameConfig(enabled_factions=("test_character", "CivilSociety"))
 
 
 @patch.dict(os.environ, {"ENABLE_PARALLELISM": "1"})
@@ -56,7 +61,10 @@ def test_async_response_generation(mock_char_genai, mock_assess_genai):
         "rpg.character.PlayerCharacter.generate_responses",
         new=slow_responses,
     ):
-        with patch("web_service.load_characters", return_value=[character]):
+        test_config = _enabled_test_config()
+        with patch("web_service.load_characters", return_value=[character]), patch(
+            "web_service.current_config", test_config
+        ):
             app = create_app()
             client = app.test_client()
             client.get("/start")
@@ -124,7 +132,10 @@ def test_async_npc_responses(mock_char_genai, mock_assess_genai):
         new=player_options,
     ):
         with patch.object(type(character), "generate_responses", new=slow_npc):
-            with patch("web_service.load_characters", return_value=[character]):
+            test_config = _enabled_test_config()
+            with patch(
+                "web_service.load_characters", return_value=[character]
+            ), patch("web_service.current_config", test_config):
                 app = create_app()
                 client = app.test_client()
                 handler = app.view_functions["character_actions"]
@@ -201,7 +212,7 @@ def test_assessment_background_wait(mock_char_genai, mock_assess_genai):
     finish_evt = threading.Event()
 
     class DummyAssess:
-        def assess(self, chars, instructions, history, parallel=False):
+        def assess(self, chars, history, parallel=False):
             start_evt.set()
             finish_evt.wait()
             return {c.progress_key: [100] * len(c.triplets) for c in chars}
@@ -211,7 +222,10 @@ def test_assessment_background_wait(mock_char_genai, mock_assess_genai):
         new=static_responses,
     ):
         with patch("web_service.AssessmentAgent", return_value=DummyAssess()):
-            with patch("web_service.load_characters", return_value=[character]):
+            test_config = _enabled_test_config()
+            with patch("web_service.load_characters", return_value=[character]), patch(
+                "web_service.current_config", test_config
+            ):
                 app = create_app()
                 client = app.test_client()
                 client.get("/start")

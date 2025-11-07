@@ -20,6 +20,7 @@ from evaluations.players import (
 from rpg.assessment_agent import AssessmentAgent
 from rpg.game_state import GameState
 from rpg.character import ResponseOption, YamlCharacter
+from rpg.config import GameConfig
 
 CHARACTERS_FILE = os.path.join(
     os.path.dirname(__file__), "fixtures", "characters.yaml"
@@ -39,6 +40,10 @@ def _load_test_character() -> YamlCharacter:
     profile = character_payload["Characters"][0]
     faction_spec = faction_payload[profile["faction"]]
     return YamlCharacter(profile["name"], faction_spec, profile)
+
+
+def _enabled_test_config() -> GameConfig:
+    return GameConfig(enabled_factions=("test_character", "CivilSociety"))
 
 
 class PlayerTests(unittest.TestCase):
@@ -81,7 +86,7 @@ class PlayerTests(unittest.TestCase):
         mock_char_genai.GenerativeModel.return_value = mock_action_model
         mock_assess_genai.GenerativeModel.return_value = mock_assess_model
         char = _load_test_character()
-        state = GameState([char])
+        state = GameState([char], config_override=_enabled_test_config())
         assessor = AssessmentAgent()
         def choice_side_effect(options):
             if options and isinstance(options[0], YamlCharacter):
@@ -135,7 +140,7 @@ class PlayerTests(unittest.TestCase):
         mock_char_genai.GenerativeModel.return_value = mock_action_model
         mock_assess_genai.GenerativeModel.return_value = mock_assess_model
         char = _load_test_character()
-        state = GameState([char])
+        state = GameState([char], config_override=_enabled_test_config())
         assessor = AssessmentAgent()
 
         def choice_side_effect(options):
@@ -167,7 +172,7 @@ class PlayerTests(unittest.TestCase):
         mock_players_genai.GenerativeModel.return_value = mock_model
         mock_char_genai.GenerativeModel.return_value = MagicMock()
         char = _load_test_character()
-        state = GameState([char])
+        state = GameState([char], config_override=_enabled_test_config())
         player = GeminiCivilSocietyPlayer()
         actions = [
             ResponseOption(text="A", type="action"),
@@ -176,7 +181,8 @@ class PlayerTests(unittest.TestCase):
         ]
         player.select_action(char, [], actions, state)
         prompt = mock_model.generate_content.call_args[0][0]
-        self.assertIn(state.how_to_win.split()[0], prompt)
+        self.assertIn("Reference material:", prompt)
+        self.assertIn("Scenario overview:", prompt)
         self.assertIn(char.display_name, prompt)
 
     @patch("evaluations.players.genai")
@@ -191,7 +197,7 @@ class PlayerTests(unittest.TestCase):
         char = _load_test_character()
         gov_ctx = corp_ctx = "CTX"
         player = GeminiCorporationPlayer(corp_ctx)
-        state = GameState([char])
+        state = GameState([char], config_override=_enabled_test_config())
         actions = [
             ResponseOption(text="A", type="action"),
             ResponseOption(text="B", type="action"),

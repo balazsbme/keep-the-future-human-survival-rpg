@@ -83,7 +83,11 @@ def load_characters(
     context_specs = _faction_mapping(context_payload)
     scenario_summary = ""
     if isinstance(scenario_payload, dict):
-        summary_value = scenario_payload.get("summary") or scenario_payload.get("Summary")
+        summary_value = (
+            scenario_payload.get("ScenarioSummary")
+            or scenario_payload.get("summary")
+            or scenario_payload.get("Summary")
+        )
         if isinstance(summary_value, str):
             scenario_summary = summary_value.strip()
         elif isinstance(summary_value, list):
@@ -92,11 +96,31 @@ def load_characters(
     if not triplet_specs:
         logger.error("No faction definitions found in scenario file %s", resolved_scenario)
     characters: List[YamlCharacter] = []
+    enabled = set(cfg.enabled_factions)
+    if enabled:
+        missing_specs = [faction for faction in enabled if faction not in triplet_specs]
+        if missing_specs:
+            logger.error(
+                "Enabled factions %s missing from scenario file %s",
+                ", ".join(sorted(missing_specs)),
+                resolved_scenario,
+            )
+            raise RuntimeError("Scenario configuration missing enabled factions")
+        triplet_specs = {k: v for k, v in triplet_specs.items() if k in enabled}
+        context_specs = {k: v for k, v in context_specs.items() if k in enabled}
+    represented_factions: set[str] = set()
     for entry in _character_entries(characters_payload):
         name = entry.get("name")
         faction_name = entry.get("faction")
         if not name or not faction_name:
             logger.warning("Skipping character with missing name or faction: %s", entry)
+            continue
+        if enabled and faction_name not in enabled:
+            logger.info(
+                "Skipping character %s because faction %s is disabled in configuration",
+                name,
+                faction_name,
+            )
             continue
         faction_spec = triplet_specs.get(faction_name)
         if not isinstance(faction_spec, dict):
@@ -113,10 +137,20 @@ def load_characters(
                 combined_spec["MarkdownContext"] = context_spec["MarkdownContext"]
             for key, value in context_spec.items():
                 combined_spec.setdefault(key, value)
+        if scenario_summary and "ScenarioSummary" not in combined_spec:
+            combined_spec["ScenarioSummary"] = scenario_summary
         character = YamlCharacter(name, combined_spec, entry, config=cfg)
-        if scenario_summary:
-            setattr(character, "scenario_summary", scenario_summary)
         characters.append(character)
+        if getattr(character, "faction", None):
+            represented_factions.add(str(character.faction))
+    if enabled:
+        missing_characters = [f for f in enabled if f not in represented_factions]
+        if missing_characters:
+            logger.error(
+                "No character entries found for enabled factions: %s",
+                ", ".join(sorted(missing_characters)),
+            )
+            raise RuntimeError("Missing characters for enabled factions")
     return characters
 
 
@@ -195,7 +229,7 @@ def main() -> None:
             print("Available actions:")
             for idx, action in enumerate(npc_actions, 1):
                 print(f"{idx}. {action.text}")
-    scores = assessor.assess(state.characters, state.how_to_win, state.history)
+    scores = assessor.assess(state.characters, state.history)
     state.update_progress(scores)
 
 

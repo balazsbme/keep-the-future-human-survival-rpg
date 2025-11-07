@@ -38,10 +38,10 @@ def run_baseline_assessment(scenario_name: str | None = None) -> str:
     state = GameState(characters)
     assessor = AssessmentAgent()
 
-    scores_no_action = assessor.assess(characters, state.how_to_win, [], parallel=True)
+    scores_no_action = assessor.assess(characters, [], parallel=True)
     irrelevant_history = [("Player", "0" * 100)]
     scores_irrelevant = assessor.assess(
-        characters, state.how_to_win, irrelevant_history, parallel=True
+        characters, irrelevant_history, parallel=True
     )
     return (
         f"Scores with no action: {scores_no_action}\n"

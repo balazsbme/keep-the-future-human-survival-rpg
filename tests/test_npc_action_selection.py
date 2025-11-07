@@ -1,7 +1,12 @@
+import os
+import sys
 from unittest.mock import MagicMock, patch
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from rpg.game_state import GameState
 from rpg.character import ResponseOption
+from rpg.config import GameConfig
 
 
 class DummyCharacter:
@@ -25,7 +30,8 @@ def test_log_npc_responses_only_tracks_displayed_action(mock_genai):
     mock_genai.GenerativeModel.return_value = mock_model
 
     character = DummyCharacter()
-    state = GameState([character])
+    config = GameConfig(enabled_factions=("Corporations", "CivilSociety"))
+    state = GameState([character], config_override=config)
     primary_action = ResponseOption(
         text="Deploy joint safeguards",
         type="action",

@@ -1,4 +1,4 @@
-summary: "Test scenario summary."
+ScenarioSummary: "Test scenario summary."
 
 test_character:
   scenario_summary: "Test scenario summary."
@@ -17,3 +17,6 @@ test_character:
       explanation: gap2
     - severity: Large
       explanation: gap3
+  referenced_quotes:
+    - "Test reference quote one."
+    - "Test reference quote two."

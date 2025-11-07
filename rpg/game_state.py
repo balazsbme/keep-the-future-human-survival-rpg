@@ -5,11 +5,10 @@
 from __future__ import annotations
 
 import logging
-import os
 import random
 from dataclasses import dataclass, field
 from html import escape
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Sequence, Tuple
 
 from .character import Character, PlayerCharacter, ResponseOption
 from .credibility import CREDIBILITY_PENALTY, CREDIBILITY_REWARD, CredibilityMatrix
@@ -58,13 +57,14 @@ class GameState:
     action_label_indices: Dict[str, Dict[str, int]] = field(default_factory=dict)
     progress: Dict[str, List[int]] = field(init=False)
     weights: Dict[str, List[int]] = field(init=False)
-    how_to_win: str = field(init=False)
     scenario_summary: str = field(init=False, default="")
     faction_labels: Dict[str, str] = field(init=False)
     config: GameConfig = field(init=False)
     credibility: CredibilityMatrix = field(init=False)
     player_character: PlayerCharacter = field(init=False)
     player_faction: str = field(init=False)
+    faction_references: Dict[str, List[str]] = field(init=False, default_factory=dict)
+    reference_material: str = field(init=False, default="")
     pending_failures: Dict[Tuple[str, str], ActionAttempt] = field(
         default_factory=dict, init=False
     )
@@ -79,15 +79,13 @@ class GameState:
     next_action_label_index: int = field(default=1, init=False)
 
     def __post_init__(self) -> None:
-        """Initialize progress tracking and load "how to win" instructions.
+        """Initialize progress tracking and reference material for the game."""
 
-        Returns:
-            None.
-        """
         logger.info("Initializing game state")
         self.progress = {}
         self.weights = {}
         self.faction_labels = {}
+        self.faction_references = {}
         self.config = self.config_override or load_game_config()
         self.credibility = CredibilityMatrix()
         self.player_character = self.player_override or PlayerCharacter(
@@ -102,7 +100,17 @@ class GameState:
                 break
         self.scenario_summary = character_summary or player_summary
         self.player_faction = self.player_character.faction or PLAYER_FACTION
+        enabled = set(self.config.enabled_factions)
+        if enabled and self.player_faction not in enabled:
+            logger.error(
+                "Player faction %s is disabled in configuration", self.player_faction
+            )
+            raise RuntimeError("Player faction disabled by configuration")
         self.credibility.ensure_faction(self.player_faction)
+        self._add_referenced_quotes(
+            self.player_faction,
+            getattr(self.player_character, "referenced_quotes", None),
+        )
         for character in self.characters:
             key = character.progress_key
             if key not in self.progress:
@@ -111,10 +119,62 @@ class GameState:
                     character, "weights", [1] * len(character.triplets)
                 )
                 self.faction_labels[key] = character.progress_label
-            self.credibility.ensure_faction(getattr(character, "faction", None))
-        win_path = os.path.join(os.path.dirname(__file__), "..", "how-to-win.md")
-        with open(win_path, "r", encoding="utf-8") as f:
-            self.how_to_win = f.read()
+            faction_name = getattr(character, "faction", None)
+            if enabled and faction_name and faction_name not in enabled:
+                logger.error(
+                    "Character %s belongs to disabled faction %s",
+                    character.name,
+                    faction_name,
+                )
+                raise RuntimeError("Character faction disabled by configuration")
+            self.credibility.ensure_faction(faction_name)
+            self._add_referenced_quotes(
+                faction_name,
+                getattr(character, "referenced_quotes", None),
+            )
+        self.reference_material = self._build_reference_material()
+
+    def _add_referenced_quotes(
+        self, faction: str | None, quotes: Sequence[str] | None
+    ) -> None:
+        """Accumulate referenced quotes for ``faction``."""
+
+        if not faction or not quotes:
+            return
+        entries = self.faction_references.setdefault(faction, [])
+        for quote in quotes:
+            text = str(quote or "").strip()
+            if text and text not in entries:
+                entries.append(text)
+
+    def _build_reference_material(self) -> str:
+        """Return a formatted overview of reference material for all factions."""
+
+        sections: List[str] = []
+        if self.scenario_summary:
+            sections.append(f"Scenario overview:\n{self.scenario_summary}")
+        for faction in sorted(self.faction_references):
+            quotes = self.faction_references[faction]
+            if not quotes:
+                continue
+            quote_lines = "\n".join(f"- {quote}" for quote in quotes)
+            sections.append(f"{faction}:\n{quote_lines}")
+        return "\n\n".join(sections)
+
+    def referenced_quotes_for(self, faction: str | None) -> List[str]:
+        """Return referenced quotes associated with ``faction``."""
+
+        if not faction:
+            return []
+        return list(self.faction_references.get(faction, []))
+
+    def reference_text_for(self, faction: str | None) -> str:
+        """Return formatted reference text for ``faction``."""
+
+        quotes = self.referenced_quotes_for(faction)
+        if not quotes:
+            return ""
+        return "\n".join(f"- {quote}" for quote in quotes)
 
     def _conversation_key(self, character: Character) -> str:
         """Return the key used to store conversation state for ``character``."""

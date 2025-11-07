@@ -14,7 +14,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 from rpg.assessment_agent import AssessmentAgent
 from rpg.config import GameConfig, load_game_config
-from rpg.game_state import GameState
+from rpg.game_state import GameState, PLAYER_FACTION
 
 from .game_database import GameRunObserver
 from .players import Player
@@ -132,6 +132,23 @@ class PlayerManager:
             self._scenario_name = scenario_name
         else:
             self._scenario_name = base_config.scenario
+
+        roster_factions: List[str] = []
+        for character in self._characters:
+            faction = getattr(character, "faction", None)
+            if faction:
+                text = str(faction).strip()
+                if text:
+                    roster_factions.append(text)
+        enabled_factions = list(base_config.enabled_factions)
+        for faction in roster_factions:
+            if faction not in enabled_factions:
+                enabled_factions.append(faction)
+        if PLAYER_FACTION not in enabled_factions:
+            enabled_factions.append(PLAYER_FACTION)
+        base_config = replace(
+            base_config, enabled_factions=tuple(enabled_factions)
+        )
         self._config_override = base_config
 
     def run_sequence(
