@@ -1,173 +1,58 @@
 ScenarioSummary: |
-  Global powers and corporations escalate an AGI arms race under economic and security pressures.
-  To survive, they must recognize that the race itself is unwinnable — only containment, cooperation,
-  and restraint can prevent catastrophic loss of control.
+  After the dangers become undeniable, governments and regulators attempt to institutionalize 
+  oversight — enforcing compute limits, liability laws, and chip-based governance while fighting 
+  corporate capture and geopolitical fragmentation.
 
 Governments:
   initial_states:
-    - Political focus on economic growth and national security competition
     - Oversight agencies limited or nonexistent
-    - Export controls exist but no international treaties on AI compute
-    - Security establishments frame AGI as strategic advantage, like nuclear weapons
   end_states:
-    - Impose compute caps and enforce reporting
     - Create empowered AI oversight agencies
-    - Negotiate international agreements for verification and enforcement
-    - Shift national security framing from AGI race to Tool AI programs
   gaps:
     - severity: Large
-      explanation: Governments pursue economic and security competition rather than restraint
-    - severity: Large
       explanation: Oversight agencies lack authority and speed; regulation lags industry progress
-    - severity: Critical
-      explanation: No international treaties or institutions; rivalry (e.g., US–China) intensifies
-    - severity: Critical
-      explanation: National security establishments view AGI race as winnable, opposite of the plan
-  referenced_quotes:
-    - "Nations feel compelled to join this race, publicly citing economic and scientific leadership, but privately viewing AGI as a potential revolution in military affairs comparable to nuclear weapons. 0"
-    - "Fear that rivals might gain a decisive strategic advantage creates a classic arms race dynamic. 1"
-    - "Races for AI supremacy – driven by national security or other motivations – drive us toward uncontrolled powerful AI systems that would tend to absorb, rather than bestow, power. 2"
-    - "An AGI race between the US and China is a race to determine which nation superintelligence gets first. 3"
-    - "Instead of a reckless 'Manhattan project' toward AGI, the US government could launch an Apollo project for controllable, secure, trustworthy systems. 4"
-    - "This is not inevitable; humanity can, very concretely, decide not to build our replacement. 5"
-    - "First, we need robust accounting and oversight of AI computation ('compute')... 6"
-    - "Second, we should implement hard caps on AI computation, both for training and for operation... 7"
-    - "The US, China, and any other countries hosting advanced chip manufacturing capability negotiate an international agreement... [creating] a new international agency, analogous to the International Atomic Energy Agency, charged with overseeing AI training and execution. 8"
-    - "The agency... agrees on computation limitations which then take legal force in the signatory countries. 9"
-    - "They would see both an existential threat and – crucially – that the only way this 'race' ends is through their own disempowerment. 10"
 
 Corporations:
   initial_states:
     - Corporations resist regulation, opposing liability frameworks such as California’s SB1047
-    - Currently maximize compute use in pursuit of AGI capabilities
-    - Business incentives favor labor-replacing AGI systems
-    - Employee dissent exists but leadership remains committed to AGI race
   end_states:
     - Accept strict liability for dangerous systems
-    - Comply with compute oversight and hard caps
-    - Pivot business models from AGI toward Tool AI
-    - Respond to cultural and social pressure to change mission
   gaps:
     - severity: Critical
       explanation: Strong resistance to liability threatens public accountability
-    - severity: Critical
-      explanation: Corporate incentives favor AGI race; no acceptance of compute caps
-    - severity: Critical
-      explanation: Pivot to Tool AI conflicts with profit logic of automation
-    - severity: Large
-      explanation: Some cultural dissent, but weak relative to leadership and profit incentives
-  referenced_quotes:
-    - "Major technology companies see AGI as the ultimate automation technology – not just augmenting human workers but replacing them largely or entirely. 11"
-    - "It is that AGI can directly, one-for-one, replace workers. Not augment, not empower, not make more productive. 12"
-    - "AI companies are also cognizant of who is willing to pay... a company will pay thousands of dollars per year to replace your labor, if they can. 13"
-    - "Less charitably, what drives the race is power... AGI will absorb and seek power rather than grant it... racing dynamics – both corporate and geopolitical – make large-scale risks... nearly inevitable unless decisively interrupted. 14"
-    - "Rather than pursuing uncontrollable AGI, we can develop powerful 'Tool AI' that enhances human capability while remaining under meaningful human control. 15"
-    - "New models of public AI development and ownership would help... explicitly chartered to serve the public interest while operating under strong safety constraints. 16"
-    - "Companies often represent that they are in favor of reasonable regulation. But somehow they nearly always seem to oppose any particular regulation. 17"
-    - "The default outcome of such high levels of liability... is likely... for companies to simply not develop full AGI until... trustworthy, safe, and controllable. 18"
 
 HardwareManufacturers:
   initial_states:
     - Highly concentrated supply chain (TSMC, ASML, NVIDIA, AMD) makes oversight feasible
-    - Some export controls in place (e.g., US restrictions to China)
-    - No global harmonized standards; unilateral controls create loopholes
-    - Firms profit from maximizing demand; no incentives to restrain sales
   end_states:
     - Embed governance features in chips (cryptographic locks, metering, geolocation)
-    - Cooperate with government oversight and reporting schemes
-    - Support global standards without loopholes
-    - Accept reduced sales in exchange for stability and safety
   gaps:
     - severity: Moderate
       explanation: Technical feasibility proven, but dependent on government mandates
-    - severity: Moderate
-      explanation: Partial oversight exists, but limited cooperation
-    - severity: Large
-      explanation: Global standards absent due to geopolitical rivalry
-    - severity: Large
-      explanation: Commercial incentives oppose restraint; alignment requires regulation
-  referenced_quotes:
-    - "Because specialized AI hardware is made by only a handful of companies, verification and enforcement are feasible through the existing supply chain. 19"
-    - "Similar hardware features embedded in cutting edge AI-relevant computing hardware could play an extremely useful role in AI security and governance. 20"
-    - "Allow-listed connections... can cap the size of communicative clusters of chips. 21"
-    - "Metered inference or training... The model can then be 'turned off' simply by withholding this license signal. 22"
-    - "There is ample precedent for hardware companies placing remote restrictions on their hardware usage, and locking/unlocking particular capabilities externally. 23"
-    - "All AI-relevant hardware manufacturers... adhere to a set of requirements... including... regular permission by a remote 'governor' who receives both telemetry and requests... 24"
-    - "Additional countries are strongly encouraged to join... export controls by signatory countries restrict access to high-end hardware by non-signatories... 25"
-    - "A major program to... develop the on-chip hardware security mechanisms... could build off of the US CHIPS act and export control regime. 26"
-    - "However, large-scale regulation... sure to be opposed by industry, takes time... 27"
 
 Regulators:
   initial_states:
-    - Industry lobbying strongly influences rulemaking; EU AI Act exempts military AI and does not prohibit AGI
     - Early standards like Frontier Model Forum exist but lack enforcement
-    - No global AI governance body exists; only proposals for CERN/IAEA-style institutions
   end_states:
-    - Stay independent from corporate and national capture
     - Develop clear technical standards for compute reporting and accounting
-    - Create legitimate global governance institutions
   gaps:
-    - severity: Large
-      explanation: Regulators heavily influenced by corporate lobbying and national agendas
     - severity: Moderate
       explanation: Groundwork exists but technical standards lack precision and enforcement
-    - severity: Critical
-      explanation: No international enforcement mechanisms; rival governments do not cooperate
-  referenced_quotes:
-    - "The EU AI Act... has two key flaws... military AI is exempt... [and] it fails to recognize AGI or superintelligence as unacceptable risks or prevent their development—only their EU deployment. 28"
-    - "Companies often represent that they are in favor of reasonable regulation. But somehow they nearly always seem to oppose any particular regulation. 29"
-    - "This agreement creates a new international agency, analogous to the International Atomic Energy Agency, charged with overseeing AI training and execution. 30"
-    - "The agency... agrees on computation limitations which then take legal force in the signatory countries. 31"
-    - "A standards organization (e.g., NIST... followed by ISO/IEEE internationally) should codify a detailed technical standard for the total compute used... 32"
-    - "Safety case... plus independent safety audits... approved by national authorities wherever the model can be used. 33"
-    - "Those developing AI that combines high autonomy, broad generality, and superior intelligence should face strict liability for harms, while safe harbors... encourage development of more limited and controllable systems. 34"
-    - "The key missing ingredient is political and social will to take control of the AI development process. 35"
 
 CivilSociety:
   initial_states:
-    - Public polls show opposition to AGI but understanding of risks is shallow
     - NGOs exist (Future of Life Institute, alignment groups) but fragmented and weak relative to corporations
-    - Institutions weak; lobbying power of corporations outweighs public preference
   end_states:
-    - Be well-informed on AGI risks and Tool AI alternatives
     - Build broad coalitions across NGOs, labor, and media
-    - Exert democratic leverage early to influence policy
   gaps:
-    - severity: Moderate
-      explanation: Public instincts align but education and awareness are lacking
     - severity: Large
       explanation: Coalitions fragmented; need stronger coordination
-    - severity: Large
-      explanation: Democratic pressure weak compared to corporate lobbying and declining institutional trust
-  referenced_quotes:
-    - "The key missing ingredient is political and social will to take control of the AI development process. 36"
-    - "Decent human institutions, empowered by AI tools, can do it. 37"
-    - "By undermining human discourse, debate, and election systems, they could reduce the credibility of democratic institutions... ending democracy in states where it currently exists. 38"
-    - "We can start immediately with enhanced oversight and liability, while building toward more comprehensive governance. 39"
-    - "Our society’s failure to control these dynamics so far does not bode well. 40"
-    - "The very first and most important step... is a Gate closure to smarter-than-human AGI and superintelligence. 41"
 
 ScientificCommunity:
   initial_states:
-    - Many researchers absorbed by big tech labs; independent research underfunded
     - Some collaboration among AI safety networks but fragmented
-    - Prominent researchers (Hinton, Bengio) actively warn of extinction risks
   end_states:
-    - Resist corporate funding capture
     - Coordinate globally to prevent 'safety tourism'
-    - Engage public and policymakers with credible advocacy
   gaps:
-    - severity: Large
-      explanation: Corporate incentives dominate research directions
     - severity: Moderate
       explanation: Global coordination exists but fragmented and underpowered
-    - severity: Small
-      explanation: Advocacy growing and aligned, but not yet mainstreamed
-  referenced_quotes:
-    - "Over the past half-decade... AI has transformed from a relatively pure research field into much more of an engineering and product field, largely driven by some of the world’s largest companies... Researchers... are no longer in charge of the process. 42"
-    - "The human and fiscal resources dedicated to AI advancement now equal those of a dozen Manhattan Projects and several Apollo Projects. 43"
-    - "New models of public AI development and ownership would help... government-developed AI... nonprofit AI development organizations... explicitly chartered to serve the public interest while operating under strong safety constraints. 44"
-    - "A national investment project in scientific advancement using AI... partnership between the DOE, NSF, and NIH. 45"
-    - "We should... give AI-empowered humans a go at the problem first. 46"
-    - "We may eventually choose to develop yet more powerful and more sovereign systems... only after we have developed the scientific understanding and governance capacity to do so safely. 47"
-    - "Corporations pursuing profit develop instrumental goals like acquiring political power... or undermining scientific understanding (if that understanding shows their actions to be harmful). 48"

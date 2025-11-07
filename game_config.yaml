@@ -1,11 +1,9 @@
 game:
-  scenario: complete
+  scenario: 01-race-to-contain-power
   win_threshold: 71
   max_rounds: 10
-  roll_success_threshold: 10
+  roll_success_threshold: 14
   action_time_cost_years: 0.5
-  format_prompt_character_limit: 400
-  conversation_force_action_after: 8
   enabled_factions:
     - Governments
     - Corporations
@@ -13,3 +11,5 @@ game:
     - Regulators
     - CivilSociety
     - ScientificCommunity
+  format_prompt_character_limit: 300
+  conversation_force_action_after: 6
