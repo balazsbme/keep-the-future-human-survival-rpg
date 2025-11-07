@@ -12,14 +12,14 @@ Governments:
     - severity: Large
       explanation: Oversight agencies lack authority and speed; regulation lags industry progress
   referenced_quotes:
-    - "AI systems require careful regulation by effective and empowered government agencies." :contentReference[oaicite:0]{index=0}
-    - "Comprehensive regulation, with empowered regulatory bodies, will be needed for AI just as for every other major industry posing a risk to the public." :contentReference[oaicite:1]{index=1}
-    - "A standards organization (e.g. NIST in the US followed by ISO/ IEEE internationally) should codify a detailed technical standard for the total compute used in training and operating AI models, in FLOP, and the speed in FLOP/s at which they operate." :contentReference[oaicite:2]{index=2}
-    - "All AI training runs estimated above 1025 FLOP done by companies operating in the US be registered in a database maintained by a US regulatory agency." :contentReference[oaicite:3]{index=3}
-    - "The US, China, and any other countries hosting advanced chip manufacturing capability negotiate an international agreement." :contentReference[oaicite:4]{index=4}
-    - "This agreement creates a new international agency, analogous to the International Atomic Energy Agency, charged with overseeing AI training and execution." :contentReference[oaicite:5]{index=5}
-    - "However, large-scale regulation, especially with real teeth that are sure to be opposed by industry, takes time… Given the pace of progress, this may take more time than we have available." :contentReference[oaicite:6]{index=6}
-    - "Licenses would [be] granted on the basis of safety cases and audits… These would prevent release of system until they are demonstrated safe." :contentReference[oaicite:7]{index=7}
+    - "AI systems require careful regulation by effective and empowered government agencies."
+    - "Comprehensive regulation, with empowered regulatory bodies, will be needed for AI just as for every other major industry posing a risk to the public."
+    - "A standards organization (e.g. NIST in the US followed by ISO/ IEEE internationally) should codify a detailed technical standard for the total compute used in training and operating AI models, in FLOP, and the speed in FLOP/s at which they operate."
+    - "All AI training runs estimated above 1025 FLOP done by companies operating in the US be registered in a database maintained by a US regulatory agency."
+    - "The US, China, and any other countries hosting advanced chip manufacturing capability negotiate an international agreement."
+    - "This agreement creates a new international agency, analogous to the International Atomic Energy Agency, charged with overseeing AI training and execution."
+    - "However, large-scale regulation, especially with real teeth that are sure to be opposed by industry, takes time… Given the pace of progress, this may take more time than we have available."
+    - "Licenses would [be] granted on the basis of safety cases and audits… These would prevent release of system until they are demonstrated safe."
 
 Corporations:
   initial_states:
@@ -30,13 +30,13 @@ Corporations:
     - severity: Critical
       explanation: Strong resistance to liability threatens public accountability
   referenced_quotes:
-    - "Companies often represent that they are in favor of reasonable regulation. But somehow they nearly always seem to oppose any particular regulation; witness the fight over the quite low-touch SB1047, which most AI companies publicly or privately opposed." :contentReference[oaicite:8]{index=8}
-    - "Creation and operation… of an advanced AI system that is highly general, capable, and autonomous, should be legally clarified via legislation to be subject to strict, joint-and-several… liability." :contentReference[oaicite:9]{index=9}
-    - "As such, the default liability for training and operating such systems level is strict, joint and several liability… for any harms done by the model or its outputs/actions." :contentReference[oaicite:10]{index=10}
-    - "Personal liability will be imposed for executives and board members in cases of gross negligence or willful misconduct." :contentReference[oaicite:11]{index=11}
-    - "Legislation would explicitly outline situations under which injunctive relief… to halt… activities that constitute a public danger would be appropriate." :contentReference[oaicite:12]{index=12}
-    - "Those developing AI that combines high autonomy, broad generality, and superior intelligence should face strict liability for harms." :contentReference[oaicite:13]{index=13}
-    - "It is that AGI can directly, one-for-one, replace workers. Not augment, not empower, not make more productive." :contentReference[oaicite:14]{index=14}
+    - "Companies often represent that they are in favor of reasonable regulation. But somehow they nearly always seem to oppose any particular regulation; witness the fight over the quite low-touch SB1047, which most AI companies publicly or privately opposed."
+    - "Creation and operation… of an advanced AI system that is highly general, capable, and autonomous, should be legally clarified via legislation to be subject to strict, joint-and-several… liability."
+    - "As such, the default liability for training and operating such systems level is strict, joint and several liability… for any harms done by the model or its outputs/actions."
+    - "Personal liability will be imposed for executives and board members in cases of gross negligence or willful misconduct."
+    - "Legislation would explicitly outline situations under which injunctive relief… to halt… activities that constitute a public danger would be appropriate."
+    - "Those developing AI that combines high autonomy, broad generality, and superior intelligence should face strict liability for harms."
+    - "It is that AGI can directly, one-for-one, replace workers. Not augment, not empower, not make more productive."
 
 HardwareManufacturers:
   initial_states:
@@ -47,14 +47,14 @@ HardwareManufacturers:
     - severity: Moderate
       explanation: Technical feasibility proven, but dependent on government mandates
   referenced_quotes:
-    - "Because specialized AI hardware is made by only a handful of companies, verification and enforcement are feasible through the existing supply chain." :contentReference[oaicite:15]{index=15}
-    - "Similar hardware features embedded in cutting edge AI-relevant computing hardware could play an extremely useful role in AI security and governance." :contentReference[oaicite:16]{index=16}
-    - "Geolocation: Systems can be set up so that chips have a known location, and can act differently (or be shut off altogether) based upon location." :contentReference[oaicite:17]{index=17}
-    - "Allow-listed connections: each chip can be configured with a hardware-enforced allow-list of particular other chips with which it can network." :contentReference[oaicite:18]{index=18}
-    - "Metered inference or training (and auto-offswitch)… The model can then be 'turned off' simply by withholding this license signal." :contentReference[oaicite:19]{index=19}
-    - "All AI-relevant hardware manufacturers… adhere to a set of requirements… including… regular permission by a remote 'governor' who receives both telemetry and requests to perform additional computation." :contentReference[oaicite:20]{index=20}
-    - "There is ample precedent for hardware companies placing remote restrictions on their hardware usage, and locking/unlocking particular capabilities externally." :contentReference[oaicite:21]{index=21}
-    - "Implementation and enforcement rely on standard legal restrictions… backed up by terms-of-use of the hardware and by hardware controls, vastly simplifying enforcement and forestalling cheating." :contentReference[oaicite:22]{index=22}
+    - "Because specialized AI hardware is made by only a handful of companies, verification and enforcement are feasible through the existing supply chain."
+    - "Similar hardware features embedded in cutting edge AI-relevant computing hardware could play an extremely useful role in AI security and governance."
+    - "Geolocation: Systems can be set up so that chips have a known location, and can act differently (or be shut off altogether) based upon location."
+    - "Allow-listed connections: each chip can be configured with a hardware-enforced allow-list of particular other chips with which it can network."
+    - "Metered inference or training (and auto-offswitch)… The model can then be 'turned off' simply by withholding this license signal."
+    - "All AI-relevant hardware manufacturers… adhere to a set of requirements… including… regular permission by a remote 'governor' who receives both telemetry and requests to perform additional computation."
+    - "There is ample precedent for hardware companies placing remote restrictions on their hardware usage, and locking/unlocking particular capabilities externally."
+    - "Implementation and enforcement rely on standard legal restrictions… backed up by terms-of-use of the hardware and by hardware controls, vastly simplifying enforcement and forestalling cheating."
 
 Regulators:
   initial_states:
@@ -65,12 +65,12 @@ Regulators:
     - severity: Moderate
       explanation: Groundwork exists but technical standards lack precision and enforcement
   referenced_quotes:
-    - "A standards organization (e.g. NIST in the US followed by ISO/ IEEE internationally) should codify a detailed technical standard for the total compute used in training and operating AI models." :contentReference[oaicite:23]{index=23}
-    - "Some guidelines for such a standard were published by the Frontier Model Forum. Relative to the proposal here, those err on the side of less precision and less compute included in the tally." :contentReference[oaicite:24]{index=24}
-    - "Safety case… plus independent safety audits… approved by national authorities wherever the model can be used." :contentReference[oaicite:25]{index=25}
-    - "The agency… agrees on computation limitations which then take legal force in the signatory countries." :contentReference[oaicite:26]{index=26}
-    - "Licenses would [be] granted on the basis of safety cases and audits… Requirements would range from notification at the low end, to quantitative safety, security, and controllability guarantees before development, at the top end." :contentReference[oaicite:27]{index=27}
-    - "Ultimately, liability is not the right mechanism… Comprehensive regulation, with empowered regulatory bodies, will be needed for AI." :contentReference[oaicite:28]{index=28}
+    - "A standards organization (e.g. NIST in the US followed by ISO/ IEEE internationally) should codify a detailed technical standard for the total compute used in training and operating AI models."
+    - "Some guidelines for such a standard were published by the Frontier Model Forum. Relative to the proposal here, those err on the side of less precision and less compute included in the tally."
+    - "Safety case… plus independent safety audits… approved by national authorities wherever the model can be used."
+    - "The agency… agrees on computation limitations which then take legal force in the signatory countries."
+    - "Licenses would [be] granted on the basis of safety cases and audits… Requirements would range from notification at the low end, to quantitative safety, security, and controllability guarantees before development, at the top end."
+    - "Ultimately, liability is not the right mechanism… Comprehensive regulation, with empowered regulatory bodies, will be needed for AI."
 
 CivilSociety:
   initial_states:
@@ -81,12 +81,12 @@ CivilSociety:
     - severity: Large
       explanation: Coalitions fragmented; need stronger coordination
   referenced_quotes:
-    - "The key missing ingredient is political and social will to take control of the AI development process." :contentReference[oaicite:29]{index=29}
-    - "We can start immediately with enhanced oversight and liability, while building toward more comprehensive governance." :contentReference[oaicite:30]{index=30}
-    - "Decent human institutions, empowered by AI tools, can do it." :contentReference[oaicite:31]{index=31}
-    - "By undermining human discourse, debate, and election systems, they could reduce the credibility of democratic institutions… ending democracy in states where it currently exists." :contentReference[oaicite:32]{index=32}
-    - "Our current governance structures are struggling: they are slow to respond, often captured by special interests, and increasingly distrusted by the public." :contentReference[oaicite:33]{index=33}
-    - "Approaches to mitigate power concentration can face significant headwinds from incumbent powers." :contentReference[oaicite:34]{index=34}
+    - "The key missing ingredient is political and social will to take control of the AI development process."
+    - "We can start immediately with enhanced oversight and liability, while building toward more comprehensive governance."
+    - "Decent human institutions, empowered by AI tools, can do it."
+    - "By undermining human discourse, debate, and election systems, they could reduce the credibility of democratic institutions… ending democracy in states where it currently exists."
+    - "Our current governance structures are struggling: they are slow to respond, often captured by special interests, and increasingly distrusted by the public."
+    - "Approaches to mitigate power concentration can face significant headwinds from incumbent powers."
 
 ScientificCommunity:
   initial_states:
@@ -97,8 +97,8 @@ ScientificCommunity:
     - severity: Moderate
       explanation: Global coordination exists but fragmented and underpowered
   referenced_quotes:
-    - "Over the past half-decade… AI has transformed from a relatively pure research field into much more of an engineering and product field, largely driven by some of the world’s largest companies… Researchers… are no longer in charge of the process." :contentReference[oaicite:35]{index=35}
-    - "Agreements to bring such measures to the international level, including international bodies to harmonize norms and standards, and potentially international agencies to review safety cases." :contentReference[oaicite:36]{index=36}
-    - "Company consortia, working with NGOs and government agencies, should develop standards and norms defining these terms… and how courts should interpret liability where safe harbors are not proactively claimed." :contentReference[oaicite:37]{index=37}
-    - "A national investment project in scientific advancement using AI… running as a partnership between the DOE, NSF, and NIH." :contentReference[oaicite:38]{index=38}
-    - "In parallel, a set of international standards may be developed so that training and running of AIs above a threshold of computation… are required to adhere to those standards." :contentReference[oaicite:39]{index=39}
+    - "Over the past half-decade… AI has transformed from a relatively pure research field into much more of an engineering and product field, largely driven by some of the world’s largest companies… Researchers… are no longer in charge of the process."
+    - "Agreements to bring such measures to the international level, including international bodies to harmonize norms and standards, and potentially international agencies to review safety cases."
+    - "Company consortia, working with NGOs and government agencies, should develop standards and norms defining these terms… and how courts should interpret liability where safe harbors are not proactively claimed."
+    - "A national investment project in scientific advancement using AI… running as a partnership between the DOE, NSF, and NIH."
+    - "In parallel, a set of international standards may be developed so that training and running of AIs above a threshold of computation… are required to adhere to those standards."
