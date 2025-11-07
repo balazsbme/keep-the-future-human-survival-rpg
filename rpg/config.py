@@ -25,6 +25,7 @@ class GameConfig:
     action_time_cost_years: float = 0.5
     format_prompt_character_limit: int = 400
     conversation_force_action_after: int = 8
+    enabled_factions: tuple[str, ...] = ()
 
 
 _DEFAULT_CONFIG_PATH = os.path.join(
@@ -101,6 +102,18 @@ def load_game_config(path: str | None = None) -> GameConfig:
     conversation_force_action_after = _coerce_int(
         data.get("conversation_force_action_after", 8), 8
     )
+    enabled_raw = data.get("enabled_factions", ())
+    enabled_factions: tuple[str, ...] = ()
+    if isinstance(enabled_raw, str):
+        items = [item.strip() for item in enabled_raw.split(",")]
+        enabled_factions = tuple(item for item in items if item)
+    elif isinstance(enabled_raw, (list, tuple, set)):
+        cleaned = []
+        for item in enabled_raw:
+            text = str(item).strip()
+            if text:
+                cleaned.append(text)
+        enabled_factions = tuple(cleaned)
     return GameConfig(
         scenario=scenario.lower(),
         win_threshold=max(0, win_threshold),
@@ -109,6 +122,7 @@ def load_game_config(path: str | None = None) -> GameConfig:
         action_time_cost_years=max(0.0, action_time_cost_years),
         format_prompt_character_limit=max(1, char_limit),
         conversation_force_action_after=max(0, conversation_force_action_after),
+        enabled_factions=enabled_factions,
     )
 
 

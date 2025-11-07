@@ -47,7 +47,6 @@ class AssessmentAgent:
         self,
         char: Character,
         faction_list: str,
-        how_to_win: str,
         history_text: str,
     ) -> List[int]:
         """Assess ``char`` returning a list of progress scores.
@@ -59,11 +58,30 @@ class AssessmentAgent:
         base_context = str(char.base_context or "")
         triplet_text = char._triplet_text()
         context = f"{base_context}\n{triplet_text}"
+        reference_parts: List[str] = []
+        summary_text = getattr(char, "scenario_summary", "")
+        if summary_text:
+            reference_parts.append(f"Scenario summary:\n{summary_text}")
+        quote_lines: List[str] = []
+        for quote in getattr(char, "referenced_quotes", []) or []:
+            text = str(quote or "").strip()
+            if text:
+                quote_lines.append(f"- {text}")
+        if quote_lines:
+            reference_parts.append("Reference quotes:\n" + "\n".join(quote_lines))
+        reference_block = (
+            "\n\n".join(reference_parts)
+            if reference_parts
+            else "No reference material provided."
+        )
+
         manager = get_cache_manager()
         cache_config = None
         cache_instruction = ""
         if manager:
-            cache_segments = [f"Baseline script for evaluation:\n{how_to_win}"]
+            cache_segments = [
+                f"Reference material for evaluation:\n{reference_block}"
+            ]
             base_context_clean = base_context.strip()
             if base_context_clean:
                 cache_segments.append(
@@ -73,14 +91,14 @@ class AssessmentAgent:
                 cache_segments.append(
                     f"Triplet definitions for {char.progress_label}:\n{triplet_text}"
                 )
-            cache_hash = f"{abs(hash(how_to_win)) & 0xFFFFFFFF:08x}"
+            cache_hash = f"{abs(hash(reference_block)) & 0xFFFFFFFF:08x}"
             cache_key = re.sub(
                 r"[^a-z0-9_-]+",
                 "-",
                 f"assessment-{char.progress_key}-{cache_hash}".lower(),
             )
             cache_instruction = (
-                "Use the cached baseline script, persona context, and triplet definitions when computing progress scores.\n"
+                "Use the cached reference material, persona context, and triplet definitions when computing progress scores.\n"
             )
             try:
                 cache_config = manager.get_cached_config(
@@ -89,7 +107,7 @@ class AssessmentAgent:
                     texts=cache_segments,
                     system_instruction=(
                         "You are the Game Master for the 'Keep the future human' survival RPG. "
-                        "Reference the cached baseline script, persona context, and triplet definitions when producing assessment scores."
+                        "Reference the cached reference material, persona context, and triplet definitions when producing assessment scores."
                     ),
                 )
             except Exception as exc:  # pragma: no cover - cache service failure
@@ -101,14 +119,14 @@ class AssessmentAgent:
             baseline_context = cache_instruction
         else:
             baseline_context = (
-                f"The baseline script: {how_to_win}\n"
+                f"Reference material:\n{reference_block}\n"
                 f"Assess all triplets for {char.progress_label} using the context below:\n{context}\n"
             )
         prompt = (
             "You are the Game Master for the 'Keep the future human' survival RPG. "
             "The player is interacting with the characters and convinces them to take actions. "
             f"Assess the progress for the following factions' 'initial state - end state - gap' triplets with a 0-100 integer: {faction_list}, "
-            "based on the baseline script and the performed actions.\n"
+            "based on the provided reference material and the performed actions.\n"
             f"{baseline_context}"
             f"Performed actions: {history_text}\n"
             "Output ONLY an ordered list of 0-100 integers one for each triplet line-by-line. For example, 0 means that no relevant actions have been performed for a triplet (i.e. still the 'initial state' stands), while ~50 means that the 'gap' has been reduced by a lot, but significant gap remains, finally 100 means that the performed actions equivalently describe the 'end state'."
@@ -150,7 +168,6 @@ class AssessmentAgent:
     def assess(
         self,
         characters: List[Character],
-        how_to_win: str,
         history: List[Tuple[str, str]],
         parallel: bool = False,
     ) -> Dict[str, List[int]]:
@@ -158,7 +175,6 @@ class AssessmentAgent:
 
         Args:
             characters: List of game characters.
-            how_to_win: Baseline script content.
             history: List of (character label, action) tuples performed so far.
 
         Returns:
@@ -171,7 +187,7 @@ class AssessmentAgent:
             with ThreadPoolExecutor(max_workers=len(characters)) as executor:
                 future_map = {
                     executor.submit(
-                        self._assess_single, char, faction_list, how_to_win, history_text
+                        self._assess_single, char, faction_list, history_text
                     ): char.progress_key
                     for char in characters
                 }
@@ -180,6 +196,6 @@ class AssessmentAgent:
         results: Dict[str, List[int]] = {}
         for char in characters:
             results[char.progress_key] = self._assess_single(
-                char, faction_list, how_to_win, history_text
+                char, faction_list, history_text
             )
         return results

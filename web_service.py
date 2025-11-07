@@ -28,6 +28,10 @@ GITHUB_URL = "https://github.com/balazsbme/keep-the-future-human-survival-rpg"
 logger = logging.getLogger(__name__)
 
 
+# Expose the active configuration at module scope so tests can patch it.
+current_config: GameConfig = load_game_config()
+
+
 def _option_from_payload(raw: str) -> ResponseOption:
     """Return a :class:`ResponseOption` parsed from ``raw`` JSON."""
 
@@ -46,7 +50,8 @@ def create_app() -> Flask:
 
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
     app = Flask(__name__)
-    current_config = load_game_config()
+    global current_config
+    config_in_use = current_config
     scenario_roots = [
         Path(__file__).resolve().parent / "scenarios",
         Path(__file__).resolve().parent / "rpg" / "scenarios",
@@ -56,12 +61,12 @@ def create_app() -> Flask:
         if root.exists():
             discovered_scenarios.update(p.stem.lower() for p in root.glob("*.yaml"))
     if not discovered_scenarios:
-        available_scenarios = [current_config.scenario]
+        available_scenarios = [config_in_use.scenario]
     else:
-        discovered_scenarios.add(current_config.scenario)
+        discovered_scenarios.add(config_in_use.scenario)
         available_scenarios = sorted(discovered_scenarios)
-    initial_characters = load_characters(config=current_config)
-    game_state = GameState(list(initial_characters), config_override=current_config)
+    initial_characters = load_characters(config=config_in_use)
+    game_state = GameState(list(initial_characters), config_override=config_in_use)
     assessor = AssessmentAgent()
     enable_parallel = os.environ.get("ENABLE_PARALLELISM") == "1"
     pending_player_options: Dict[
@@ -125,14 +130,23 @@ def create_app() -> Flask:
     )
 
     def _reload_state(config: GameConfig) -> None:
-        nonlocal current_config, initial_characters, game_state, last_history_signature
+        nonlocal config_in_use, initial_characters, game_state, last_history_signature
+        global current_config
         logger.info("Reloading game state with config %s", config)
+        config_in_use = config
         current_config = config
         try:
             new_characters = load_characters(config=config)
         except StopIteration:
             logger.warning(
                 "Character loading interrupted by exhausted mock; reusing existing roster"
+            )
+            new_characters = list(initial_characters)
+        except RuntimeError as exc:
+            logger.error(
+                "Failed to load characters with config %s: %s; reusing existing roster",
+                config,
+                exc,
             )
             new_characters = list(initial_characters)
         initial_characters = list(new_characters)
@@ -148,6 +162,13 @@ def create_app() -> Flask:
                 config_override=config,
                 player_override=existing_player,
             )
+        except RuntimeError as exc:
+            logger.error(
+                "Failed to reset game state with config %s: %s; keeping previous state",
+                config,
+                exc,
+            )
+            return
         game_state = new_state
         pending_player_options.clear()
         player_option_signatures.clear()
@@ -212,13 +233,13 @@ def create_app() -> Flask:
 
     @app.route("/", methods=["GET", "POST"])
     def main_page() -> Response | str:
-        nonlocal current_config
+        nonlocal config_in_use
 
         if request.method == "POST":
-            scenario = request.form.get("scenario", current_config.scenario)
-            scenario = (scenario or current_config.scenario).strip().lower()
+            scenario = request.form.get("scenario", config_in_use.scenario)
+            scenario = (scenario or config_in_use.scenario).strip().lower()
             if scenario not in available_scenarios:
-                scenario = current_config.scenario
+                scenario = config_in_use.scenario
 
             def _parse_int(field: str, fallback: int) -> int:
                 try:
@@ -226,12 +247,12 @@ def create_app() -> Flask:
                 except (TypeError, ValueError):
                     return fallback
 
-            win_threshold = max(0, _parse_int("win_threshold", current_config.win_threshold))
-            max_rounds = max(1, _parse_int("max_rounds", current_config.max_rounds))
+            win_threshold = max(0, _parse_int("win_threshold", config_in_use.win_threshold))
+            max_rounds = max(1, _parse_int("max_rounds", config_in_use.max_rounds))
             roll_threshold = max(
                 1,
                 _parse_int(
-                    "roll_success_threshold", current_config.roll_success_threshold
+                    "roll_success_threshold", config_in_use.roll_success_threshold
                 ),
             )
             new_config = GameConfig(
@@ -928,7 +949,6 @@ def create_app() -> Flask:
                     attempt = game_state.attempt_action(character, option)
                     chars_snapshot = list(game_state.characters)
                     history_snapshot = list(game_state.history)
-                    how_to_win = game_state.how_to_win
                     conversation_snapshot = game_state.conversation_history(character)
                     player_snapshot = game_state.player_character
                     state_html = game_state.render_state()
@@ -946,13 +966,11 @@ def create_app() -> Flask:
 
                         def run_assessment(
                             chars: List[Character],
-                            instructions: str,
                             hist: List[Tuple[str, str]],
                         ) -> None:
                             try:
                                 scores = assessor.assess(
                                     chars,
-                                    instructions,
                                     hist,
                                     parallel=True,
                                 )
@@ -967,16 +985,14 @@ def create_app() -> Flask:
 
                         t = threading.Thread(
                             target=run_assessment,
-                            args=(chars_snapshot, how_to_win, history_snapshot),
+                            args=(chars_snapshot, history_snapshot),
                             daemon=True,
                         )
                         with assessment_lock:
                             assessment_threads.append(t)
                         t.start()
                     else:
-                        scores = assessor.assess(
-                            chars_snapshot, how_to_win, history_snapshot
-                        )
+                        scores = assessor.assess(chars_snapshot, history_snapshot)
                         with state_lock:
                             game_state.update_progress(scores)
                     return redirect("/start")
@@ -1139,7 +1155,6 @@ def create_app() -> Flask:
             attempt = game_state.reroll_action(character, option)
             chars_snapshot = list(game_state.characters)
             history_snapshot = list(game_state.history)
-            how_to_win = game_state.how_to_win
             conversation_snapshot = game_state.conversation_history(character)
             player_snapshot = game_state.player_character
             state_html = game_state.render_state()
@@ -1153,13 +1168,11 @@ def create_app() -> Flask:
 
                 def run_assessment(
                     chars: List[Character],
-                    instructions: str,
                     hist: List[Tuple[str, str]],
                 ) -> None:
                     try:
                         scores = assessor.assess(
                             chars,
-                            instructions,
                             hist,
                             parallel=True,
                         )
@@ -1174,16 +1187,14 @@ def create_app() -> Flask:
 
                 t = threading.Thread(
                     target=run_assessment,
-                    args=(chars_snapshot, how_to_win, history_snapshot),
+                    args=(chars_snapshot, history_snapshot),
                     daemon=True,
                 )
                 with assessment_lock:
                     assessment_threads.append(t)
                 t.start()
             else:
-                scores = assessor.assess(
-                    chars_snapshot, how_to_win, history_snapshot
-                )
+                scores = assessor.assess(chars_snapshot, history_snapshot)
                 with state_lock:
                     game_state.update_progress(scores)
             return redirect("/start")
@@ -1209,18 +1220,15 @@ def create_app() -> Flask:
             game_state.finalize_failed_action(character, option)
             chars_snapshot = list(game_state.characters)
             history_snapshot = list(game_state.history)
-            how_to_win = game_state.how_to_win
         if enable_parallel:
 
             def run_assessment(
                 chars: List[Character],
-                instructions: str,
                 hist: List[Tuple[str, str]],
             ) -> None:
                 try:
                     scores = assessor.assess(
                         chars,
-                        instructions,
                         hist,
                         parallel=True,
                     )
@@ -1235,16 +1243,14 @@ def create_app() -> Flask:
 
             t = threading.Thread(
                 target=run_assessment,
-                args=(chars_snapshot, how_to_win, history_snapshot),
+                args=(chars_snapshot, history_snapshot),
                 daemon=True,
             )
             with assessment_lock:
                 assessment_threads.append(t)
             t.start()
         else:
-            scores = assessor.assess(
-                chars_snapshot, how_to_win, history_snapshot
-            )
+            scores = assessor.assess(chars_snapshot, history_snapshot)
             with state_lock:
                 game_state.update_progress(scores)
         return redirect("/start")
@@ -1253,14 +1259,15 @@ def create_app() -> Flask:
     def reset() -> Response:
         logger.info("Resetting game state")
         with state_lock:
-            _reload_state(current_config)
+            _reload_state(config_in_use)
         return redirect("/")
 
     @app.route("/instructions", methods=["GET"])
     def instructions() -> str:
-        content = game_state.how_to_win
+        content = game_state.reference_material or "No reference material configured."
         return (
             "<h1>Instructions</h1>"
+            "<h2>Reference material</h2>"
             f"<pre>{content}</pre>"
             "<a href='/start'>Back to game</a>"
             f"{footer}"

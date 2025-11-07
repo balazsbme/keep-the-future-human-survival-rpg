@@ -266,7 +266,7 @@ class Player(ABC):
             state.last_action_attempt = None
             state.last_action_actor = None
             return
-        scores = assessor.assess(state.characters, state.how_to_win, state.history)
+        scores = assessor.assess(state.characters, state.history)
         logger.info("Assessment results: %s", scores)
         state.update_progress(scores)
 
@@ -400,10 +400,15 @@ class GeminiCivilSocietyPlayer(Player):
             f"{idx+1}. [{'Action' if act.is_action else 'Dialogue'}] {act.text}"
             for idx, act in enumerate(actions)
         )
+        reference_text = state.reference_text_for(getattr(character, "faction", None))
+        if not reference_text:
+            reference_text = state.reference_material or "No reference material provided."
+        scenario_summary = state.scenario_summary or "No scenario summary available."
         prompt = (
             "You are a civil society strategist in the 'Keep the future human' RPG. "
             "Prioritise collaborative, human-centric outcomes that secure a win for the coalition. "
-            f"Use the following guide to win: {state.how_to_win}\n"
+            f"Scenario overview:\n{scenario_summary}\n"
+            f"Reference material:\n{reference_text}\n"
             f"Character: {character.display_name}\n"
             f"Faction context: {character.base_context}\n"
             "Conversation so far:\n"
@@ -446,10 +451,15 @@ class GeminiCivilSocietyPlayer(Player):
         )
         cost = state.next_reroll_cost(character, attempt.option)
         numbered_history = _format_conversation(conversation)
+        reference_text = state.reference_text_for(getattr(character, "faction", None))
+        if not reference_text:
+            reference_text = state.reference_material or "No reference material provided."
+        scenario_summary = state.scenario_summary or "No scenario summary available."
         prompt = (
             "You are guiding a civil society coalition assessing whether a failed action "
             "is important enough to reroll in the 'Keep the future human' RPG. "
-            f"Use the victory guide: {state.how_to_win}\n"
+            f"Scenario overview:\n{scenario_summary}\n"
+            f"Reference material:\n{reference_text}\n"
             f"Character: {character.display_name}\n"
             f"Conversation so far:\n{numbered_history}\n"
             f"Action attempted: {attempt.option.text}\n"

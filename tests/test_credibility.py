@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from rpg.character import ResponseOption
 from rpg.credibility import CredibilityMatrix
 from rpg.game_state import GameState
+from rpg.config import GameConfig
 
 
 class DummyCharacter:
@@ -33,7 +34,8 @@ class CredibilityMatrixTests(unittest.TestCase):
     def test_record_action_rewards_targets(self, mock_uniform, mock_genai):
         mock_genai.GenerativeModel.return_value = MagicMock()
         character = DummyCharacter("Alice", "Governments")
-        state = GameState([character])
+        config = GameConfig(enabled_factions=("Governments", "CivilSociety"))
+        state = GameState([character], config_override=config)
         player_faction = state.player_faction
         initial_player = state.credibility.value(player_faction, "Regulators")
         action = ResponseOption(
@@ -50,7 +52,8 @@ class CredibilityMatrixTests(unittest.TestCase):
     ):
         mock_genai.GenerativeModel.return_value = MagicMock()
         character = DummyCharacter("Alice", "Governments")
-        state = GameState([character])
+        config = GameConfig(enabled_factions=("Governments", "CivilSociety"))
+        state = GameState([character], config_override=config)
         player_faction = state.player_faction
         initial_player = state.credibility.value(player_faction, "Regulators")
         action = ResponseOption(
@@ -67,7 +70,8 @@ class CredibilityMatrixTests(unittest.TestCase):
     ):
         mock_genai.GenerativeModel.return_value = MagicMock()
         character = DummyCharacter("Alice", "Governments")
-        state = GameState([character])
+        config = GameConfig(enabled_factions=("Governments", "CivilSociety"))
+        state = GameState([character], config_override=config)
         player_faction = state.player_faction
         initial_player = state.credibility.value(player_faction, "Governments")
         action = ResponseOption(text="Limit compute", type="action", related_triplet=1)
@@ -80,7 +84,10 @@ class CredibilityMatrixTests(unittest.TestCase):
     def test_unknown_faction_initialises_defaults(self, mock_uniform, mock_genai):
         mock_genai.GenerativeModel.return_value = MagicMock()
         outsider = DummyCharacter("Bob", "NewFaction")
-        state = GameState([outsider])
+        config = GameConfig(
+            enabled_factions=("NewFaction", "Governments", "CivilSociety")
+        )
+        state = GameState([outsider], config_override=config)
         action = ResponseOption(text="Build bridges", type="action", related_triplet=None)
         state.record_action(outsider, action, targets=["Governments"])
         player_faction = state.player_faction

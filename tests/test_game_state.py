@@ -1,7 +1,12 @@
+import os
+import sys
 from unittest.mock import MagicMock, patch
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from rpg.game_state import GameState
 from rpg.character import ResponseOption
+from rpg.config import GameConfig
 
 
 class DummyCharacter:
@@ -25,7 +30,8 @@ def test_log_npc_responses_records_single_entry(mock_genai):
     mock_genai.GenerativeModel.return_value = mock_model
 
     character = DummyCharacter()
-    state = GameState([character])
+    config = GameConfig(enabled_factions=("Allies", "CivilSociety"))
+    state = GameState([character], config_override=config)
     action_option = ResponseOption(
         text="Build community shelters",
         type="action",
@@ -55,7 +61,8 @@ def test_log_npc_responses_falls_back_to_chat(mock_genai):
     mock_genai.GenerativeModel.return_value = mock_model
 
     character = DummyCharacter()
-    state = GameState([character])
+    config = GameConfig(enabled_factions=("Allies", "CivilSociety"))
+    state = GameState([character], config_override=config)
     chat_option = ResponseOption(text="We can mobilise volunteers.", type="chat")
 
     entries = state.log_npc_responses(character, [chat_option])

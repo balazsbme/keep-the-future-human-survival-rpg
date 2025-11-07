@@ -273,6 +273,19 @@ class Character(ABC):
             )
         return instructions
 
+    def _format_referenced_quotes(self) -> str:
+        """Return a bullet formatted list of referenced quotes for prompts."""
+
+        quotes = getattr(self, "referenced_quotes", None)
+        if not quotes:
+            return ""
+        lines = []
+        for quote in quotes:
+            text = str(quote or "").strip()
+            if text:
+                lines.append(f"- {text}")
+        return "\n".join(lines)
+
     def _setup_context_cache(
         self,
         *,
@@ -453,6 +466,9 @@ class YamlCharacter(Character):
                 self.weights.append(weight_map.get(sev, 1))
             else:
                 self.weights.append(1)
+        self.referenced_quotes = _normalize_referenced_quotes(
+            spec.get("referenced_quotes") or spec.get("ReferencedQuotes")
+        )
         super().__init__(
             name,
             base_context,
@@ -500,6 +516,11 @@ class YamlCharacter(Character):
             static_segments.append(
                 f"Scenario summary for {self.display_name}:\n{self.scenario_summary}"
             )
+        quotes_block = self._format_referenced_quotes()
+        if quotes_block:
+            static_segments.append(
+                f"Referenced quotes for {self.display_name}:\n{quotes_block}"
+            )
 
         fallback_lines = [
             f"Your persona is described below:\n{persona_summary}\n",
@@ -516,14 +537,19 @@ class YamlCharacter(Character):
             )
         if self.scenario_summary:
             fallback_lines.append(f"Scenario summary:\n{self.scenario_summary}\n")
+        if quotes_block:
+            fallback_lines.append(
+                "Key referenced quotes anchoring your objectives:\n"
+                f"{quotes_block}\n"
+            )
         fallback_prompt = "".join(fallback_lines)
 
         cache_instruction = (
-            f"Use the cached persona, MarkdownContext, scenario summary, and triplet information for {self.display_name} before crafting your response.\n"
+            f"Use the cached persona, MarkdownContext, scenario summary, referenced quotes, and triplet information for {self.display_name} before crafting your response.\n"
         )
         system_instruction = (
             "You are roleplaying as this character in the 'Keep the Future Human' survival RPG. "
-            "Ground every response in the cached persona, MarkdownContext, scenario summary, and triplet information."
+            "Ground every response in the cached persona, MarkdownContext, scenario summary, referenced quotes, and triplet information."
         )
         cache_key = re.sub(r"[^a-z0-9_-]+", "-", self.progress_key.lower())
         self._setup_context_cache(
@@ -731,9 +757,18 @@ class YamlCharacter(Character):
         if self.cached_context_config is not None:
             context_block = self.context_instruction
         else:
-            context_block = (
-                f"{self.base_context}\n{self._triplet_text()}\n"
-            )
+            segments = []
+            if getattr(self, "base_context", ""):
+                segments.append(str(self.base_context))
+            triplets_text = self._triplet_text()
+            if triplets_text:
+                segments.append(triplets_text)
+            quotes_block = self._format_referenced_quotes()
+            if quotes_block:
+                segments.append(f"Referenced quotes:\n{quotes_block}")
+            context_block = "\n".join(seg for seg in segments if seg)
+            if context_block:
+                context_block += "\n"
         assess_prompt = (
             f"{context_block}Action history:\n{self._history_text(full_history)}\n"
             "Provide progress (0-100) for each triplet on separate lines."
@@ -818,6 +853,10 @@ class PlayerCharacter(Character):
                 self.weights.append(weight_map.get(sev, 1))
             else:
                 self.weights.append(1)
+        self.referenced_quotes = _normalize_referenced_quotes(
+            faction_spec.get("referenced_quotes")
+            or faction_spec.get("ReferencedQuotes")
+        )
 
         faction_descriptor = re.sub(r"(?<!^)(?=[A-Z])", " ", faction).strip() or faction
         faction_lower = faction_descriptor.lower()
@@ -850,7 +889,7 @@ class PlayerCharacter(Character):
         summary_text = ""
         if isinstance(scenario_payload, dict):
             summary_value: object | None = None
-            for key in ("summary", "Summary"):
+            for key in ("ScenarioSummary", "summary", "Summary"):
                 if key in scenario_payload:
                     summary_value = scenario_payload.get(key)
                     break
@@ -889,6 +928,11 @@ class PlayerCharacter(Character):
             static_segments.append(
                 f"Scenario summary:\n{self.scenario_summary}"
             )
+        quotes_block = self._format_referenced_quotes()
+        if quotes_block:
+            static_segments.append(
+                f"Referenced quotes:\n{quotes_block}"
+            )
 
         fallback_lines: List[str] = []
         if self.base_context:
@@ -896,14 +940,21 @@ class PlayerCharacter(Character):
                 f"### Your {self._faction_descriptor} Context\n{self._faction_context()}\n"
             )
         fallback_lines.append(f"Your profile:\n{persona_summary}\n")
+        if self.scenario_summary:
+            fallback_lines.append(f"Scenario summary:\n{self.scenario_summary}\n")
+        if quotes_block:
+            fallback_lines.append(
+                "Key referenced quotes informing your strategy:\n"
+                f"{quotes_block}\n"
+            )
         fallback_prompt = "".join(fallback_lines)
 
         cache_instruction = (
-            f"Use the cached player persona, {self._faction_descriptor.lower()} context, and scenario summary when crafting your responses.\n"
+            f"Use the cached player persona, {self._faction_descriptor.lower()} context, scenario summary, and referenced quotes when crafting your responses.\n"
         )
         system_instruction = (
             "You are the player character in the 'Keep the Future Human' survival RPG. "
-            "Ground every reply in the cached persona, faction context, and scenario summary before responding to partners."
+            "Ground every reply in the cached persona, faction context, scenario summary, and referenced quotes before responding to partners."
         )
         cache_key = re.sub(
             r"[^a-z0-9_-]+",
@@ -1122,3 +1173,18 @@ def _mapping_from_payload(payload: object) -> dict:
             return {k: v for k, v in factions.items() if isinstance(v, dict)}
         return {k: v for k, v in payload.items() if isinstance(v, dict)}
     return {}
+def _normalize_referenced_quotes(value: object) -> List[str]:
+    """Return a list of referenced quotes extracted from ``value``."""
+
+    quotes: List[str] = []
+    if isinstance(value, (list, tuple, set)):
+        iterable = value
+    elif value is None:
+        iterable = []
+    else:
+        iterable = [value]
+    for item in iterable:
+        text = str(item or "").strip()
+        if text:
+            quotes.append(text)
+    return quotes

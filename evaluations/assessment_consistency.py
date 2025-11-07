@@ -40,7 +40,7 @@ def run_consistency_assessment(scenario_name: str | None = None) -> str:
     history = []
     results = []
     for _ in range(10):
-        scores = assessor.assess(characters, state.how_to_win, history, parallel=True)
+        scores = assessor.assess(characters, history, parallel=True)
         results.append(str(scores))
     return "\n".join(results)
 
