@@ -133,3 +133,37 @@ def test_load_characters_missing_characters_for_enabled_raises(tmp_path: Path, c
             )
     error_messages = "\n".join(record.getMessage() for record in caplog.records)
     assert "Missing" in error_messages
+
+
+def test_load_characters_with_all_factions_real_data() -> None:
+    config = GameConfig(
+        enabled_factions=(
+            "Governments",
+            "Corporations",
+            "HardwareManufacturers",
+            "Regulators",
+            "CivilSociety",
+            "ScientificCommunity",
+        ),
+        scenario="01-race-to-contain-power",
+    )
+    roster = load_characters(config=config)
+
+    factions = {character.faction for character in roster}
+    assert factions == set(config.enabled_factions)
+    assert all(getattr(character, "scenario_summary", "") for character in roster)
+    assert all(getattr(character, "referenced_quotes", None) for character in roster)
+
+
+def test_load_characters_with_subset_of_factions_real_data() -> None:
+    config = GameConfig(
+        enabled_factions=("Governments", "CivilSociety"),
+        scenario="01-race-to-contain-power",
+    )
+    roster = load_characters(config=config)
+
+    factions = {character.faction for character in roster}
+    assert factions == set(config.enabled_factions)
+    assert len(roster) == len(config.enabled_factions)
+    assert all(getattr(character, "scenario_summary", "") for character in roster)
+    assert all(getattr(character, "referenced_quotes", None) for character in roster)
