@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ from typing import Iterable, List, Mapping, Sequence, Tuple
 from .conversation import ConversationEntry, ConversationType
 from .logging_utils import collapse_prompt_sections
 from .config import GameConfig, load_game_config
+from .constants import ACTION_ATTRIBUTES
 from .credibility import CREDIBILITY_PENALTY
 from .genai_cache import get_cache_manager
 
@@ -488,7 +490,7 @@ class YamlCharacter(Character):
         else:
             self.scenario_summary = ""
         self._attribute_scores: dict[str, int] = {}
-        for attr in ("leadership", "technology", "policy", "network"):
+        for attr in ACTION_ATTRIBUTES:
             raw_value = profile.get(attr)
             if raw_value is None and attr.capitalize() in profile:
                 raw_value = profile.get(attr.capitalize())
@@ -586,7 +588,7 @@ class YamlCharacter(Character):
         costs: List[int] = []
         base_cost = CREDIBILITY_PENALTY
         partner_attr_score = getattr(partner, "attribute_score", None)
-        for attribute in ("leadership", "technology", "policy", "network"):
+        for attribute in ACTION_ATTRIBUTES:
             actor_score = self.attribute_score(attribute)
             if callable(partner_attr_score):
                 partner_score = partner_attr_score(attribute)
@@ -720,11 +722,14 @@ class YamlCharacter(Character):
             )
             if options:
                 first = options[0]
+                attribute = first.related_attribute
+                if attribute is None:
+                    attribute = random.choice(ACTION_ATTRIBUTES)
                 options[0] = ResponseOption(
                     text=first.text,
                     type="action",
                     related_triplet=None,
-                    related_attribute=first.related_attribute,
+                    related_attribute=attribute,
                 )
             else:
                 fallback_text = (
@@ -933,7 +938,7 @@ class PlayerCharacter(Character):
                 ]
                 summary_text = "\n".join(summary_parts)
         self.scenario_summary = summary_text
-        for attr in ("leadership", "technology", "policy", "network"):
+        for attr in ACTION_ATTRIBUTES:
             raw_value = profile.get(attr)
             if raw_value is None and attr.capitalize() in profile:
                 raw_value = profile.get(attr.capitalize())

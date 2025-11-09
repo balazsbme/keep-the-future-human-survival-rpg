@@ -203,6 +203,18 @@ def main() -> None:
                 )
                 print(failure_text)
                 cost = state.next_reroll_cost(char, option)
+                can_reroll, shortages = state.reroll_affordability(char, option)
+                if not can_reroll:
+                    details = "; ".join(
+                        f"{target}: have {available}, need {needed}"
+                        for target, available, needed in shortages
+                    )
+                    print(
+                        "Cannot reroll due to insufficient credibility"
+                        + (f" ({details})" if details else "")
+                    )
+                    state.finalize_failed_action(char, option)
+                    break
                 if cost > 0:
                     prompt = f"Reroll at a credibility cost of {cost}? (y/n): "
                 else:

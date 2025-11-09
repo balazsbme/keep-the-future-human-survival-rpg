@@ -122,6 +122,9 @@ def create_app() -> Flask:
         ".credibility-box span{display:block;font-size:0.75rem;color:#555;margin-bottom:0.2rem;}"
         ".reroll-actions{display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:0.5rem;}"
         ".reroll-actions form{margin:0;}"
+        ".action-outcome-actions{display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:0.75rem;}"
+        ".action-outcome-actions form{margin:0;}"
+        ".warning-text{color:#9c2f2f;font-weight:600;}"
         "</style>"
     )
 
@@ -891,6 +894,73 @@ def create_app() -> Flask:
         )
         return layout + state_html + footer
 
+    def _render_success_page(
+        char_id: int,
+        character: Character,
+        attempt: ActionAttempt,
+        conversation: Sequence[ConversationEntry],
+        state_html: str,
+        player: Character,
+        partner_credibility: int | None,
+        roll_threshold: int,
+    ) -> str:
+        total = attempt.effective_score + attempt.roll
+        attribute_label = attempt.attribute or "none"
+        success_text = (
+            f"Succeeded {attempt.label} (attribute {attribute_label}: {attempt.effective_score}, "
+            f"roll={attempt.roll:.2f}, total={total:.2f}, threshold={roll_threshold})"
+        )
+        credibility_delta = (
+            -attempt.credibility_cost
+            if attempt.option.related_triplet is not None
+            else attempt.credibility_gain
+        )
+        credibility_text = f"Credibility change: {credibility_delta:+d}."
+        keep_talking_form = (
+            "<form method='get' action='/actions'>"
+            + f"<input type='hidden' name='character' value='{char_id}'>"
+            + f"<button type='submit'>Keep talking to {escape(character.display_name, quote=False)}</button>"
+            + "</form>"
+        )
+        back_form = (
+            "<form method='get' action='/start'>"
+            + "<button type='submit'>Back to character selection</button>"
+            + "</form>"
+        )
+        outcome_section = (
+            "<section><h2>Action Outcome</h2>"
+            f"<p>{escape(success_text, quote=False)}</p>"
+            f"<p>{escape(credibility_text, quote=False)}</p>"
+            + "<div class='action-outcome-actions'>"
+            + keep_talking_form
+            + back_form
+            + "</div></section>"
+        )
+        if conversation:
+            convo_items = "".join(
+                f"<li><strong>{escape(entry.speaker, quote=False)}</strong>: {escape(entry.text, quote=False)} <em>({entry.type})</em></li>"
+                for entry in conversation
+            )
+            convo_block = (
+                "<section><h2>Conversation So Far</h2><ol>" + convo_items + "</ol></section>"
+            )
+        else:
+            convo_block = (
+                "<section><h2>Conversation So Far</h2><p>No conversation yet.</p></section>"
+            )
+        conversation_panel = outcome_section + convo_block
+        player_panel = _profile_panel(player)
+        partner_panel = _profile_panel(character, credibility=partner_credibility)
+        layout = (
+            panel_style
+            + "<div class='layout-container'>"
+            + f"<div class='panel player-panel'>{player_panel}</div>"
+            + f"<div class='panel conversation-panel'>{conversation_panel}</div>"
+            + f"<div class='panel partner-panel'>{partner_panel}</div>"
+            + "</div>"
+        )
+        return layout + state_html + footer
+
     def _render_failure_page(
         char_id: int,
         character: Character,
@@ -900,6 +970,9 @@ def create_app() -> Flask:
         player: Character,
         next_cost: int,
         partner_credibility: int | None,
+        *,
+        can_reroll: bool,
+        credibility_notes: Sequence[str],
     ) -> str:
         failure_text = attempt.failure_text or (
             f"Failed {attempt.label} (attribute {attempt.attribute or 'none'}: {attempt.effective_score}, roll={attempt.roll:.2f})"
@@ -911,17 +984,34 @@ def create_app() -> Flask:
             reroll_note = "Reroll will not cost additional credibility."
             reroll_label = "Reroll (no cost)"
         payload = escape(json.dumps(attempt.option.to_payload()), quote=True)
+        shortage_text = ""
+        if not can_reroll:
+            base = "Insufficient credibility to reroll."
+            if credibility_notes:
+                details = "; ".join(credibility_notes)
+                shortage_text = (
+                    f"<p class='warning-text'>{escape(base + ' ' + details, quote=False)}</p>"
+                )
+            else:
+                shortage_text = f"<p class='warning-text'>{escape(base, quote=False)}</p>"
         outcome_section = (
             "<section><h2>Action Outcome</h2>"
             f"<p>{escape(failure_text, quote=False)}</p>"
             f"<p>{reroll_note}</p>"
-            + "<div class='reroll-actions'>"
-            + "<form method='post' action='/reroll'>"
-            + f"<input type='hidden' name='character' value='{char_id}'>"
-            + f"<input type='hidden' name='action' value='{payload}'>"
-            + f"<button type='submit'>{reroll_label}</button>"
-            + "</form>"
-            + "<form method='post' action='/finalize_failure'>"
+        )
+        if shortage_text:
+            outcome_section += shortage_text
+        outcome_section += "<div class='reroll-actions'>"
+        if can_reroll:
+            outcome_section += (
+                "<form method='post' action='/reroll'>"
+                + f"<input type='hidden' name='character' value='{char_id}'>"
+                + f"<input type='hidden' name='action' value='{payload}'>"
+                + f"<button type='submit'>{reroll_label}</button>"
+                + "</form>"
+            )
+        outcome_section += (
+            "<form method='post' action='/finalize_failure'>"
             + f"<input type='hidden' name='character' value='{char_id}'>"
             + f"<input type='hidden' name='action' value='{payload}'>"
             + "<button type='submit'>Accept Failure</button>"
@@ -972,15 +1062,26 @@ def create_app() -> Flask:
                     player_snapshot = game_state.player_character
                     state_html = game_state.render_state()
                     next_cost = game_state.next_reroll_cost(character, option)
+                    can_reroll, reroll_shortages = game_state.reroll_affordability(
+                        character, option
+                    )
                     partner_credibility = game_state.current_credibility(
                         getattr(character, "faction", None)
                     )
+                    roll_threshold_snapshot = game_state.config.roll_success_threshold
                     game_state.clear_available_actions(character)
+                shortage_messages = [
+                    f"{target}: have {available}, need {needed}"
+                    for target, available, needed in reroll_shortages
+                ]
                 _clear_player_option_entries(char_id)
                 pending_player_choices.pop(char_id, None)
                 _clear_pending_npc_entries(char_id)
 
                 if attempt.success:
+                    latest_state_html = state_html
+                    partner_view = partner_credibility
+                    roll_threshold = roll_threshold_snapshot
                     if enable_parallel:
 
                         def run_assessment(
@@ -1010,11 +1111,32 @@ def create_app() -> Flask:
                         with assessment_lock:
                             assessment_threads.append(t)
                         t.start()
+                        with state_lock:
+                            latest_state_html = game_state.render_state()
+                            partner_view = game_state.current_credibility(
+                                getattr(character, "faction", None)
+                            )
+                            roll_threshold = game_state.config.roll_success_threshold
                     else:
                         scores = assessor.assess(chars_snapshot, history_snapshot)
                         with state_lock:
                             game_state.update_progress(scores)
-                    return redirect("/start")
+                            latest_state_html = game_state.render_state()
+                            partner_view = game_state.current_credibility(
+                                getattr(character, "faction", None)
+                            )
+                            roll_threshold = game_state.config.roll_success_threshold
+                    success_page = _render_success_page(
+                        char_id,
+                        character,
+                        attempt,
+                        conversation_snapshot,
+                        latest_state_html,
+                        player_snapshot,
+                        partner_view,
+                        roll_threshold,
+                    )
+                    return Response(success_page)
 
                 failure_page = _render_failure_page(
                     char_id,
@@ -1025,6 +1147,8 @@ def create_app() -> Flask:
                     player_snapshot,
                     next_cost,
                     partner_credibility,
+                    can_reroll=can_reroll,
+                    credibility_notes=shortage_messages,
                 )
                 return Response(failure_page)
 
@@ -1171,7 +1295,22 @@ def create_app() -> Flask:
         option = _option_from_payload(request.form["action"])
         with state_lock:
             character = game_state.characters[char_id]
-            attempt = game_state.reroll_action(character, option)
+            can_reroll, reroll_shortages = game_state.reroll_affordability(
+                character, option
+            )
+            if not can_reroll:
+                attempt = game_state.pending_failures.get(
+                    (character.name, option.text)
+                )
+                if attempt is None:
+                    raise ValueError("No pending failed action to reroll")
+                next_can_reroll = can_reroll
+                next_shortages = reroll_shortages
+            else:
+                attempt = game_state.reroll_action(character, option)
+                next_can_reroll, next_shortages = game_state.reroll_affordability(
+                    character, option
+                )
             chars_snapshot = list(game_state.characters)
             history_snapshot = list(game_state.history)
             conversation_snapshot = game_state.conversation_history(character)
@@ -1181,8 +1320,31 @@ def create_app() -> Flask:
             partner_credibility = game_state.current_credibility(
                 getattr(character, "faction", None)
             )
-            game_state.clear_available_actions(character)
+            roll_threshold_snapshot = game_state.config.roll_success_threshold
+            if can_reroll:
+                game_state.clear_available_actions(character)
+        shortage_messages = [
+            f"{target}: have {available}, need {needed}"
+            for target, available, needed in next_shortages
+        ]
+        if not can_reroll:
+            failure_page = _render_failure_page(
+                char_id,
+                character,
+                attempt,
+                conversation_snapshot,
+                state_html,
+                player_snapshot,
+                next_cost,
+                partner_credibility,
+                can_reroll=next_can_reroll,
+                credibility_notes=shortage_messages,
+            )
+            return Response(failure_page)
         if attempt.success:
+            latest_state_html = state_html
+            partner_view = partner_credibility
+            roll_threshold = roll_threshold_snapshot
             if enable_parallel:
 
                 def run_assessment(
@@ -1212,11 +1374,32 @@ def create_app() -> Flask:
                 with assessment_lock:
                     assessment_threads.append(t)
                 t.start()
+                with state_lock:
+                    latest_state_html = game_state.render_state()
+                    partner_view = game_state.current_credibility(
+                        getattr(character, "faction", None)
+                    )
+                    roll_threshold = game_state.config.roll_success_threshold
             else:
                 scores = assessor.assess(chars_snapshot, history_snapshot)
                 with state_lock:
                     game_state.update_progress(scores)
-            return redirect("/start")
+                    latest_state_html = game_state.render_state()
+                    partner_view = game_state.current_credibility(
+                        getattr(character, "faction", None)
+                    )
+                    roll_threshold = game_state.config.roll_success_threshold
+            success_page = _render_success_page(
+                char_id,
+                character,
+                attempt,
+                conversation_snapshot,
+                latest_state_html,
+                player_snapshot,
+                partner_view,
+                roll_threshold,
+            )
+            return Response(success_page)
 
         failure_page = _render_failure_page(
             char_id,
@@ -1227,6 +1410,8 @@ def create_app() -> Flask:
             player_snapshot,
             next_cost,
             partner_credibility,
+            can_reroll=next_can_reroll,
+            credibility_notes=shortage_messages,
         )
         return Response(failure_page)
 

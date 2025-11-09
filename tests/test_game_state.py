@@ -72,3 +72,47 @@ def test_log_npc_responses_falls_back_to_chat(mock_genai):
     assert len(history) == 1
     assert history[0].text == chat_option.text
     assert history[0].type == "chat"
+
+
+@patch("rpg.game_state.random.randint", return_value=20)
+@patch("rpg.game_state.random.choice", return_value="policy")
+def test_attempt_action_assigns_attribute_for_string_choice(
+    mock_choice, mock_rand
+):
+    character = DummyCharacter()
+    config = GameConfig(enabled_factions=("Allies", "CivilSociety"))
+    state = GameState([character], config_override=config)
+
+    attempt = state.attempt_action(character, "Coordinate response")
+
+    assert attempt.option.related_attribute == "policy"
+
+
+@patch("rpg.game_state.random.randint", return_value=1)
+def test_reroll_affordability_detects_insufficient_credibility(mock_rand):
+    character = DummyCharacter()
+    config = GameConfig(enabled_factions=("Allies", "CivilSociety"))
+    state = GameState([character], config_override=config)
+    option = ResponseOption(
+        text="Stabilise supply lines",
+        type="action",
+        related_triplet=1,
+        related_attribute="network",
+    )
+
+    attempt = state.attempt_action(character, option)
+    assert not attempt.success
+    state.credibility.adjust(
+        state.player_faction,
+        character.faction,
+        -state.credibility.value(state.player_faction, character.faction),
+    )
+
+    affordable, shortages = state.reroll_affordability(character, option)
+
+    assert not affordable
+    assert shortages
+    target, available, needed = shortages[0]
+    assert target == character.faction
+    assert available == 0
+    assert needed == state.next_reroll_cost(character, option)
