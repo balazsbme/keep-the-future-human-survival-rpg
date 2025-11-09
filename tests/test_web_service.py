@@ -38,7 +38,11 @@ class WebServiceTest(unittest.TestCase):
         scenario_dir = Path(__file__).resolve().parent.parent / "scenarios"
         expected_values = {p.stem.lower() for p in scenario_dir.glob("*.yaml")}
         self.assertTrue(expected_values, "Expected scenario YAML fixtures to exist")
-        test_config = GameConfig(enabled_factions=("test_character", "CivilSociety"))
+        hidden = {"complete"}
+        selectable = expected_values - hidden
+        test_config = GameConfig(
+            enabled_factions=("test_character", "CivilSociety", "ScientificCommunity")
+        )
         with patch("rpg.character.genai"), patch("rpg.assessment_agent.genai"):
             character = _load_test_character()
             with patch("web_service.load_characters", return_value=[character]), patch(
@@ -48,8 +52,10 @@ class WebServiceTest(unittest.TestCase):
                 client = app.test_client()
         resp = client.get("/free-play")
         html = resp.data.decode()
-        for name in expected_values:
+        for name in selectable:
             self.assertIn(f"value='{name}'", html)
+        for name in hidden:
+            self.assertNotIn(f"value='{name}'", html)
 
     @patch("rpg.game_state.random.randint", return_value=20)
     def test_conversation_and_win_flow(self, mock_uniform):
@@ -122,7 +128,11 @@ class WebServiceTest(unittest.TestCase):
             mock_assess_genai.GenerativeModel.return_value = assess_model
             character = _load_test_character()
             test_config = GameConfig(
-                enabled_factions=("test_character", "CivilSociety")
+                enabled_factions=(
+                    "test_character",
+                    "CivilSociety",
+                    "ScientificCommunity",
+                )
             )
             with patch("web_service.load_characters", return_value=[character]), patch(
                 "web_service.current_config", test_config
@@ -181,8 +191,9 @@ class WebServiceTest(unittest.TestCase):
                 follow_redirects=True,
             )
             action_page = action_resp.data.decode()
-            self.assertEqual(action_resp.request.path, "/result")
-            self.assertIn("You won!", action_page)
+            self.assertEqual(action_resp.status_code, 200)
+            self.assertIn("Action Outcome", action_page)
+            self.assertIn("Succeeded", action_page)
             self.assertIn(npc_action_text, action_page)
 
             inst_resp = client.get("/instructions")

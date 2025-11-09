@@ -68,6 +68,7 @@ CAMPAIGN_SCENARIOS: tuple[str, ...] = (
     "02-building-the-gates",
     "03-keep-the-future-human",
 )
+FREE_PLAY_HIDDEN_SCENARIOS: set[str] = {"complete"}
 
 
 @dataclass
@@ -231,6 +232,7 @@ def create_app() -> Flask:
         ".config-settings label{display:flex;flex-direction:column;font-weight:600;font-size:0.95rem;}"
         ".config-settings input,.config-settings select{margin-top:0.25rem;padding:0.45rem;border:1px solid #c6c6c6;border-radius:6px;font-size:0.95rem;}"
         ".config-settings button{align-self:flex-start;padding:0.45rem 0.9rem;font-size:0.95rem;}"
+        ".config-error{margin:0 0 0.75rem 0;padding:0.75rem;border:1px solid #d93025;background:#fdecea;color:#a50e0e;border-radius:8px;font-size:0.9rem;}"
         ".config-note{margin:0;font-size:0.85rem;color:#555;}"
         "</style>"
     )
@@ -470,6 +472,19 @@ def create_app() -> Flask:
         current_mode = "free_play"
         campaign_state.active = False
         config_snapshot = config_in_use
+        selectable_scenarios = [
+            name for name in available_scenarios if name not in FREE_PLAY_HIDDEN_SCENARIOS
+        ]
+        if not selectable_scenarios:
+            selectable_scenarios = list(available_scenarios)
+        preferred_players = ("ScientificCommunity", "CivilSociety")
+        allowed_player_factions = [
+            faction for faction in preferred_players if faction in known_factions
+        ]
+        if not allowed_player_factions:
+            allowed_player_factions = list(preferred_players)
+        form_config = config_snapshot
+        validation_errors: list[str] = []
 
         def _parse_int(field: str, fallback: int) -> int:
             try:
@@ -486,8 +501,11 @@ def create_app() -> Flask:
         if request.method == "POST":
             scenario = request.form.get("scenario", config_snapshot.scenario)
             scenario = (scenario or config_snapshot.scenario).strip().lower()
-            if scenario not in available_scenarios:
-                scenario = config_snapshot.scenario
+            if scenario not in selectable_scenarios:
+                if config_snapshot.scenario in selectable_scenarios:
+                    scenario = config_snapshot.scenario
+                elif selectable_scenarios:
+                    scenario = selectable_scenarios[0]
             win_threshold = max(0, _parse_int("win_threshold", config_snapshot.win_threshold))
             max_rounds = max(1, _parse_int("max_rounds", config_snapshot.max_rounds))
             roll_threshold = max(
@@ -521,16 +539,28 @@ def create_app() -> Flask:
                 for faction in request.form.getlist("enabled_factions")
                 if faction.strip()
             ]
+            filtered_factions: list[str] = []
+            for faction in selected_factions:
+                if faction in known_factions and faction not in filtered_factions:
+                    filtered_factions.append(faction)
+            selected_factions = filtered_factions
             if not selected_factions:
                 selected_factions = list(config_snapshot.enabled_factions)
+            if len(selected_factions) < 3:
+                validation_errors.append(
+                    "Select at least three factions to enable free play."
+                )
             player_faction = (
                 request.form.get("player_faction", config_snapshot.player_faction)
                 or config_snapshot.player_faction
             )
             player_faction = player_faction.strip()
-            if player_faction not in known_factions:
-                player_faction = config_snapshot.player_faction
-            new_config = GameConfig(
+            if player_faction not in allowed_player_factions:
+                if config_snapshot.player_faction in allowed_player_factions:
+                    player_faction = config_snapshot.player_faction
+                else:
+                    player_faction = allowed_player_factions[0]
+            form_config = GameConfig(
                 scenario=scenario,
                 win_threshold=win_threshold,
                 max_rounds=max_rounds,
@@ -541,13 +571,14 @@ def create_app() -> Flask:
                 enabled_factions=tuple(selected_factions),
                 player_faction=player_faction,
             )
-            with state_lock:
-                _reload_state(new_config)
-            return redirect("/start")
+            if not validation_errors:
+                with state_lock:
+                    _reload_state(form_config)
+                return redirect("/start")
 
         scenario_options = []
-        for name in available_scenarios:
-            selected = " selected" if name == config_snapshot.scenario else ""
+        for name in selectable_scenarios:
+            selected = " selected" if name == form_config.scenario else ""
             scenario_options.append(
                 "<option value='{value}'{selected}>{label}</option>".format(
                     value=escape(name, False),
@@ -556,7 +587,7 @@ def create_app() -> Flask:
                 )
             )
         faction_options = []
-        active_factions = set(config_snapshot.enabled_factions)
+        active_factions = set(form_config.enabled_factions)
         for faction in known_factions:
             selected = " selected" if faction in active_factions else ""
             faction_options.append(
@@ -567,8 +598,8 @@ def create_app() -> Flask:
                 )
             )
         player_options = []
-        for faction in known_factions:
-            selected = " selected" if faction == config_snapshot.player_faction else ""
+        for faction in allowed_player_factions:
+            selected = " selected" if faction == form_config.player_faction else ""
             player_options.append(
                 "<option value='{value}'{selected}>{label}</option>".format(
                     value=escape(faction, False),
@@ -576,20 +607,35 @@ def create_app() -> Flask:
                     label=escape(_format_faction(faction), False),
                 )
             )
+        if not player_options and config_snapshot.player_faction:
+            label = escape(_format_faction(config_snapshot.player_faction), False)
+            player_options.append(
+                "<option value='{value}' selected>{label}</option>".format(
+                    value=escape(config_snapshot.player_faction, False),
+                    label=label,
+                )
+            )
+        error_html = ""
+        if validation_errors:
+            error_items = "".join(
+                f"<li>{escape(message, False)}</li>" for message in validation_errors
+            )
+            error_html = f"<div class='config-error'><ul>{error_items}</ul></div>"
         form_body = (
             intro_style
             + "<h1>Configure Free Play</h1>"
             + "<section class='config-settings'>"
             + "<form method='post'>"
+            + error_html
             + "<label>Scenario<select name='scenario'>"
             + "".join(scenario_options)
             + "</select></label>"
-            + f"<label>Win threshold<input type='number' name='win_threshold' min='0' value='{config_snapshot.win_threshold}'></label>"
-            + f"<label>Max rounds<input type='number' name='max_rounds' min='1' value='{config_snapshot.max_rounds}'></label>"
-            + f"<label>Roll success threshold<input type='number' name='roll_success_threshold' min='1' value='{config_snapshot.roll_success_threshold}'></label>"
-            + f"<label>Action time cost (years)<input type='number' step='0.1' min='0' name='action_time_cost_years' value='{config_snapshot.action_time_cost_years}'></label>"
-            + f"<label>Prompt character limit<input type='number' min='1' name='format_prompt_character_limit' value='{config_snapshot.format_prompt_character_limit}'></label>"
-            + f"<label>Conversation force action after<input type='number' min='0' name='conversation_force_action_after' value='{config_snapshot.conversation_force_action_after}'></label>"
+            + f"<label>Win threshold<input type='number' name='win_threshold' min='0' value='{form_config.win_threshold}'></label>"
+            + f"<label>Max rounds<input type='number' name='max_rounds' min='1' value='{form_config.max_rounds}'></label>"
+            + f"<label>Roll success threshold<input type='number' name='roll_success_threshold' min='1' value='{form_config.roll_success_threshold}'></label>"
+            + f"<label>Action time cost (years)<input type='number' step='0.1' min='0' name='action_time_cost_years' value='{form_config.action_time_cost_years}'></label>"
+            + f"<label>Prompt character limit<input type='number' min='1' name='format_prompt_character_limit' value='{form_config.format_prompt_character_limit}'></label>"
+            + f"<label>Conversation force action after<input type='number' min='0' name='conversation_force_action_after' value='{form_config.conversation_force_action_after}'></label>"
             + "<label>Enabled factions<select name='enabled_factions' multiple size='6'>"
             + "".join(faction_options)
             + "</select></label>"
