@@ -806,11 +806,32 @@ class PlayerCharacter(Character):
         profile_entries = _character_entries(_load_yaml(profile_path))
         if not profile_entries:
             raise ValueError("player_character.yaml must define at least one character entry")
-        profile = dict(profile_entries[0])
-        faction = str(profile.get("faction", "CivilSociety")) or "CivilSociety"
-        name = str(profile.get("name", "Player")) or "Player"
-
         cfg = config or load_game_config()
+        desired_faction = str(getattr(cfg, "player_faction", "") or "").strip()
+        selected_profile: dict[str, object] | None = None
+        if desired_faction:
+            desired_lower = desired_faction.lower()
+            for entry in profile_entries:
+                faction_value = str(entry.get("faction", "") or "").strip()
+                if faction_value and faction_value.lower() == desired_lower:
+                    selected_profile = dict(entry)
+                    break
+        if selected_profile is None:
+            selected_profile = dict(profile_entries[0])
+            entry_faction = str(selected_profile.get("faction", "") or "").strip()
+            if desired_faction and entry_faction.lower() != desired_faction.lower():
+                logger.warning(
+                    "No player character profile found for faction %s; defaulting to %s",
+                    desired_faction,
+                    entry_faction or "the first entry",
+                )
+        profile = selected_profile
+        faction = (
+            str(profile.get("faction", "") or "").strip()
+            or desired_faction
+            or "CivilSociety"
+        )
+        name = str(profile.get("name", "Player")) or "Player"
         scenario_path = base_dir.parent / "scenarios" / f"{cfg.scenario}.yaml"
         scenario_payload: object = {}
         try:
@@ -860,10 +881,15 @@ class PlayerCharacter(Character):
 
         faction_descriptor = re.sub(r"(?<!^)(?=[A-Z])", " ", faction).strip() or faction
         faction_lower = faction_descriptor.lower()
+        guidance = str(profile.get("guidance", "") or "").strip()
+        if not guidance:
+            guidance = (
+                f"Use your {faction_lower} strengths to elicit concrete commitments from partners."
+            )
         persona_lines = [
             f"You are {name}, a {faction_lower} strategist navigating AI governance negotiations.",
             str(profile.get("background", "")),
-            "Use your coalition-building strengths to elicit concrete commitments from partners.",
+            guidance,
         ]
         if base_context:
             persona_lines.append(
@@ -886,6 +912,8 @@ class PlayerCharacter(Character):
         self.base_context = base_context
         self._attribute_scores: dict[str, int] = {}
         self._faction_descriptor = faction_descriptor
+        self.faction_descriptor = faction_descriptor
+        self.guidance = guidance
         summary_text = ""
         if isinstance(scenario_payload, dict):
             summary_value: object | None = None

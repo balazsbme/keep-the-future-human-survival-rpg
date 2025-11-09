@@ -352,17 +352,28 @@ class ActionFirstRandomPlayer(RandomPlayer):
 
 
 class GeminiCivilSocietyPlayer(Player):
-    """Gemini-based player using the civil society victory guide."""
+    """Gemini-based player aligned with the configured player faction."""
 
     def __init__(self, model: str = "gemini-2.5-flash") -> None:
         _ensure_gemini_configured()
         self._model = genai.GenerativeModel(model)
+
+    @staticmethod
+    def _faction_details(state: GameState) -> tuple[str, str, str]:
+        descriptor = getattr(state.player_character, "faction_descriptor", None)
+        if not descriptor:
+            descriptor = state.player_faction.replace("_", " ") if state.player_faction else ""
+        descriptor = descriptor or "Civil Society"
+        descriptor_lower = descriptor.lower()
+        guidance = getattr(state.player_character, "guidance", "")
+        return descriptor, descriptor_lower, guidance
 
     def select_character(self, state: GameState) -> Character:
         names = ", ".join(
             f"{c.name} ({c.faction} faction)" if c.faction else c.name
             for c in state.characters
         )
+        _descriptor, descriptor_lower, _ = self._faction_details(state)
         prompt = (
             "You are playing the 'Keep the future human' survival RPG. "
             "Choose which character should act next to best achieve victory.\n"
@@ -376,7 +387,7 @@ class GeminiCivilSocietyPlayer(Player):
         resp = _generate_with_warning(
             self._model,
             prompt,
-            context="civil society character selection",
+            context=f"{descriptor_lower} character selection",
         ).text
         logger.debug("GeminiCivilSocietyPlayer character response: %s", resp)
         for char in state.characters:
@@ -404,9 +415,19 @@ class GeminiCivilSocietyPlayer(Player):
         if not reference_text:
             reference_text = state.reference_material or "No reference material provided."
         scenario_summary = state.scenario_summary or "No scenario summary available."
+        descriptor, descriptor_lower, guidance = self._faction_details(state)
+        intro = (
+            f"You are a {descriptor_lower} strategist in the 'Keep the future human' RPG."
+        )
+        guidance_text = guidance.strip()
+        if guidance_text:
+            intro = f"{intro} {guidance_text}"
+        else:
+            intro = (
+                f"{intro} Use your {descriptor_lower} strengths to secure a durable coalition win."
+            )
         prompt = (
-            "You are a civil society strategist in the 'Keep the future human' RPG. "
-            "Prioritise collaborative, human-centric outcomes that secure a win for the coalition. "
+            f"{intro} "
             f"Scenario overview:\n{scenario_summary}\n"
             f"Reference material:\n{reference_text}\n"
             f"Character: {character.display_name}\n"
@@ -423,7 +444,7 @@ class GeminiCivilSocietyPlayer(Player):
         resp = _generate_with_warning(
             self._model,
             prompt,
-            context="civil society action selection",
+            context=f"{descriptor_lower} action selection",
         ).text
         logger.debug("GeminiCivilSocietyPlayer action response: %s", resp)
         idx = _extract_choice_index(resp, len(actions))
@@ -455,9 +476,16 @@ class GeminiCivilSocietyPlayer(Player):
         if not reference_text:
             reference_text = state.reference_material or "No reference material provided."
         scenario_summary = state.scenario_summary or "No scenario summary available."
+        descriptor, descriptor_lower, guidance = self._faction_details(state)
+        intro = (
+            f"You are guiding a {descriptor_lower} coalition assessing whether a failed action "
+            "is important enough to reroll in the 'Keep the future human' RPG."
+        )
+        guidance_text = guidance.strip()
+        if guidance_text:
+            intro = f"{intro} {guidance_text}"
         prompt = (
-            "You are guiding a civil society coalition assessing whether a failed action "
-            "is important enough to reroll in the 'Keep the future human' RPG. "
+            f"{intro} "
             f"Scenario overview:\n{scenario_summary}\n"
             f"Reference material:\n{reference_text}\n"
             f"Character: {character.display_name}\n"
@@ -474,7 +502,7 @@ class GeminiCivilSocietyPlayer(Player):
         response_obj = _generate_with_warning(
             self._model,
             prompt,
-            context="civil society reroll decision",
+            context=f"{descriptor_lower} reroll decision",
             suppress=True,
         )
         if response_obj is None:  # pragma: no cover - defensive fallback

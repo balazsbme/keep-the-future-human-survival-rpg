@@ -19,7 +19,7 @@ from .conversation import ConversationEntry
 logger = logging.getLogger(__name__)
 
 
-PLAYER_FACTION = "CivilSociety"
+DEFAULT_PLAYER_FACTION = "CivilSociety"
 
 
 @dataclass
@@ -99,7 +99,10 @@ class GameState:
                 character_summary = candidate
                 break
         self.scenario_summary = character_summary or player_summary
-        self.player_faction = self.player_character.faction or PLAYER_FACTION
+        config_faction = str(getattr(self.config, "player_faction", "") or "").strip()
+        fallback_faction = config_faction or DEFAULT_PLAYER_FACTION
+        character_faction = str(getattr(self.player_character, "faction", "") or "").strip()
+        self.player_faction = character_faction or fallback_faction
         enabled = set(self.config.enabled_factions)
         if enabled and self.player_faction not in enabled:
             logger.error(
