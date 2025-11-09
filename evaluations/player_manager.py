@@ -14,7 +14,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 from rpg.assessment_agent import AssessmentAgent
 from rpg.config import GameConfig, load_game_config
-from rpg.game_state import GameState, PLAYER_FACTION
+from rpg.game_state import DEFAULT_PLAYER_FACTION, GameState
 
 from .game_database import GameRunObserver
 from .players import Player
@@ -144,8 +144,9 @@ class PlayerManager:
         for faction in roster_factions:
             if faction not in enabled_factions:
                 enabled_factions.append(faction)
-        if PLAYER_FACTION not in enabled_factions:
-            enabled_factions.append(PLAYER_FACTION)
+        player_faction = base_config.player_faction or DEFAULT_PLAYER_FACTION
+        if player_faction not in enabled_factions:
+            enabled_factions.append(player_faction)
         base_config = replace(
             base_config, enabled_factions=tuple(enabled_factions)
         )

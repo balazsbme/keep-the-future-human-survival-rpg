@@ -26,6 +26,7 @@ class GameConfig:
     format_prompt_character_limit: int = 400
     conversation_force_action_after: int = 8
     enabled_factions: tuple[str, ...] = ()
+    player_faction: str = "CivilSociety"
 
 
 _DEFAULT_CONFIG_PATH = os.path.join(
@@ -114,6 +115,7 @@ def load_game_config(path: str | None = None) -> GameConfig:
             if text:
                 cleaned.append(text)
         enabled_factions = tuple(cleaned)
+    player_faction = str(data.get("player_faction", "CivilSociety")).strip() or "CivilSociety"
     return GameConfig(
         scenario=scenario.lower(),
         win_threshold=max(0, win_threshold),
@@ -123,6 +125,7 @@ def load_game_config(path: str | None = None) -> GameConfig:
         format_prompt_character_limit=max(1, char_limit),
         conversation_force_action_after=max(0, conversation_force_action_after),
         enabled_factions=enabled_factions,
+        player_faction=player_faction,
     )
 
 

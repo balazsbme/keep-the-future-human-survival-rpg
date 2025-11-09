@@ -11,5 +11,6 @@ game:
     - Regulators
     - CivilSociety
     - ScientificCommunity
+  player_faction: CivilSociety
   format_prompt_character_limit: 300
   conversation_force_action_after: 6

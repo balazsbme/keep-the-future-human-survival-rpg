@@ -201,6 +201,14 @@ class YamlCharacterTest(unittest.TestCase):
             any("using top suggestions" in msg for msg in log_ctx.output)
         )
 
+    def test_player_character_uses_configured_faction(self):
+        config = GameConfig(player_faction="ScientificCommunity")
+        player = PlayerCharacter(config=config)
+        self.assertEqual(player.faction, "ScientificCommunity")
+        self.assertEqual(player.name, "Dr. Maya Ibarra")
+        self.assertIn("scientific", player.faction_descriptor.lower())
+        self.assertIn("scientific", player.guidance.lower())
+
     @patch("rpg.assessment_agent.get_cache_manager")
     @patch("rpg.assessment_agent.genai")
     @patch("rpg.character.genai")
