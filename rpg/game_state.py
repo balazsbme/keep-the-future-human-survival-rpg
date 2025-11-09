@@ -91,6 +91,28 @@ class GameState:
         self.player_character = self.player_override or PlayerCharacter(
             config=self.config
         )
+        enabled = set(self.config.enabled_factions)
+
+        if enabled:
+            filtered_characters: List[Character] = []
+            skipped = 0
+            for npc in self.characters:
+                faction_name = getattr(npc, "faction", None)
+                if faction_name and faction_name not in enabled:
+                    logger.info(
+                        "Skipping %s because faction %s is disabled",
+                        npc.name,
+                        faction_name,
+                    )
+                    skipped += 1
+                    continue
+                filtered_characters.append(npc)
+            if skipped:
+                logger.info(
+                    "Filtered %d NPC(s) due to enabled faction list", skipped
+                )
+            self.characters = filtered_characters
+
         player_summary = getattr(self.player_character, "scenario_summary", "")
         character_summary = ""
         for npc in self.characters:
@@ -103,12 +125,11 @@ class GameState:
         fallback_faction = config_faction or DEFAULT_PLAYER_FACTION
         character_faction = str(getattr(self.player_character, "faction", "") or "").strip()
         self.player_faction = character_faction or fallback_faction
-        enabled = set(self.config.enabled_factions)
         if enabled and self.player_faction not in enabled:
-            logger.error(
-                "Player faction %s is disabled in configuration", self.player_faction
+            logger.info(
+                "Player faction %s not present in enabled list; continuing because the player is always allowed",
+                self.player_faction,
             )
-            raise RuntimeError("Player faction disabled by configuration")
         self.credibility.ensure_faction(self.player_faction)
         self._add_referenced_quotes(
             self.player_faction,
@@ -123,13 +144,6 @@ class GameState:
                 )
                 self.faction_labels[key] = character.progress_label
             faction_name = getattr(character, "faction", None)
-            if enabled and faction_name and faction_name not in enabled:
-                logger.error(
-                    "Character %s belongs to disabled faction %s",
-                    character.name,
-                    faction_name,
-                )
-                raise RuntimeError("Character faction disabled by configuration")
             self.credibility.ensure_faction(faction_name)
             self._add_referenced_quotes(
                 faction_name,
