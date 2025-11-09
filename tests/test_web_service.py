@@ -46,7 +46,7 @@ class WebServiceTest(unittest.TestCase):
             ):
                 app = create_app()
                 client = app.test_client()
-        resp = client.get("/")
+        resp = client.get("/free-play")
         html = resp.data.decode()
         for name in expected_values:
             self.assertIn(f"value='{name}'", html)
@@ -134,8 +134,8 @@ class WebServiceTest(unittest.TestCase):
             page = resp.data.decode()
             self.assertEqual(resp.status_code, 200)
             self.assertIn("AI Safety Negotiation Game", page)
-            self.assertIn("Scenario Overview", page)
-            self.assertIn("Test scenario summary.", page)
+            self.assertIn("Free Play", page)
+            self.assertIn("Campaign", page)
 
             start_resp = client.get("/start")
             start_page = start_resp.data.decode()
@@ -194,7 +194,7 @@ class WebServiceTest(unittest.TestCase):
             reset_resp = client.post("/reset", follow_redirects=True)
             reset_page = reset_resp.data.decode()
             self.assertEqual(reset_resp.request.path, "/")
-            self.assertIn("Configure the Campaign", reset_page)
+            self.assertIn("Free Play", reset_page)
 
 
 if __name__ == "__main__":

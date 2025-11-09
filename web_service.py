@@ -8,13 +8,15 @@ import json
 import logging
 import os
 import threading
+from dataclasses import dataclass, field
 from html import escape
 from pathlib import Path
-from typing import Dict, List, Mapping, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 from flask import Flask, Response, redirect, request
 from dotenv import load_dotenv
 import google.generativeai as genai
+import yaml
 
 from cli_game import load_characters
 from rpg.assessment_agent import AssessmentAgent
@@ -51,6 +53,39 @@ _configure_gemini_client()
 current_config: GameConfig = load_game_config()
 
 
+PRIVATE_SECTOR_FACTIONS: tuple[str, ...] = (
+    "Corporations",
+    "HardwareManufacturers",
+    "ScientificCommunity",
+)
+PUBLIC_SECTOR_FACTIONS: tuple[str, ...] = (
+    "Governments",
+    "Regulators",
+    "CivilSociety",
+)
+CAMPAIGN_SCENARIOS: tuple[str, ...] = (
+    "01-race-to-contain-power",
+    "02-building-the-gates",
+    "03-keep-the-future-human",
+)
+
+
+@dataclass
+class CampaignState:
+    """Track the player's progress through the structured campaign."""
+
+    active: bool = False
+    current_level: int = 0
+    sector_choice: str | None = None
+    level_outcomes: Dict[int, Dict[str, Any]] = field(default_factory=dict)
+
+    def reset(self) -> None:
+        self.active = True
+        self.current_level = 0
+        self.sector_choice = None
+        self.level_outcomes.clear()
+
+
 def _option_from_payload(raw: str) -> ResponseOption:
     """Return a :class:`ResponseOption` parsed from ``raw`` JSON."""
 
@@ -71,6 +106,8 @@ def create_app() -> Flask:
     app = Flask(__name__)
     global current_config
     config_in_use = current_config
+    campaign_state = CampaignState()
+    current_mode = "free_play"
     scenario_roots = [
         Path(__file__).resolve().parent / "scenarios",
         Path(__file__).resolve().parent / "rpg" / "scenarios",
@@ -84,6 +121,19 @@ def create_app() -> Flask:
     else:
         discovered_scenarios.add(config_in_use.scenario)
         available_scenarios = sorted(discovered_scenarios)
+    faction_path = Path(__file__).resolve().parent / "factions.yaml"
+    try:
+        with open(faction_path, "r", encoding="utf-8") as fh:
+            faction_payload = yaml.safe_load(fh) or {}
+    except FileNotFoundError:
+        faction_payload = {}
+    if isinstance(faction_payload, dict):
+        known_factions = sorted(str(name) for name in faction_payload.keys())
+    else:
+        known_factions = []
+    if not known_factions:
+        fallback = sorted(set(PRIVATE_SECTOR_FACTIONS + PUBLIC_SECTOR_FACTIONS))
+        known_factions = fallback
     initial_characters = load_characters(config=config_in_use)
     game_state = GameState(list(initial_characters), config_override=config_in_use)
     assessor = AssessmentAgent()
@@ -125,6 +175,49 @@ def create_app() -> Flask:
         "</style>"
     )
 
+    landing_style = (
+        "<style>"
+        "body{font-family:'Inter',sans-serif;margin:0;background:#f3f4f8;color:#1f2933;}"
+        "h1{margin:2rem auto 1rem auto;text-align:center;font-size:2.4rem;}"
+        ".mode-container{display:flex;flex-direction:column;min-height:90vh;}"
+        ".mode-panel{flex:1;display:flex;align-items:center;justify-content:center;padding:3rem 1.5rem;}"
+        ".mode-panel:first-child{background:linear-gradient(180deg,#eef2ff 0%,#ffffff 100%);}"
+        ".mode-panel:last-child{background:linear-gradient(180deg,#fff7ed 0%,#ffffff 100%);border-top:1px solid #e0e7ff;}"
+        ".mode-content{max-width:540px;text-align:center;}"
+        ".mode-tag{display:inline-block;margin-bottom:0.75rem;padding:0.4rem 1rem;border-radius:999px;font-weight:600;font-size:0.9rem;background:rgba(29,78,216,0.12);color:#1d4ed8;}"
+        ".mode-content h2{margin:0 0 0.75rem 0;font-size:2rem;}"
+        ".mode-content p{margin:0 0 1.5rem 0;line-height:1.6;font-size:1.05rem;}"
+        ".mode-actions{display:flex;justify-content:center;gap:1rem;flex-wrap:wrap;}"
+        ".mode-actions a,.mode-actions button{display:inline-block;padding:0.75rem 1.75rem;font-size:1rem;border-radius:999px;border:none;background:#1d4ed8;color:#fff;text-decoration:none;cursor:pointer;box-shadow:0 10px 24px rgba(29,78,216,0.15);}"
+        ".mode-actions a.secondary,.mode-actions button.secondary{background:#334155;}"
+        ".mode-actions form{margin:0;}"
+        "</style>"
+    )
+
+    campaign_style = (
+        "<style>"
+        ".campaign-container{max-width:960px;margin:2rem auto;font-family:'Inter',sans-serif;color:#1f2933;}"
+        ".campaign-header{background:#ffffff;border-radius:16px;padding:2rem;box-shadow:0 14px 32px rgba(15,23,42,0.08);margin-bottom:2rem;}"
+        ".campaign-header h1{margin:0 0 0.5rem 0;font-size:2.2rem;}"
+        ".campaign-header p{margin:0.5rem 0 0 0;line-height:1.6;font-size:1.05rem;}"
+        ".campaign-summary{margin-bottom:2rem;}"
+        ".sector-grid{display:flex;flex-wrap:wrap;gap:1.5rem;}"
+        ".sector-card{flex:1 1 280px;background:#ffffff;border-radius:14px;padding:1.75rem;box-shadow:0 12px 28px rgba(15,23,42,0.07);}"
+        ".sector-card h2{margin:0;font-size:1.4rem;}"
+        ".sector-card p{margin:0.75rem 0 0 0;line-height:1.5;}"
+        ".sector-card ul{margin:0.75rem 0 1.25rem 1.25rem;line-height:1.5;}"
+        ".sector-card form{margin-top:1.25rem;}"
+        ".sector-card button{padding:0.7rem 1.6rem;border:none;border-radius:999px;background:#1d4ed8;color:#fff;font-size:1rem;cursor:pointer;box-shadow:0 10px 24px rgba(29,78,216,0.15);}"
+        ".campaign-summary-list{list-style:none;padding:0;margin:0;display:grid;gap:1rem;}"
+        ".campaign-summary-list li{background:#ffffff;border-radius:12px;padding:1.25rem;box-shadow:0 12px 28px rgba(15,23,42,0.07);}"
+        ".campaign-summary-list h3{margin:0 0 0.5rem 0;font-size:1.2rem;}"
+        ".campaign-summary-list p{margin:0.25rem 0;line-height:1.5;}"
+        ".campaign-actions{margin-top:2rem;display:flex;gap:1rem;flex-wrap:wrap;}"
+        ".campaign-actions a,.campaign-actions button{padding:0.75rem 1.5rem;border-radius:999px;border:none;background:#1d4ed8;color:#fff;text-decoration:none;cursor:pointer;box-shadow:0 10px 24px rgba(29,78,216,0.15);}"
+        ".campaign-actions a.secondary,.campaign-actions button.secondary{background:#334155;}"
+        "</style>"
+    )
+
     intro_style = (
         "<style>"
         ".instructions,.config-settings{margin:1rem 0;padding:1rem;border:1px solid #dcdcdc;border-radius:10px;background:#f8faff;}"
@@ -147,6 +240,58 @@ def create_app() -> Flask:
         ".scenario-summary p{margin:0.5rem 0;line-height:1.5;}"
         "</style>"
     )
+
+    def _scenario_display_name(name: str) -> str:
+        base = (name or "").replace("-", " ").replace("_", " ").strip()
+        return base.title() if base else "Unknown Scenario"
+
+    def _scenario_summary_text(name: str) -> str:
+        for root in scenario_roots:
+            candidate = root / f"{name}.yaml"
+            if not candidate.exists():
+                continue
+            try:
+                with open(candidate, "r", encoding="utf-8") as fh:
+                    payload = yaml.safe_load(fh) or {}
+            except (FileNotFoundError, yaml.YAMLError):
+                continue
+            if isinstance(payload, dict):
+                summary = payload.get("ScenarioSummary")
+                if isinstance(summary, str):
+                    return summary
+        return ""
+
+    def _format_faction(name: str) -> str:
+        cleaned = (name or "").strip()
+        if not cleaned:
+            return "Unknown"
+        result: list[str] = []
+        for idx, char in enumerate(cleaned):
+            if idx > 0 and char.isupper() and not cleaned[idx - 1].isupper():
+                result.append(" ")
+            result.append(char)
+        return "".join(result)
+
+    def _campaign_config(level_index: int, sector: str) -> GameConfig:
+        baseline = load_game_config()
+        scenario = CAMPAIGN_SCENARIOS[level_index]
+        if sector == "private":
+            enabled = PRIVATE_SECTOR_FACTIONS
+            player_faction = "CivilSociety"
+        else:
+            enabled = PUBLIC_SECTOR_FACTIONS
+            player_faction = "ScientificCommunity"
+        return GameConfig(
+            scenario=scenario,
+            win_threshold=baseline.win_threshold,
+            max_rounds=baseline.max_rounds,
+            roll_success_threshold=baseline.roll_success_threshold,
+            action_time_cost_years=baseline.action_time_cost_years,
+            format_prompt_character_limit=baseline.format_prompt_character_limit,
+            conversation_force_action_after=baseline.conversation_force_action_after,
+            enabled_factions=tuple(enabled),
+            player_faction=player_faction,
+        )
 
     def _reload_state(config: GameConfig) -> None:
         nonlocal config_in_use, initial_characters, game_state, last_history_signature
@@ -250,91 +395,386 @@ def create_app() -> Flask:
     def log_request() -> None:
         logger.info("%s %s", request.method, request.path)
 
-    @app.route("/", methods=["GET", "POST"])
-    def main_page() -> Response | str:
-        nonlocal config_in_use
+    @app.route("/", methods=["GET"])
+    def main_page() -> str:
+        current_summary = ""
+        if campaign_state.active:
+            level_index = min(
+                campaign_state.current_level, len(CAMPAIGN_SCENARIOS) - 1
+            )
+            level_name = _scenario_display_name(CAMPAIGN_SCENARIOS[level_index])
+            sector_note = "Choose your next sector to begin." if campaign_state.sector_choice is None else (
+                "Working with the Public Sector." if campaign_state.sector_choice == "public" else "Working with the Private Sector."
+            )
+            current_summary = (
+                f"<p>Current campaign run: Level {level_index + 1} – {escape(level_name, False)}. {sector_note}</p>"
+            )
+        free_play_actions = (
+            "<div class='mode-actions'>"
+            "<a href='/free-play'>Configure Free Play</a>"
+            "<a class='secondary' href='/start'>Resume Current Run</a>"
+            "</div>"
+        )
+        if campaign_state.active:
+            campaign_actions = (
+                "<div class='mode-actions'>"
+                "<a href='/campaign/level'>Resume Campaign</a>"
+                "<form method='post' action='/campaign/start'>"
+                "<button type='submit' class='secondary'>Restart Campaign</button>"
+                "</form>"
+                "</div>"
+            )
+        else:
+            campaign_actions = (
+                "<div class='mode-actions'>"
+                "<form method='post' action='/campaign/start'>"
+                "<button type='submit'>Begin Campaign</button>"
+                "</form>"
+                "</div>"
+            )
+        campaign_description = (
+            "<p>Tackle a guided three-level journey through scenarios 01, 02, and 03. At the start of each level you choose to coordinate with the Public or Private sector, which reshapes your faction alignment and the coalitions available to you.</p>"
+        )
+        free_play_description = (
+            "<p>Experiment freely with every system in the negotiation sandbox. Tune the active scenario, scoring thresholds, and pacing rules before diving straight into a single open-ended session.</p>"
+        )
+        body = (
+            landing_style
+            + "<main>"
+            + "<h1>AI Safety Negotiation Game</h1>"
+            + "<div class='mode-container'>"
+            + "<section class='mode-panel'><div class='mode-content'>"
+            + "<span class='mode-tag'>Sandbox Mode</span>"
+            + "<h2>Free Play</h2>"
+            + free_play_description
+            + free_play_actions
+            + "</div></section>"
+            + "<section class='mode-panel'><div class='mode-content'>"
+            + "<span class='mode-tag'>Story Mode</span>"
+            + "<h2>Campaign</h2>"
+            + campaign_description
+            + current_summary
+            + campaign_actions
+            + "</div></section>"
+            + "</div></main>"
+            + footer
+        )
+        return body
+
+    @app.route("/free-play", methods=["GET", "POST"])
+    def free_play() -> Response | str:
+        nonlocal config_in_use, current_mode
+        current_mode = "free_play"
+        campaign_state.active = False
+        config_snapshot = config_in_use
+
+        def _parse_int(field: str, fallback: int) -> int:
+            try:
+                return int(request.form.get(field, fallback))
+            except (TypeError, ValueError):
+                return fallback
+
+        def _parse_float(field: str, fallback: float) -> float:
+            try:
+                return float(request.form.get(field, fallback))
+            except (TypeError, ValueError):
+                return fallback
 
         if request.method == "POST":
-            scenario = request.form.get("scenario", config_in_use.scenario)
-            scenario = (scenario or config_in_use.scenario).strip().lower()
+            scenario = request.form.get("scenario", config_snapshot.scenario)
+            scenario = (scenario or config_snapshot.scenario).strip().lower()
             if scenario not in available_scenarios:
-                scenario = config_in_use.scenario
-
-            def _parse_int(field: str, fallback: int) -> int:
-                try:
-                    return int(request.form.get(field, fallback))
-                except (TypeError, ValueError):
-                    return fallback
-
-            win_threshold = max(0, _parse_int("win_threshold", config_in_use.win_threshold))
-            max_rounds = max(1, _parse_int("max_rounds", config_in_use.max_rounds))
+                scenario = config_snapshot.scenario
+            win_threshold = max(0, _parse_int("win_threshold", config_snapshot.win_threshold))
+            max_rounds = max(1, _parse_int("max_rounds", config_snapshot.max_rounds))
             roll_threshold = max(
                 1,
                 _parse_int(
-                    "roll_success_threshold", config_in_use.roll_success_threshold
+                    "roll_success_threshold", config_snapshot.roll_success_threshold
                 ),
             )
+            char_limit = max(
+                1,
+                _parse_int(
+                    "format_prompt_character_limit",
+                    config_snapshot.format_prompt_character_limit,
+                ),
+            )
+            force_after = max(
+                0,
+                _parse_int(
+                    "conversation_force_action_after",
+                    config_snapshot.conversation_force_action_after,
+                ),
+            )
+            action_cost = max(
+                0.0,
+                _parse_float(
+                    "action_time_cost_years", config_snapshot.action_time_cost_years
+                ),
+            )
+            selected_factions = [
+                faction.strip()
+                for faction in request.form.getlist("enabled_factions")
+                if faction.strip()
+            ]
+            if not selected_factions:
+                selected_factions = list(config_snapshot.enabled_factions)
+            player_faction = (
+                request.form.get("player_faction", config_snapshot.player_faction)
+                or config_snapshot.player_faction
+            )
+            player_faction = player_faction.strip()
+            if player_faction not in known_factions:
+                player_faction = config_snapshot.player_faction
             new_config = GameConfig(
                 scenario=scenario,
                 win_threshold=win_threshold,
                 max_rounds=max_rounds,
                 roll_success_threshold=roll_threshold,
+                action_time_cost_years=action_cost,
+                format_prompt_character_limit=char_limit,
+                conversation_force_action_after=force_after,
+                enabled_factions=tuple(selected_factions),
+                player_faction=player_faction,
             )
             with state_lock:
                 _reload_state(new_config)
             return redirect("/start")
 
-        turns = game_state.config.max_rounds
-        threshold = game_state.config.win_threshold
-        roll_threshold = game_state.config.roll_success_threshold
-        summary_section = _scenario_summary_section(
-            getattr(game_state, "scenario_summary", "")
-        )
         scenario_options = []
         for name in available_scenarios:
-            display_name = escape(name.replace("-", " ").replace("_", " ").title(), False)
-            selected = " selected" if name == game_state.config.scenario else ""
+            selected = " selected" if name == config_snapshot.scenario else ""
             scenario_options.append(
-                f"<option value='{name}'{selected}>{display_name}</option>"
+                "<option value='{value}'{selected}>{label}</option>".format(
+                    value=escape(name, False),
+                    selected=selected,
+                    label=escape(_scenario_display_name(name), False),
+                )
             )
-        options_html = "".join(scenario_options)
-        config_form = (
-            "<section class='config-settings'><h2>Configure the Campaign</h2>"
-            "<form method='post'>"
-            "<label>Scenario<select name='scenario'>"
-            f"{options_html}"
-            "</select></label>"
-            f"<label>Win threshold<input type='number' name='win_threshold' min='0' value='{threshold}'></label>"
-            f"<label>Max rounds<input type='number' name='max_rounds' min='1' value='{turns}'></label>"
-            f"<label>Roll success threshold<input type='number' name='roll_success_threshold' min='1' value='{roll_threshold}'></label>"
-            "<p class='config-note'>Applying new settings resets the current game.</p>"
-            "<button type='submit'>Apply settings</button>"
-            "</form></section>"
-        )
-        instructions_block = (
-            "<section class='instructions'><h2>How the Negotiation Works</h2><ul>"
-            "<li><strong>Credibility:</strong> Each faction tracks how much they trust you. Triplet-aligned commitments cost credibility, and if your credibility drops below the cost the NPC will only propose actions that serve their own agenda.</li>"
-            "<li><strong>Action rolls:</strong> When an action is attempted, roll a twenty-sided die and add the higher relevant attribute (yours or the partner's). You succeed when the total meets or exceeds the roll success threshold.</li>"
-            "<li><strong>Rerolls and time:</strong> You can reroll failed actions at increasing credibility costs. Every action attempt or reroll advances time by half a year.</li>"
-            "</ul></section>"
-        )
-        return (
+        faction_options = []
+        active_factions = set(config_snapshot.enabled_factions)
+        for faction in known_factions:
+            selected = " selected" if faction in active_factions else ""
+            faction_options.append(
+                "<option value='{value}'{selected}>{label}</option>".format(
+                    value=escape(faction, False),
+                    selected=selected,
+                    label=escape(_format_faction(faction), False),
+                )
+            )
+        player_options = []
+        for faction in known_factions:
+            selected = " selected" if faction == config_snapshot.player_faction else ""
+            player_options.append(
+                "<option value='{value}'{selected}>{label}</option>".format(
+                    value=escape(faction, False),
+                    selected=selected,
+                    label=escape(_format_faction(faction), False),
+                )
+            )
+        form_body = (
             intro_style
-            + "<h1>AI Safety Negotiation Game</h1>"
-            + instructions_block
-            + summary_section
-            + config_form
-            + "<p>You are an expert negotiator with connections to every major faction shaping AI governance. You can persuade their key representatives to propose and take actions. Your objective is to ensure AI is developed in humanity's best interest and keep the future human.</p>"
-            + f"<p>You have {turns} turns to reach a final weighted score of {threshold} or higher to win.</p>"
-            + f"<p>The current roll success threshold is {roll_threshold}.</p>"
-            + "<a href='/start'>Start</a>"
-            + f"{footer}"
+            + "<h1>Configure Free Play</h1>"
+            + "<section class='config-settings'>"
+            + "<form method='post'>"
+            + "<label>Scenario<select name='scenario'>"
+            + "".join(scenario_options)
+            + "</select></label>"
+            + f"<label>Win threshold<input type='number' name='win_threshold' min='0' value='{config_snapshot.win_threshold}'></label>"
+            + f"<label>Max rounds<input type='number' name='max_rounds' min='1' value='{config_snapshot.max_rounds}'></label>"
+            + f"<label>Roll success threshold<input type='number' name='roll_success_threshold' min='1' value='{config_snapshot.roll_success_threshold}'></label>"
+            + f"<label>Action time cost (years)<input type='number' step='0.1' min='0' name='action_time_cost_years' value='{config_snapshot.action_time_cost_years}'></label>"
+            + f"<label>Prompt character limit<input type='number' min='1' name='format_prompt_character_limit' value='{config_snapshot.format_prompt_character_limit}'></label>"
+            + f"<label>Conversation force action after<input type='number' min='0' name='conversation_force_action_after' value='{config_snapshot.conversation_force_action_after}'></label>"
+            + "<label>Enabled factions<select name='enabled_factions' multiple size='6'>"
+            + "".join(faction_options)
+            + "</select></label>"
+            + "<label>Player faction<select name='player_faction'>"
+            + "".join(player_options)
+            + "</select></label>"
+            + "<p class='config-note'>Applying new settings resets the current game immediately.</p>"
+            + "<button type='submit'>Apply &amp; Start Free Play</button>"
+            + "</form>"
+            + "</section>"
+            + footer
         )
+        return form_body
+
+    @app.route("/campaign/start", methods=["POST"])
+    def campaign_start() -> Response:
+        nonlocal current_mode, config_in_use
+        current_mode = "campaign"
+        campaign_state.reset()
+        with state_lock:
+            _reload_state(load_game_config())
+            config_snapshot = config_in_use
+        logger.info("Campaign started with baseline config %s", config_snapshot)
+        return redirect("/campaign/level")
+
+    @app.route("/campaign/level", methods=["GET", "POST"])
+    def campaign_level() -> Response | str:
+        nonlocal current_mode, config_in_use
+        if not campaign_state.active:
+            return redirect("/")
+        current_mode = "campaign"
+        level_index = min(campaign_state.current_level, len(CAMPAIGN_SCENARIOS) - 1)
+        scenario_key = CAMPAIGN_SCENARIOS[level_index]
+        scenario_name = _scenario_display_name(scenario_key)
+        summary_text = _scenario_summary_text(scenario_key)
+        summary_html = _format_summary_html(summary_text)
+        if request.method == "POST":
+            selected_sector = request.form.get("sector", "").strip().lower()
+            if selected_sector not in {"public", "private"}:
+                return redirect("/campaign/level")
+            campaign_state.sector_choice = selected_sector
+            new_config = _campaign_config(level_index, selected_sector)
+            logger.info(
+                "Starting campaign level %s with %s sector", level_index + 1, selected_sector
+            )
+            with state_lock:
+                _reload_state(new_config)
+            return redirect("/start")
+
+        sector_cards = []
+        public_blurb = (
+            "<p>Build coalitions with governments, regulators, and civil society advocates.\n"
+            "Shape law, oversight, and democratic pressure from inside the public sphere.</p>"
+        )
+        private_blurb = (
+            "<p>Negotiate with corporate and hardware power-brokers alongside the scientific community.\n"
+            "Influence incentives and technical safeguards from within industry.</p>"
+        )
+        public_details = (
+            "<ul>"
+            + "".join(
+                f"<li>{escape(_format_faction(faction), False)}</li>"
+                for faction in PUBLIC_SECTOR_FACTIONS
+            )
+            + "</ul>"
+            + "<p><strong>Player faction:</strong> Scientific Community</p>"
+        )
+        private_details = (
+            "<ul>"
+            + "".join(
+                f"<li>{escape(_format_faction(faction), False)}</li>"
+                for faction in PRIVATE_SECTOR_FACTIONS
+            )
+            + "</ul>"
+            + "<p><strong>Player faction:</strong> Civil Society</p>"
+        )
+        sector_cards.append(
+            "<article class='sector-card'>"
+            "<h2>Partner with the Public Sector</h2>"
+            + public_blurb
+            + public_details
+            + "<form method='post'><input type='hidden' name='sector' value='public'>"
+            + "<button type='submit'>Engage Public Sector</button></form>"
+            + "</article>"
+        )
+        sector_cards.append(
+            "<article class='sector-card'>"
+            "<h2>Partner with the Private Sector</h2>"
+            + private_blurb
+            + private_details
+            + "<form method='post'><input type='hidden' name='sector' value='private'>"
+            + "<button type='submit'>Engage Private Sector</button></form>"
+            + "</article>"
+        )
+        active_sector_note = ""
+        if campaign_state.sector_choice:
+            label = (
+                "Public Sector" if campaign_state.sector_choice == "public" else "Private Sector"
+            )
+            active_sector_note = (
+                f"<p><strong>Previous selection:</strong> {escape(label, False)}. Choosing a sector again will restart this level.</p>"
+            )
+        body = (
+            campaign_style
+            + "<section class='campaign-container'>"
+            + "<div class='campaign-header'>"
+            + f"<h1>Level {level_index + 1}: {escape(scenario_name, False)}</h1>"
+            + "<p>Select who you will coordinate with before launching the next negotiation.</p>"
+            + (f"<div class='campaign-summary'>{summary_html}</div>" if summary_html else "")
+            + active_sector_note
+            + "</div>"
+            + "<div class='sector-grid'>"
+            + "".join(sector_cards)
+            + "</div>"
+            + "</section>"
+            + footer
+        )
+        return body
+
+    @app.route("/campaign/next", methods=["POST"])
+    def campaign_next() -> Response:
+        nonlocal current_mode, config_in_use
+        if not campaign_state.active:
+            return redirect("/")
+        if campaign_state.current_level >= len(CAMPAIGN_SCENARIOS) - 1:
+            return redirect("/campaign/complete")
+        campaign_state.current_level += 1
+        campaign_state.sector_choice = None
+        current_mode = "campaign"
+        with state_lock:
+            _reload_state(load_game_config())
+        logger.info("Advanced to campaign level %s", campaign_state.current_level + 1)
+        return redirect("/campaign/level")
+
+    @app.route("/campaign/complete", methods=["GET"])
+    def campaign_complete() -> str:
+        nonlocal current_mode
+        current_mode = "free_play"
+        campaign_state.active = False
+        summaries = []
+        for idx, scenario in enumerate(CAMPAIGN_SCENARIOS):
+            record = campaign_state.level_outcomes.get(idx)
+            sector = record.get("sector") if record else None
+            sector_label = {
+                "public": "Public Sector",
+                "private": "Private Sector",
+            }.get(sector, "Not played")
+            score_text = "Not completed"
+            result_text = ""
+            if record:
+                score_text = (
+                    f"Score: {record['score']:.0f} / {record['threshold']:.0f}"
+                )
+                result_text = (
+                    "Victory" if record["score"] >= record["threshold"] else "Defeat"
+                )
+            summaries.append(
+                "<li>"
+                + f"<h3>Level {idx + 1}: {escape(_scenario_display_name(scenario), False)}</h3>"
+                + f"<p><strong>Sector:</strong> {escape(sector_label, False)}</p>"
+                + f"<p><strong>{result_text or 'Pending'}:</strong> {score_text}</p>"
+                + "</li>"
+            )
+        body = (
+            campaign_style
+            + "<section class='campaign-container'>"
+            + "<div class='campaign-header'>"
+            + "<h1>Campaign Summary</h1>"
+            + "<p>Review how each level unfolded. You can return to the home screen to start a fresh run or dive into free play with your preferred settings.</p>"
+            + "</div>"
+            + "<ol class='campaign-summary-list'>"
+            + "".join(summaries)
+            + "</ol>"
+            + "<div class='campaign-actions'>"
+            + "<a href='/' class='secondary'>Back to Home</a>"
+            + "<a href='/free-play'>Configure Free Play</a>"
+            + "</div>"
+            + "</section>"
+            + footer
+        )
+        return body
 
     @app.route("/start", methods=["GET"])
     def list_characters() -> Response:
         logger.info("Listing characters")
         nonlocal last_history_signature
+        if current_mode == "campaign" and campaign_state.active and campaign_state.sector_choice is None:
+            return redirect("/campaign/level")
         with state_lock:
             score = game_state.final_weighted_score()
             hist_len = len(game_state.history)
@@ -1294,6 +1734,7 @@ def create_app() -> Flask:
 
     @app.route("/result", methods=["GET"])
     def result() -> str:
+        nonlocal current_mode
         with assessment_lock:
             running = any(t.is_alive() for t in assessment_threads)
         if running:
@@ -1301,19 +1742,87 @@ def create_app() -> Flask:
                 "<p>Waiting for assessments...</p>"
                 "<meta http-equiv='refresh' content='1'>"
             )
+        campaign_context: Tuple[int, str, str | None] | None = None
         with state_lock:
             final = game_state.final_weighted_score()
             state_html = game_state.render_state()
             threshold = game_state.config.win_threshold
-        outcome = "You won!" if final >= threshold else "You lost!"
-        return (
-            f"<h1>{outcome}</h1>"
-            f"{state_html}"
-            "<form method='post' action='/reset'>"
-            "<button type='submit'>Reset</button>"
-            "</form>"
-            f"{footer}"
+            scenario_key = game_state.config.scenario
+            if current_mode == "campaign":
+                level_index = min(campaign_state.current_level, len(CAMPAIGN_SCENARIOS) - 1)
+                sector_choice = campaign_state.sector_choice
+                campaign_context = (
+                    level_index,
+                    scenario_key,
+                    sector_choice,
+                )
+                campaign_state.level_outcomes[level_index] = {
+                    "score": final,
+                    "threshold": threshold,
+                    "sector": sector_choice,
+                    "scenario": scenario_key,
+                }
+        is_win = final >= threshold
+        if not campaign_context:
+            outcome = "You won!" if is_win else "You lost!"
+            return (
+                f"<h1>{outcome}</h1>"
+                f"{state_html}"
+                "<form method='post' action='/reset'>"
+                "<button type='submit'>Reset</button>"
+                "</form>"
+                f"{footer}"
+            )
+
+        level_index, scenario_key, sector_choice = campaign_context
+        level_number = level_index + 1
+        scenario_name = _scenario_display_name(scenario_key)
+        sector_label = {
+            "public": "Public Sector",
+            "private": "Private Sector",
+        }.get(sector_choice, "Unknown coalition")
+        result_title = "Victory" if is_win else "Defeat"
+        score_summary = (
+            f"Final score {final:.0f} with a threshold of {threshold:.0f}."
         )
+        level_intro = (
+            f"Level {level_number} – {escape(scenario_name, False)}.<br>"
+            f"You partnered with the {escape(sector_label, False)}."
+        )
+        actions: List[str] = []
+        actions.append(
+            "<form method='post' action='/reset'>"
+            "<button type='submit' class='secondary'>Restart Level (same sector)</button>"
+            "</form>"
+        )
+        actions.append(
+            "<a href='/campaign/level'>Change Sector</a>"
+        )
+        if is_win:
+            if level_index >= len(CAMPAIGN_SCENARIOS) - 1:
+                actions.append("<a href='/campaign/complete'>View Campaign Summary</a>")
+            else:
+                next_label = f"Advance to Level {level_number + 1}"
+                actions.append(
+                    "<form method='post' action='/campaign/next'>"
+                    f"<button type='submit'>{next_label}</button>"
+                    "</form>"
+                )
+        header = (
+            campaign_style
+            + "<section class='campaign-container'>"
+            + "<div class='campaign-header'>"
+            + f"<h1>{result_title}</h1>"
+            + f"<p>{level_intro}<br>{score_summary}</p>"
+            + "</div>"
+            + f"<div class='campaign-summary'>{state_html}</div>"
+            + "<div class='campaign-actions'>"
+            + "".join(actions)
+            + "</div>"
+            + "</section>"
+            + footer
+        )
+        return header
 
     return app
 
