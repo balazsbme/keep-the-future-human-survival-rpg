@@ -30,7 +30,9 @@ def _load_test_character() -> YamlCharacter:
 
 
 def _enabled_test_config() -> GameConfig:
-    return GameConfig(enabled_factions=("test_character", "CivilSociety"))
+    return GameConfig(
+        enabled_factions=("test_character", "CivilSociety", "ScientificCommunity")
+    )
 
 
 @patch.dict(os.environ, {"ENABLE_PARALLELISM": "1"})
@@ -205,6 +207,7 @@ def test_assessment_background_wait(mock_char_genai, mock_assess_genai):
         partner,
         *,
         partner_credibility=None,
+        conversation_cache=None,
     ):
         return [action_option]
 
@@ -235,8 +238,8 @@ def test_assessment_background_wait(mock_char_genai, mock_assess_genai):
                         "/actions",
                         data={"character": "0", "response": payload},
                     )
-                assert resp.status_code == 302
-                assert resp.headers["Location"].endswith("/start")
+                assert resp.status_code == 200
+                assert b"Action Outcome" in resp.data
                 assert start_evt.wait(timeout=1)
                 resp = client.get("/result")
                 assert b"Waiting for assessments" in resp.data
