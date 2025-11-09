@@ -1009,8 +1009,7 @@ class PlayerCharacter(Character):
         limit = getattr(self.config, "format_prompt_character_limit", 400)
         schema_text = _response_schema_text()
         instructions = (
-            "Return the result as a JSON array with exactly one object. The object must "
-            "contain the keys 'text', 'type', 'related-triplet', and 'related-attribute'. "
+            "The JSON objects must contain the keys 'text', 'type', 'related-triplet', and 'related-attribute'. "
             "The 'text' field holds the natural language response, which should be short, "
             f"at most 1-2 sentences, with a hard-limit of {limit} characters, finally do "
             "not apply any formatting such as '*'-s. The 'type' field must be 'chat'. Set "
