@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Dict, List, Mapping, Sequence, Tuple
 
 from flask import Flask, Response, redirect, request
+from dotenv import load_dotenv
+import google.generativeai as genai
 
 from cli_game import load_characters
 from rpg.assessment_agent import AssessmentAgent
@@ -26,6 +28,23 @@ GITHUB_URL = "https://github.com/balazsbme/keep-the-future-human-survival-rpg"
 
 
 logger = logging.getLogger(__name__)
+
+load_dotenv()
+
+
+def _configure_gemini_client() -> None:
+    """Configure the Gemini SDK once so downstream imports can reuse it."""
+
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "GEMINI_API_KEY environment variable not set. "
+            "Set it (e.g., in .env) before starting the web service."
+        )
+    genai.configure(api_key=api_key)
+
+
+_configure_gemini_client()
 
 
 # Expose the active configuration at module scope so tests can patch it.
