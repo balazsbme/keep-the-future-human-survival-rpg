@@ -6,17 +6,35 @@ from __future__ import annotations
 
 import logging
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from html import escape
 from typing import Dict, Iterable, List, Sequence, Tuple
 
 from .character import Character, PlayerCharacter, ResponseOption
+from .constants import ACTION_ATTRIBUTES
 from .credibility import CREDIBILITY_PENALTY, CREDIBILITY_REWARD, CredibilityMatrix
 from .config import GameConfig, load_game_config
 from .conversation import ConversationEntry
 
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_action_option(action: ResponseOption | str) -> ResponseOption:
+    """Return ``action`` as an action-type :class:`ResponseOption` with an attribute."""
+
+    created = not isinstance(action, ResponseOption)
+    option = (
+        action
+        if isinstance(action, ResponseOption)
+        else ResponseOption(text=str(action), type="action")
+    )
+    if created and option.is_action and not option.related_attribute:
+        option = replace(
+            option,
+            related_attribute=random.choice(ACTION_ATTRIBUTES),
+        )
+    return option
 
 
 DEFAULT_PLAYER_FACTION = "CivilSociety"
@@ -392,11 +410,7 @@ class GameState:
     ) -> bool:
         """Resolve an action and automatically log failures when not rerolled."""
 
-        option = (
-            action
-            if isinstance(action, ResponseOption)
-            else ResponseOption(text=str(action), type="action")
-        )
+        option = _coerce_action_option(action)
         attempt = self.attempt_action(character, option, targets=targets)
         if attempt.success:
             return True
@@ -413,11 +427,7 @@ class GameState:
     ) -> ActionAttempt:
         """Attempt an action without immediately logging failure results."""
 
-        option = (
-            action
-            if isinstance(action, ResponseOption)
-            else ResponseOption(text=str(action), type="action")
-        )
+        option = _coerce_action_option(action)
         if not option.is_action:
             raise ValueError("attempt_action requires an action-type ResponseOption")
         logger.info("Evaluating action '%s' for %s", option.text, character.name)
@@ -546,11 +556,7 @@ class GameState:
         character: Character,
         action: ResponseOption | str,
     ) -> None:
-        option = (
-            action
-            if isinstance(action, ResponseOption)
-            else ResponseOption(text=str(action), type="action")
-        )
+        option = _coerce_action_option(action)
         key = (character.name, option.text)
         attempt = self.pending_failures.pop(key, None)
         reroll_count = self.reroll_counts.pop(key, None) or 0
@@ -578,11 +584,7 @@ class GameState:
         *,
         targets: Iterable[str] | None = None,
     ) -> ActionAttempt:
-        option = (
-            action
-            if isinstance(action, ResponseOption)
-            else ResponseOption(text=str(action), type="action")
-        )
+        option = _coerce_action_option(action)
         key = (character.name, option.text)
         attempt = self.pending_failures.pop(key, None)
         if attempt is None:
@@ -605,17 +607,42 @@ class GameState:
         character: Character,
         action: ResponseOption | str,
     ) -> int:
-        option = (
-            action
-            if isinstance(action, ResponseOption)
-            else ResponseOption(text=str(action), type="action")
-        )
+        option = _coerce_action_option(action)
         key = (character.name, option.text)
         attempt = self.pending_failures.get(key)
         if not attempt:
             return 0
         reroll_count = self.reroll_counts.get(key, 0) + 1
         return attempt.credibility_cost * reroll_count
+
+    def reroll_affordability(
+        self,
+        character: Character,
+        action: ResponseOption | str,
+    ) -> Tuple[bool, List[Tuple[str, int, int]]]:
+        """Return whether a reroll is affordable and any shortages."""
+
+        option = _coerce_action_option(action)
+        key = (character.name, option.text)
+        attempt = self.pending_failures.get(key)
+        if not attempt:
+            return True, []
+        reroll_count = self.reroll_counts.get(key, 0) + 1
+        cost = attempt.credibility_cost * reroll_count
+        if cost <= 0:
+            return True, []
+        actor_faction = getattr(character, "faction", None)
+        targets = list(attempt.targets or [actor_faction])
+        shortages: List[Tuple[str, int, int]] = []
+        self.credibility.ensure_faction(self.player_faction)
+        for target in targets:
+            if not target:
+                continue
+            self.credibility.ensure_faction(target)
+            available = self.credibility.value(self.player_faction, target)
+            if available - cost < 0:
+                shortages.append((target, available, cost))
+        return not shortages, shortages
 
     def _apply_credibility_updates(
         self,
