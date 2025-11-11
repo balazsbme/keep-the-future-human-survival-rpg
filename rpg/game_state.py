@@ -257,7 +257,7 @@ class GameState:
         entry_text = option.text
         if option.is_action:
             label = self._resolve_action_label(character, option)
-            entry_text = f"Agreed on performing action {label}"
+            entry_text = f"Attempting action {label}"
             record = self.player_action_records.setdefault(key, {})
             record[len(history)] = option
         entry = ConversationEntry(
@@ -274,6 +274,56 @@ class GameState:
             option.type,
         )
         return entry
+
+    def _find_player_action_index(
+        self, character: Character, option: ResponseOption
+    ) -> int | None:
+        key = self._conversation_key(character)
+        record = self.player_action_records.get(key)
+        if not record:
+            return None
+        matches = [idx for idx, recorded in record.items() if recorded == option]
+        if not matches:
+            matches = [
+                idx
+                for idx, recorded in record.items()
+                if recorded.text == option.text and recorded.type == option.type
+            ]
+        if not matches:
+            return None
+        return max(matches)
+
+    def _update_player_action_entry(
+        self, character: Character, option: ResponseOption, text: str
+    ) -> None:
+        index = self._find_player_action_index(character, option)
+        if index is None:
+            return
+        key = self._conversation_key(character)
+        history = self.conversations.get(key)
+        if not history or index >= len(history):
+            return
+        original = history[index]
+        history[index] = ConversationEntry(
+            speaker=original.speaker,
+            text=text,
+            type=original.type,
+        )
+        self._update_faction_cache(character)
+
+    def _clear_player_action_record(
+        self, character: Character, option: ResponseOption
+    ) -> None:
+        index = self._find_player_action_index(character, option)
+        if index is None:
+            return
+        key = self._conversation_key(character)
+        record = self.player_action_records.get(key)
+        if not record:
+            return
+        record.pop(index, None)
+        if not record:
+            self.player_action_records.pop(key, None)
 
     def log_npc_responses(
         self, character: Character, responses: Iterable[ResponseOption]
@@ -497,6 +547,13 @@ class GameState:
         self.last_reroll_count = reroll_count
         if success:
             logger.info("Action succeeded; recording in history")
+            success_text = (
+                f"Succeeded {attempt.label} (attribute {attribute_label}: {effective_score}, "
+                f"roll={sampled_value}, total={roll_total}, "
+                f"threshold={self.config.roll_success_threshold})"
+            )
+            self._update_player_action_entry(character, option, success_text)
+            self._clear_player_action_record(character, option)
             self.pending_failures.pop(key, None)
             self.reroll_counts.pop(key, None)
             self.history.append((character.display_name, option.text))
@@ -509,6 +566,7 @@ class GameState:
             )
         else:
             logger.info("Action failed; storing failure for potential reroll")
+            self._update_player_action_entry(character, option, failure_text)
             self.pending_failures[key] = attempt
             reroll_value = self.reroll_counts.setdefault(key, reroll_count)
             self.last_reroll_count = reroll_value
@@ -564,6 +622,7 @@ class GameState:
         self.last_action_actor = character.display_name
         if not attempt:
             logger.info("No pending failure to finalize for %s", option.text)
+            self._clear_player_action_record(character, option)
             return
         failure_text = attempt.failure_text
         if not failure_text:
@@ -576,6 +635,7 @@ class GameState:
             )
         logger.info("Recording failed action for %s: %s", character.name, failure_text)
         self.history.append((character.display_name, failure_text))
+        self._clear_player_action_record(character, option)
 
     def reroll_action(
         self,
