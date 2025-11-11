@@ -13,7 +13,7 @@ from html import escape
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
-from flask import Flask, Response, redirect, request
+from flask import Flask, Response, redirect, request, send_from_directory
 from dotenv import load_dotenv
 import google.generativeai as genai
 import yaml
@@ -155,6 +155,12 @@ def create_app() -> Flask:
         "<p><a href='/instructions'>Instructions</a> | "
         f"<a href='{GITHUB_URL}'>GitHub</a></p>"
     )
+    asset_root = Path(__file__).resolve().parent / "assets"
+
+    @app.route("/assets/<path:filename>")
+    def serve_asset(filename: str) -> Response:
+        return send_from_directory(asset_root, filename)
+
     panel_style = (
         "<style>"
         ".layout-container{display:flex;gap:1.5rem;align-items:flex-start;}"
@@ -176,6 +182,11 @@ def create_app() -> Flask:
         ".action-outcome-actions{display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:0.75rem;}"
         ".action-outcome-actions form{margin:0;}"
         ".warning-text{color:#9c2f2f;font-weight:600;}"
+        ".roll-indicator{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,0.55);backdrop-filter:blur(2px);z-index:999;visibility:hidden;opacity:0;transition:opacity 0.2s ease-in-out;}"
+        ".roll-indicator.active{visibility:visible;opacity:1;}"
+        ".roll-indicator .indicator-content{display:flex;flex-direction:column;align-items:center;padding:1.5rem;background:rgba(17,24,39,0.9);border-radius:14px;box-shadow:0 24px 50px rgba(15,23,42,0.35);}"
+        ".roll-indicator img{width:96px;height:96px;object-fit:contain;margin-bottom:0.75rem;}"
+        ".roll-indicator p{margin:0;color:#f9fafb;font-size:1.05rem;font-weight:600;}"
         "</style>"
     )
 
@@ -229,7 +240,14 @@ def create_app() -> Flask:
         ".instructions ul{margin:0.5rem 0 0 1.25rem;}"
         ".instructions li{margin-bottom:0.4rem;}"
         ".config-settings form{display:flex;flex-direction:column;gap:0.75rem;max-width:360px;}"
-        ".config-settings label{display:flex;flex-direction:column;font-weight:600;font-size:0.95rem;}"
+        ".config-settings label{display:flex;flex-direction:column;font-weight:600;font-size:0.95rem;gap:0.35rem;}"
+        ".config-label-text{display:flex;align-items:center;gap:0.4rem;}"
+        ".tooltip-icon{position:relative;display:inline-flex;align-items:center;justify-content:center;}"
+        ".tooltip-icon img{width:16px;height:16px;border-radius:50%;box-shadow:0 0 0 1px rgba(15,23,42,0.35);cursor:pointer;}"
+        ".tooltip-text{position:absolute;bottom:125%;left:50%;transform:translateX(-50%);background:#1f2933;color:#fff;padding:0.45rem 0.6rem;border-radius:6px;font-size:0.8rem;line-height:1.2;white-space:normal;width:220px;box-shadow:0 12px 28px rgba(15,23,42,0.25);opacity:0;visibility:hidden;transition:opacity 0.2s ease-in-out,visibility 0.2s ease-in-out;z-index:10;}"
+        ".tooltip-icon:hover .tooltip-text{opacity:1;visibility:visible;}"
+        ".tooltip-icon::after{content:\"\";position:absolute;bottom:110%;left:50%;transform:translateX(-50%);border-width:6px;border-style:solid;border-color:transparent transparent #1f2933 transparent;opacity:0;transition:opacity 0.2s ease-in-out;}"
+        ".tooltip-icon:hover::after{opacity:1;}"
         ".config-settings input,.config-settings select{margin-top:0.25rem;padding:0.45rem;border:1px solid #c6c6c6;border-radius:6px;font-size:0.95rem;}"
         ".config-settings button{align-self:flex-start;padding:0.45rem 0.9rem;font-size:0.95rem;}"
         ".config-error{margin:0 0 0.75rem 0;padding:0.75rem;border:1px solid #d93025;background:#fdecea;color:#a50e0e;border-radius:8px;font-size:0.9rem;}"
@@ -244,6 +262,52 @@ def create_app() -> Flask:
         ".scenario-summary h2{margin:0 0 0.5rem 0;font-size:1.2rem;}"
         ".scenario-summary p{margin:0.5rem 0;line-height:1.5;}"
         "</style>"
+    )
+
+    tooltip_asset_path = "/assets/tooltip.jpg"
+    roll_asset_path = "/assets/rolling.gif"
+
+    def _tooltip_icon(description: str) -> str:
+        content = escape(description, False)
+        return (
+            "<span class='tooltip-icon'>"
+            + f"<img src='{tooltip_asset_path}' alt='Info tooltip icon'>"
+            + f"<span class='tooltip-text'>{content}</span>"
+            + "</span>"
+        )
+
+    def _config_label(title: str, description: str) -> str:
+        return (
+            f"<span class='config-label-text'>{escape(title, False)}"
+            + _tooltip_icon(description)
+            + "</span>"
+        )
+
+    roll_indicator_markup = (
+        "<div class='roll-indicator' id='roll-indicator'>"
+        "<div class='indicator-content'>"
+        f"<img src='{roll_asset_path}' alt='Random sampling animation'>"
+        "<p>Sampling outcomes...</p>"
+        "</div></div>"
+    )
+
+    roll_indicator_script = (
+        "<script>"
+        "document.addEventListener('DOMContentLoaded',function(){"
+        "const overlay=document.getElementById('roll-indicator');"
+        "if(!overlay){return;}"
+        "const activate=function(){overlay.classList.add('active');};"
+        "document.querySelectorAll('form.roll-trigger').forEach(function(form){"
+        "form.addEventListener('submit',activate);"
+        "});"
+        "document.querySelectorAll('form.options-form').forEach(function(form){"
+        "form.addEventListener('submit',function(){"
+        "const selected=form.querySelector(\"input[name='response']:checked\");"
+        "if(selected && selected.dataset && selected.dataset.kind==='action'){activate();}"
+        "});"
+        "});"
+        "});"
+        "</script>"
     )
 
     def _scenario_display_name(name: str) -> str:
@@ -621,25 +685,57 @@ def create_app() -> Flask:
                 f"<li>{escape(message, False)}</li>" for message in validation_errors
             )
             error_html = f"<div class='config-error'><ul>{error_items}</ul></div>"
+        field_help = {
+            "scenario": "Select the narrative scenario used for free play sessions.",
+            "win_threshold": "Score needed to achieve a win at the end of the run.",
+            "max_rounds": "Maximum number of conversation rounds before the game ends.",
+            "roll_success_threshold": "Minimum roll total required for an action to succeed.",
+            "action_time_cost_years": "Years of in-game time that pass whenever you attempt an action.",
+            "format_prompt_character_limit": "Maximum characters allowed when prompts are formatted for the model.",
+            "conversation_force_action_after": "Force an action to be offered after this many exchanges without one.",
+            "enabled_factions": "Factions that can appear in free play encounters.",
+            "player_faction": "Faction alignment assigned to your player character.",
+        }
         form_body = (
             intro_style
             + "<h1>Configure Free Play</h1>"
             + "<section class='config-settings'>"
             + "<form method='post'>"
             + error_html
-            + "<label>Scenario<select name='scenario'>"
+            + "<label>"
+            + _config_label("Scenario", field_help["scenario"])
+            + "<select name='scenario'>"
             + "".join(scenario_options)
             + "</select></label>"
-            + f"<label>Win threshold<input type='number' name='win_threshold' min='0' value='{form_config.win_threshold}'></label>"
-            + f"<label>Max rounds<input type='number' name='max_rounds' min='1' value='{form_config.max_rounds}'></label>"
-            + f"<label>Roll success threshold<input type='number' name='roll_success_threshold' min='1' value='{form_config.roll_success_threshold}'></label>"
-            + f"<label>Action time cost (years)<input type='number' step='0.1' min='0' name='action_time_cost_years' value='{form_config.action_time_cost_years}'></label>"
-            + f"<label>Prompt character limit<input type='number' min='1' name='format_prompt_character_limit' value='{form_config.format_prompt_character_limit}'></label>"
-            + f"<label>Conversation force action after<input type='number' min='0' name='conversation_force_action_after' value='{form_config.conversation_force_action_after}'></label>"
-            + "<label>Enabled factions<select name='enabled_factions' multiple size='6'>"
+            + "<label>"
+            + _config_label("Win threshold", field_help["win_threshold"])
+            + f"<input type='number' name='win_threshold' min='0' value='{form_config.win_threshold}'></label>"
+            + "<label>"
+            + _config_label("Max rounds", field_help["max_rounds"])
+            + f"<input type='number' name='max_rounds' min='1' value='{form_config.max_rounds}'></label>"
+            + "<label>"
+            + _config_label("Roll success threshold", field_help["roll_success_threshold"])
+            + f"<input type='number' name='roll_success_threshold' min='1' value='{form_config.roll_success_threshold}'></label>"
+            + "<label>"
+            + _config_label("Action time cost (years)", field_help["action_time_cost_years"])
+            + f"<input type='number' step='0.1' min='0' name='action_time_cost_years' value='{form_config.action_time_cost_years}'></label>"
+            + "<label>"
+            + _config_label("Prompt character limit", field_help["format_prompt_character_limit"])
+            + f"<input type='number' min='1' name='format_prompt_character_limit' value='{form_config.format_prompt_character_limit}'></label>"
+            + "<label>"
+            + _config_label(
+                "Conversation force action after",
+                field_help["conversation_force_action_after"],
+            )
+            + f"<input type='number' min='0' name='conversation_force_action_after' value='{form_config.conversation_force_action_after}'></label>"
+            + "<label>"
+            + _config_label("Enabled factions", field_help["enabled_factions"])
+            + "<select name='enabled_factions' multiple size='6'>"
             + "".join(faction_options)
             + "</select></label>"
-            + "<label>Player faction<select name='player_faction'>"
+            + "<label>"
+            + _config_label("Player faction", field_help["player_faction"])
+            + "<select name='player_faction'>"
             + "".join(player_options)
             + "</select></label>"
             + "<p class='config-note'>Applying new settings resets the current game immediately.</p>"
@@ -1323,7 +1419,7 @@ def create_app() -> Flask:
             payload = escape(json.dumps(option.to_payload()), quote=True)
             label_html = escape(option.text, quote=False)
             option_items.append(
-                f"<li><input type='radio' name='response' value='{payload}' id='opt{option_counter}'>"
+                f"<li><input type='radio' name='response' value='{payload}' id='opt{option_counter}' data-kind='chat'>"
                 f"<label for='opt{option_counter}'>{label_html}</label></li>"
             )
             option_counter += 1
@@ -1334,7 +1430,7 @@ def create_app() -> Flask:
                 attribute = option.related_attribute.title() if option.related_attribute else "None"
                 label_text = f"Action {action_index} [{attribute}]"
             option_items.append(
-                f"<li><input type='radio' name='response' value='{payload}' id='opt{option_counter}'>"
+                f"<li><input type='radio' name='response' value='{payload}' id='opt{option_counter}' data-kind='action'>"
                 f"<label for='opt{option_counter}' title='{escape(option.text, quote=True)}'>"
                 f"<strong>{escape(label_text, quote=False)}</strong></label></li>"
             )
@@ -1372,13 +1468,14 @@ def create_app() -> Flask:
         partner_panel = _profile_panel(character, credibility=partner_credibility)
         layout = (
             panel_style
+            + roll_indicator_markup
             + "<div class='layout-container'>"
             + f"<div class='panel player-panel'>{player_panel}</div>"
             + f"<div class='panel conversation-panel'>{conversation_panel}</div>"
             + f"<div class='panel partner-panel'>{partner_panel}</div>"
             + "</div>"
         )
-        return layout + state_html + footer
+        return layout + state_html + footer + roll_indicator_script
 
     def _render_success_page(
         char_id: int,
@@ -1439,13 +1536,14 @@ def create_app() -> Flask:
         partner_panel = _profile_panel(character, credibility=partner_credibility)
         layout = (
             panel_style
+            + roll_indicator_markup
             + "<div class='layout-container'>"
             + f"<div class='panel player-panel'>{player_panel}</div>"
             + f"<div class='panel conversation-panel'>{conversation_panel}</div>"
             + f"<div class='panel partner-panel'>{partner_panel}</div>"
             + "</div>"
         )
-        return layout + state_html + footer
+        return layout + state_html + footer + roll_indicator_script
 
     def _render_failure_page(
         char_id: int,
@@ -1490,7 +1588,7 @@ def create_app() -> Flask:
         outcome_section += "<div class='reroll-actions'>"
         if can_reroll:
             outcome_section += (
-                "<form method='post' action='/reroll'>"
+                "<form method='post' action='/reroll' class='roll-trigger'>"
                 + f"<input type='hidden' name='character' value='{char_id}'>"
                 + f"<input type='hidden' name='action' value='{payload}'>"
                 + f"<button type='submit'>{reroll_label}</button>"
@@ -1518,13 +1616,14 @@ def create_app() -> Flask:
         partner_panel = _profile_panel(character, credibility=partner_credibility)
         layout = (
             panel_style
+            + roll_indicator_markup
             + "<div class='layout-container'>"
             + f"<div class='panel player-panel'>{player_panel}</div>"
             + f"<div class='panel conversation-panel'>{conversation_panel}</div>"
             + f"<div class='panel partner-panel'>{partner_panel}</div>"
             + "</div>"
         )
-        return layout + state_html + footer
+        return layout + state_html + footer + roll_indicator_script
     @app.route("/actions", methods=["GET", "POST"])
     def character_actions() -> Response:
         char_id = int(request.values["character"])
