@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 from dataclasses import dataclass, field
 from html import escape
@@ -157,6 +158,195 @@ def create_app() -> Flask:
     )
     asset_root = Path(__file__).resolve().parent / "assets"
 
+    def _normalize_key(value: str | None) -> str:
+        return "".join(ch for ch in str(value or "").lower() if ch.isalnum())
+
+    profile_photo_map = {
+        "elenamarkovic": "character-pictures/gov-1-neutral.jpg",
+        "victorchen": "character-pictures/corp-1-neutral.jpg",
+        "akiratanaka": "character-pictures/hwman-1-neutral.jpg",
+        "isabelladuarte": "character-pictures/reg-1-neutral.jpg",
+        "malikokoro": "character-pictures/civ-1-neutral.jpg",
+        "drsofiaalvarez": "character-pictures/sci-1-neutral.jpg",
+        "jordanellis": "character-pictures/civ-2-neutral.jpg",
+        "drmayaibarra": "character-pictures/sci-2-neutral.jpg",
+    }
+
+    def _profile_photo_from_name(name: str | None) -> str | None:
+        if not name:
+            return None
+        candidate = profile_photo_map.get(_normalize_key(name))
+        if candidate:
+            return f"/assets/{candidate}"
+        return None
+
+    def _profile_image_html(name: str, *, css_class: str, alt_label: str) -> str:
+        src = _profile_photo_from_name(name)
+        safe_alt = escape(alt_label, False)
+        if src:
+            return (
+                f"<div class='{css_class}'><img src='{src}' alt='{safe_alt}'></div>"
+            )
+        initials = "".join(part[:1] for part in name.split()) or "?"
+        return (
+            f"<div class='{css_class}' role='img' aria-label='{safe_alt}'>"
+            f"{escape(initials.upper(), False)}</div>"
+        )
+
+    def _persona_entries(payload: object) -> List[Dict[str, Any]]:
+        if isinstance(payload, dict):
+            characters = payload.get("Characters")
+            if isinstance(characters, list):
+                return [entry for entry in characters if isinstance(entry, dict)]
+        if isinstance(payload, list):
+            return [entry for entry in payload if isinstance(entry, dict)]
+        return []
+
+    player_persona_path = Path(__file__).resolve().parent / "player_character.yaml"
+    try:
+        with open(player_persona_path, "r", encoding="utf-8") as fh:
+            player_persona_payload = yaml.safe_load(fh) or {}
+    except FileNotFoundError:
+        player_persona_payload = {}
+    player_persona_entries = _persona_entries(player_persona_payload)
+    player_personas_by_name: Dict[str, Dict[str, Any]] = {}
+    player_personas_by_faction: Dict[str, Dict[str, Any]] = {}
+    for entry in player_persona_entries:
+        name_key = _normalize_key(entry.get("name"))
+        faction_key = _normalize_key(entry.get("faction"))
+        if name_key:
+            player_personas_by_name[name_key] = entry
+        if faction_key and faction_key not in player_personas_by_faction:
+            player_personas_by_faction[faction_key] = entry
+
+    def _player_profile_by_faction(faction: str) -> Dict[str, Any] | None:
+        key = _normalize_key(faction)
+        if not key:
+            return None
+        return player_personas_by_faction.get(key)
+
+    def _format_faction_label(value: str | None) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        spaced = re.sub(r"(?<!^)(?=[A-Z])", " ", raw)
+        return spaced.replace("_", " ").strip()
+
+    def _persona_card_html(
+        *,
+        name: str,
+        faction: str,
+        guidance: str,
+        attributes: Sequence[Tuple[str, str]],
+        details: Sequence[Tuple[str, str]],
+    ) -> str:
+        safe_name = escape(name or "Unknown", False)
+        faction_label = escape(faction, False) if faction else ""
+        guidance_text = escape(guidance, False) if guidance else ""
+        header_parts = [
+            "<div class='persona-header'>",
+            _profile_image_html(
+                name or "Unknown",
+                css_class="persona-photo",
+                alt_label=f"Portrait of {name or 'persona'}",
+            ),
+            "<div>",
+            f"<h3>{safe_name}</h3>",
+        ]
+        if faction_label:
+            header_parts.append(f"<p class='persona-faction'>{faction_label}</p>")
+        if guidance_text:
+            header_parts.append(f"<p class='persona-guidance'>{guidance_text}</p>")
+        header_parts.append("</div></div>")
+        attribute_items = [
+            f"<li><span>{escape(label, False)}</span><span>{escape(str(value), False)}</span></li>"
+            for label, value in attributes
+            if str(value).strip()
+        ]
+        attributes_block = (
+            f"<ul class='persona-attributes'>{''.join(attribute_items)}</ul>"
+            if attribute_items
+            else ""
+        )
+        detail_items = [
+            f"<p><strong>{escape(label, False)}:</strong> {escape(str(value), False)}</p>"
+            for label, value in details
+            if str(value).strip()
+        ]
+        details_block = (
+            f"<div class='persona-body'>{''.join(detail_items)}</div>"
+            if detail_items
+            else ""
+        )
+        return "<article class='persona-card'>" + "".join(header_parts) + attributes_block + details_block + "</article>"
+
+    def _persona_card_from_profile(profile: Mapping[str, Any]) -> str:
+        name = str(profile.get("name", "") or "Player Persona")
+        faction = _format_faction_label(profile.get("faction"))
+        guidance = str(profile.get("guidance", "") or "")
+        attributes: List[Tuple[str, str]] = []
+        for key in ("leadership", "technology", "policy", "network"):
+            raw = profile.get(key)
+            if raw is None:
+                raw = profile.get(key.title())
+            if raw is not None:
+                attributes.append((key.title(), str(raw)))
+        details: List[Tuple[str, str]] = []
+        for label, key in (
+            ("Perks", "perks"),
+            ("Weaknesses", "weaknesses"),
+            ("Motivations", "motivations"),
+            ("Background", "background"),
+        ):
+            value = profile.get(key)
+            if value:
+                details.append((label, str(value)))
+        return _persona_card_html(
+            name=name,
+            faction=faction,
+            guidance=guidance,
+            attributes=attributes,
+            details=details,
+        )
+
+    def _persona_card_for_character(character: Character) -> str:
+        profile_data = getattr(character, "profile", {}) or {}
+        if not profile_data:
+            fallback = player_personas_by_name.get(_normalize_key(getattr(character, "name", "")))
+            if fallback:
+                profile_data = fallback
+        guidance = str(
+            profile_data.get("guidance", "")
+            or getattr(character, "guidance", "")
+            or ""
+        )
+        attributes = [
+            (label, str(character.attribute_score(key)))
+            for key, label in (
+                ("leadership", "Leadership"),
+                ("technology", "Technology"),
+                ("policy", "Policy"),
+                ("network", "Network"),
+            )
+        ]
+        details: List[Tuple[str, str]] = []
+        for label, key in (
+            ("Perks", "perks"),
+            ("Weaknesses", "weaknesses"),
+            ("Motivations", "motivations"),
+            ("Background", "background"),
+        ):
+            value = profile_data.get(key) or getattr(character, key, "")
+            if value:
+                details.append((label, str(value)))
+        return _persona_card_html(
+            name=getattr(character, "name", ""),
+            faction=_format_faction_label(getattr(character, "faction", "")),
+            guidance=guidance,
+            attributes=attributes,
+            details=details,
+        )
+
     @app.route("/assets/<path:filename>")
     def serve_asset(filename: str) -> Response:
         return send_from_directory(asset_root, filename)
@@ -169,24 +359,75 @@ def create_app() -> Flask:
         ".conversation-panel{flex:5;}"
         ".options-form ul{list-style:none;padding:0;margin:0;}"
         ".options-form li{margin-bottom:0.75rem;}"
-        ".profile-card{display:flex;flex-direction:column;align-items:center;gap:0.75rem;padding:1rem;border-radius:10px;background:#fafafa;border:1px solid #e2e2e2;}"
-        ".profile-photo{width:120px;height:120px;border-radius:10px;background:linear-gradient(135deg,#ececec,#d5d5d5);display:flex;align-items:center;justify-content:center;color:#666;font-weight:600;font-size:0.9rem;}"
+        ".profile-card{display:flex;flex-direction:column;align-items:center;gap:0.75rem;padding:1rem;border-radius:12px;background:#ffffff;border:1px solid #e2e8f0;box-shadow:0 10px 24px rgba(15,23,42,0.06);}"
+        ".profile-photo{width:120px;height:120px;border-radius:12px;overflow:hidden;background:linear-gradient(135deg,#e0e7ff,#c7d2fe);display:flex;align-items:center;justify-content:center;color:#1e3a8a;font-weight:600;font-size:1rem;letter-spacing:0.08em;text-transform:uppercase;}"
+        ".profile-photo img{width:100%;height:100%;object-fit:cover;display:block;}"
         ".profile-name{margin:0;font-size:1.1rem;text-align:center;}"
         ".attribute-list{list-style:none;padding:0;margin:0;width:100%;}"
-        ".attribute-list li{display:flex;justify-content:space-between;padding:0.25rem 0;border-bottom:1px solid #e5e5e5;font-size:0.9rem;}"
+        ".attribute-list li{display:flex;justify-content:space-between;padding:0.25rem 0;border-bottom:1px solid #e5e7eb;font-size:0.9rem;}"
         ".attribute-list li:last-child{border-bottom:none;}"
-        ".credibility-box{width:100%;padding:0.5rem;border:1px solid #d6d6d6;border-radius:8px;background:#fffdfa;text-align:center;font-size:0.9rem;}"
-        ".credibility-box span{display:block;font-size:0.75rem;color:#555;margin-bottom:0.2rem;}"
+        ".credibility-box{width:100%;padding:0.6rem;border:1px solid #cbd5f5;border-radius:10px;background:#eef2ff;text-align:center;font-size:0.9rem;color:#1e3a8a;font-weight:600;}"
+        ".credibility-box span{display:block;font-size:0.75rem;color:#475569;margin-bottom:0.25rem;}"
         ".reroll-actions{display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:0.5rem;}"
         ".reroll-actions form{margin:0;}"
         ".action-outcome-actions{display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:0.75rem;}"
         ".action-outcome-actions form{margin:0;}"
         ".warning-text{color:#9c2f2f;font-weight:600;}"
-        ".roll-indicator{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,0.55);backdrop-filter:blur(2px);z-index:999;visibility:hidden;opacity:0;transition:opacity 0.2s ease-in-out;}"
-        ".roll-indicator.active{visibility:visible;opacity:1;}"
-        ".roll-indicator .indicator-content{display:flex;flex-direction:column;align-items:center;padding:1.5rem;background:rgba(17,24,39,0.9);border-radius:14px;box-shadow:0 24px 50px rgba(15,23,42,0.35);}"
-        ".roll-indicator img{width:96px;height:96px;object-fit:contain;margin-bottom:0.75rem;}"
-        ".roll-indicator p{margin:0;color:#f9fafb;font-size:1.05rem;font-weight:600;}"
+        ".roll-indicator{display:none;align-items:center;justify-content:center;gap:0.75rem;margin:1.25rem auto 0 auto;padding:0.85rem 1.4rem;border-radius:999px;background:#eef2ff;box-shadow:0 10px 24px rgba(59,130,246,0.18);color:#1d4ed8;font-weight:600;max-width:360px;opacity:0;transition:opacity 0.3s ease;}"
+        ".roll-indicator.visible{display:flex;opacity:1;}"
+        ".roll-indicator.fade-out{opacity:0;}"
+        ".roll-indicator img{width:64px;height:64px;object-fit:contain;margin:0;}"
+        ".roll-indicator p{margin:0;font-size:1rem;color:#1d4ed8;}"
+        "</style>"
+    )
+
+    persona_style = (
+        "<style>"
+        ".persona-card{background:#ffffff;border-radius:16px;padding:1.5rem;box-shadow:0 12px 28px rgba(15,23,42,0.1);display:flex;flex-direction:column;gap:1rem;}"
+        ".persona-header{display:flex;align-items:flex-start;gap:1rem;}"
+        ".persona-photo{width:96px;height:96px;border-radius:14px;overflow:hidden;background:linear-gradient(135deg,#e0f2fe,#bfdbfe);display:flex;align-items:center;justify-content:center;font-weight:700;color:#1e3a8a;letter-spacing:0.08em;text-transform:uppercase;}"
+        ".persona-photo img{width:100%;height:100%;object-fit:cover;display:block;}"
+        ".persona-header h3{margin:0;font-size:1.25rem;color:#0f172a;}"
+        ".persona-faction{margin:0.25rem 0 0 0;font-weight:600;color:#1e3a8a;}"
+        ".persona-guidance{margin:0.5rem 0 0 0;font-size:0.95rem;color:#1f2933;line-height:1.4;}"
+        ".persona-attributes{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0.5rem;}"
+        ".persona-attributes li{display:flex;justify-content:space-between;align-items:center;padding:0.45rem 0.6rem;border-radius:10px;background:#f8fafc;font-size:0.9rem;}"
+        ".persona-attributes span:first-child{font-weight:600;color:#1d4ed8;}"
+        ".persona-body p{margin:0.35rem 0;line-height:1.55;font-size:0.95rem;color:#1f2933;}"
+        ".persona-body strong{color:#0f172a;}"
+        "</style>"
+    )
+
+    character_profile_style = (
+        "<style>"
+        "body{font-family:'Inter',sans-serif;margin:0;background:#f3f4f8;color:#0f172a;}"
+        ".profile-page{max-width:880px;margin:2rem auto;padding:0 1.5rem;}"
+        ".profile-page h1{font-size:2.1rem;margin-bottom:1.25rem;text-align:center;}"
+        ".profile-actions{margin-top:1.75rem;text-align:center;}"
+        ".profile-actions a{display:inline-block;padding:0.75rem 1.75rem;border-radius:999px;background:#1d4ed8;color:#fff;text-decoration:none;font-weight:600;box-shadow:0 12px 28px rgba(29,78,216,0.18);}"
+        ".profile-actions a:hover{background:#1e40af;}"
+        "</style>"
+    )
+
+    character_select_style = (
+        "<style>"
+        "body{font-family:'Inter',sans-serif;margin:0;background:#f8fafc;color:#0f172a;}"
+        ".character-select-container{max-width:960px;margin:2rem auto;padding:0 1.5rem 3rem 1.5rem;}"
+        ".character-select-container h1{font-size:2.4rem;margin-bottom:1rem;text-align:center;}"
+        ".character-timing{margin:0 auto 1rem auto;max-width:760px;text-align:center;font-weight:600;color:#1e293b;}"
+        ".character-options{display:flex;flex-direction:column;gap:1rem;margin-top:1.5rem;}"
+        ".character-option{display:flex;justify-content:space-between;align-items:center;padding:1rem 1.25rem;border-radius:14px;background:#ffffff;box-shadow:0 12px 28px rgba(15,23,42,0.08);}"
+        ".character-input{display:flex;align-items:center;gap:0.85rem;}"
+        ".character-option input[type='radio']{width:20px;height:20px;}"
+        ".character-option label{cursor:pointer;font-weight:600;font-size:1.05rem;color:#111827;display:flex;flex-direction:column;}"
+        ".character-credibility{margin-top:0.25rem;font-size:0.85rem;color:#475569;font-weight:500;}"
+        ".character-option a{font-size:0.9rem;color:#1d4ed8;font-weight:600;text-decoration:none;}"
+        ".character-option a:hover{text-decoration:underline;}"
+        ".character-select-actions{display:flex;gap:1rem;flex-wrap:wrap;justify-content:center;margin-top:1.75rem;}"
+        ".character-select-actions button{padding:0.75rem 1.9rem;border:none;border-radius:999px;background:#1d4ed8;color:#fff;font-size:1rem;font-weight:600;cursor:pointer;box-shadow:0 12px 28px rgba(29,78,216,0.18);}"
+        ".character-select-actions button.secondary{background:#334155;}"
+        ".character-select-actions form{margin:0;}"
+        ".state-container{margin-top:3rem;}"
         "</style>"
     )
 
@@ -223,6 +464,9 @@ def create_app() -> Flask:
         ".sector-card ul{margin:0.75rem 0 1.25rem 1.25rem;line-height:1.5;}"
         ".sector-card form{margin-top:1.25rem;}"
         ".sector-card button{padding:0.7rem 1.6rem;border:none;border-radius:999px;background:#1d4ed8;color:#fff;font-size:1rem;cursor:pointer;box-shadow:0 10px 24px rgba(29,78,216,0.15);}"
+        ".sector-card .persona-card{box-shadow:none;border:1px solid #e2e8f0;background:#f8fafc;margin-top:1rem;}"
+        ".sector-player-card{margin-top:1.5rem;}"
+        ".sector-player-card h3{margin:0 0 0.5rem 0;font-size:0.95rem;letter-spacing:0.08em;text-transform:uppercase;color:#475569;}"
         ".campaign-summary-list{list-style:none;padding:0;margin:0;display:grid;gap:1rem;}"
         ".campaign-summary-list li{background:#ffffff;border-radius:12px;padding:1.25rem;box-shadow:0 12px 28px rgba(15,23,42,0.07);}"
         ".campaign-summary-list h3{margin:0 0 0.5rem 0;font-size:1.2rem;}"
@@ -284,26 +528,43 @@ def create_app() -> Flask:
         )
 
     roll_indicator_markup = (
-        "<div class='roll-indicator' id='roll-indicator'>"
-        "<div class='indicator-content'>"
+        "<div class='roll-indicator' id='roll-indicator' aria-hidden='true'>"
         f"<img src='{roll_asset_path}' alt='Random sampling animation'>"
         "<p>Sampling outcomes...</p>"
-        "</div></div>"
+        "</div>"
     )
 
     roll_indicator_script = (
         "<script>"
         "document.addEventListener('DOMContentLoaded',function(){"
-        "const overlay=document.getElementById('roll-indicator');"
-        "if(!overlay){return;}"
-        "const activate=function(){overlay.classList.add('active');};"
+        "const indicator=document.getElementById('roll-indicator');"
+        "if(!indicator){return;}"
+        "let hideTimer=null;"
+        "let finalizeTimer=null;"
+        "const scheduleHide=function(){"
+        "indicator.classList.add('fade-out');"
+        "hideTimer=null;"
+        "finalizeTimer=window.setTimeout(function(){"
+        "indicator.classList.remove('visible');"
+        "indicator.classList.remove('fade-out');"
+        "indicator.setAttribute('aria-hidden','true');"
+        "},350);"
+        "};"
+        "const showIndicator=function(){"
+        "indicator.classList.remove('fade-out');"
+        "indicator.classList.add('visible');"
+        "indicator.setAttribute('aria-hidden','false');"
+        "if(hideTimer){window.clearTimeout(hideTimer);}"
+        "if(finalizeTimer){window.clearTimeout(finalizeTimer);}"
+        "hideTimer=window.setTimeout(scheduleHide,3200);"
+        "};"
         "document.querySelectorAll('form.roll-trigger').forEach(function(form){"
-        "form.addEventListener('submit',activate);"
+        "form.addEventListener('submit',showIndicator);"
         "});"
         "document.querySelectorAll('form.options-form').forEach(function(form){"
         "form.addEventListener('submit',function(){"
         "const selected=form.querySelector(\"input[name='response']:checked\");"
-        "if(selected && selected.dataset && selected.dataset.kind==='action'){activate();}"
+        "if(selected && selected.dataset && selected.dataset.kind==='action'){showIndicator();}"
         "});"
         "});"
         "});"
@@ -451,9 +712,14 @@ def create_app() -> Flask:
                 f"<strong>{int(credibility)}</strong>"
                 "</div>"
             )
+        photo_block = _profile_image_html(
+            getattr(character, "name", ""),
+            css_class="profile-photo",
+            alt_label=f"Portrait of {getattr(character, 'display_name', character.name)}",
+        )
         return (
             "<div class='profile-card'>"
-            "<div class='profile-photo' role='img' aria-label='Portrait placeholder'>Portrait</div>"
+            f"{photo_block}"
             f"<h2 class='profile-name'>{escape(character.display_name, quote=False)}</h2>"
             f"<ul class='attribute-list'>{attributes}</ul>"
             f"{credibility_block}"
@@ -799,6 +1065,14 @@ def create_app() -> Flask:
             + "</ul>"
             + "<p><strong>Player faction:</strong> Scientific Community</p>"
         )
+        public_persona_section = ""
+        public_profile = _player_profile_by_faction("ScientificCommunity")
+        if public_profile:
+            public_persona_section = (
+                "<div class='sector-player-card'><h3>Your Persona</h3>"
+                + _persona_card_from_profile(public_profile)
+                + "</div>"
+            )
         private_details = (
             "<ul>"
             + "".join(
@@ -808,11 +1082,20 @@ def create_app() -> Flask:
             + "</ul>"
             + "<p><strong>Player faction:</strong> Civil Society</p>"
         )
+        private_persona_section = ""
+        private_profile = _player_profile_by_faction("CivilSociety")
+        if private_profile:
+            private_persona_section = (
+                "<div class='sector-player-card'><h3>Your Persona</h3>"
+                + _persona_card_from_profile(private_profile)
+                + "</div>"
+            )
         sector_cards.append(
             "<article class='sector-card'>"
             "<h2>Partner with the Public Sector</h2>"
             + public_blurb
             + public_details
+            + public_persona_section
             + "<form method='post'><input type='hidden' name='sector' value='public'>"
             + "<button type='submit'>Engage Public Sector</button></form>"
             + "</article>"
@@ -822,6 +1105,7 @@ def create_app() -> Flask:
             "<h2>Partner with the Private Sector</h2>"
             + private_blurb
             + private_details
+            + private_persona_section
             + "<form method='post'><input type='hidden' name='sector' value='private'>"
             + "<button type='submit'>Engage Private Sector</button></form>"
             + "</article>"
@@ -835,7 +1119,8 @@ def create_app() -> Flask:
                 f"<p><strong>Previous selection:</strong> {escape(label, False)}. Choosing a sector again will restart this level.</p>"
             )
         body = (
-            campaign_style
+            persona_style
+            + campaign_style
             + "<section class='campaign-container'>"
             + "<div class='campaign-header'>"
             + f"<h1>Level {level_index + 1}: {escape(scenario_name, False)}</h1>"
@@ -1046,31 +1331,60 @@ def create_app() -> Flask:
             else:
                 credibility_text = f"Credibility: {int(credibility)}"
             option_items.append(
-                "<div>"
-                + f'<input type="radio" name="character" value="{idx}" id="char{idx}">'  # noqa: E501
-                + f'<label for="char{idx}">{escape(char.display_name, quote=False)}'
-                + f"<span style='display:block;font-size:0.85rem;color:#555;'>{credibility_text}</span>"  # noqa: E501
+                "<div class='character-option'>"
+                + "<div class='character-input'>"
+                + f"<input type='radio' name='character' value='{idx}' id='char{idx}'>"
+                + f"<label for='char{idx}'>"
+                + f"{escape(char.display_name, quote=False)}"
+                + f"<span class='character-credibility'>{escape(credibility_text, False)}</span>"
                 + "</label></div>"
+                + f"<a href='/characters/{idx}/profile'>View profile</a>"
+                + "</div>"
             )
-        options = "".join(option_items)
+        options = "<div class='character-options'>" + "".join(option_items) + "</div>"
         summary_section = _scenario_summary_section(
             getattr(game_state, "scenario_summary", "")
         )
         time_block = (
-            f"<p style='font-weight:600;'>Time passed since November 2025: {game_state.time_elapsed_years:.1f} years</p>"
+            f"<p class='character-timing'>Time passed since November 2025: {game_state.time_elapsed_years:.1f} years</p>"
         )
         body = (
-            "<h1>Keep the Future Human Survival RPG</h1>"
+            character_select_style
+            + "<main class='character-select-container'>"
+            + "<h1>Keep the Future Human Survival RPG</h1>"
             + summary_section
             + time_block
-            + "<form method='get' action='/actions'>"
-            f"{options}"
-            "<button type='submit'>Talk</button>"
-            "</form>"
-            "<form method='post' action='/reset'>"
-            "<button type='submit'>Reset</button>"
-            "</form>"
-            f"{state_html}" + footer
+            + "<form method='get' action='/actions' class='character-select-form'>"
+            + options
+            + "<div class='character-select-actions'><button type='submit'>Talk</button></div>"
+            + "</form>"
+            + "<div class='character-select-actions'>"
+            + "<form method='post' action='/reset'>"
+            + "<button type='submit' class='secondary'>Reset</button>"
+            + "</form>"
+            + "</div>"
+            + f"<div class='state-container'>{state_html}</div>"
+            + "</main>"
+            + footer
+        )
+        return Response(body)
+
+    @app.route("/characters/<int:char_id>/profile", methods=["GET"])
+    def show_character_profile(char_id: int) -> Response:
+        with state_lock:
+            if char_id < 0 or char_id >= len(game_state.characters):
+                return redirect("/start")
+            character = game_state.characters[char_id]
+        persona_html = _persona_card_for_character(character)
+        body = (
+            persona_style
+            + character_profile_style
+            + "<main class='profile-page'>"
+            + f"<h1>{escape(character.display_name, False)}</h1>"
+            + persona_html
+            + "<div class='profile-actions'><a href='/start'>Back to character selection</a></div>"
+            + "</main>"
+            + footer
         )
         return Response(body)
 
