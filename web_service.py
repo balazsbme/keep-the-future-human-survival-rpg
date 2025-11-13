@@ -16,7 +16,7 @@ from flask import Flask, Response, redirect, request
 
 from cli_game import load_characters
 from rpg.assessment_agent import AssessmentAgent
-from rpg.character import Character, ResponseOption
+from rpg.character import Character, PlayerCharacter, ResponseOption
 from rpg.config import GameConfig, load_game_config
 from rpg.conversation import ConversationEntry
 from rpg.game_state import ActionAttempt, GameState
@@ -81,28 +81,120 @@ def create_app() -> Flask:
     assessment_threads: List[threading.Thread] = []
     assessment_lock = threading.Lock()
     state_lock = threading.Lock()
+    persona_order = ["public", "private"]
+    persona_labels = {
+        "public": "Public Sector • Scientific Community",
+        "private": "Private Sector • Civil Society",
+    }
+    sector_map = {
+        "governments": "public",
+        "regulators": "public",
+        "scientificcommunity": "public",
+        "corporations": "private",
+        "hardwaremanufacturers": "private",
+        "civilsociety": "private",
+    }
+    player_personas: Dict[str, PlayerCharacter] = {}
+    player_personas_by_slug: Dict[str, PlayerCharacter] = {}
+
+    def _load_personas(config: GameConfig) -> None:
+        nonlocal player_personas, player_personas_by_slug
+        selectors = {"public": "public", "private": "private"}
+        loaded: Dict[str, PlayerCharacter] = {}
+        slug_map: Dict[str, PlayerCharacter] = {}
+        for sector, selector in selectors.items():
+            try:
+                persona = PlayerCharacter(config=config, profile_selector=selector)
+            except Exception:  # pragma: no cover - defensive guardrail
+                logger.exception("Failed to load player persona for sector %s", sector)
+                continue
+            persona.profile_sector = getattr(persona, "profile_sector", str(sector))
+            if not getattr(persona, "profile_url", ""):
+                persona.profile_url = f"/player-profiles/{persona.profile_slug}"
+            loaded[sector] = persona
+            slug_map[persona.profile_slug] = persona
+        player_personas = loaded
+        player_personas_by_slug = slug_map
+
+    _load_personas(config_in_use)
+
+    def _sector_for_character(character: Character) -> str:
+        faction = str(getattr(character, "faction", "") or "")
+        normalized = faction.replace(" ", "").lower()
+        return sector_map.get(normalized, "public")
+
+    def _player_persona_section(player: Character, active_sector: str) -> str:
+        if not player_personas:
+            return (
+                "<section class='player-personas'><h2>Player Persona</h2>"
+                + _profile_panel(player)
+                + "</section>"
+            )
+        cards: List[str] = []
+        for sector in persona_order:
+            persona = player_personas.get(sector)
+            if persona is None:
+                continue
+            label = persona_labels.get(sector, sector.title())
+            cards.append(
+                "<div class='persona-card'>"
+                + _profile_panel(
+                    persona,
+                    is_active=(sector == active_sector),
+                    label=label,
+                )
+                + "</div>"
+            )
+        if not cards:
+            return (
+                "<section class='player-personas'><h2>Player Persona</h2>"
+                + _profile_panel(player)
+                + "</section>"
+            )
+        return (
+            "<section class='player-personas'><h2>Your Player Team</h2>"
+            "<div class='persona-grid'>"
+            + "".join(cards)
+            + "</div></section>"
+        )
+
     footer = (
         "<p><a href='/instructions'>Instructions</a> | "
         f"<a href='{GITHUB_URL}'>GitHub</a></p>"
     )
     panel_style = (
         "<style>"
-        ".layout-container{display:flex;gap:1.5rem;align-items:flex-start;}"
-        ".panel{flex:1;padding:0 1rem;box-sizing:border-box;}"
-        ".player-panel,.partner-panel{flex:1.2;max-width:220px;}"
-        ".conversation-panel{flex:5;}"
-        ".options-form ul{list-style:none;padding:0;margin:0;}"
-        ".options-form li{margin-bottom:0.75rem;}"
-        ".profile-card{display:flex;flex-direction:column;align-items:center;gap:0.75rem;padding:1rem;border-radius:10px;background:#fafafa;border:1px solid #e2e2e2;}"
+        ".conversation-layout{display:flex;flex-direction:column;gap:1.5rem;}"
+        ".profile-row{display:flex;flex-wrap:wrap;gap:1.5rem;align-items:stretch;}"
+        ".panel{flex:1;min-width:260px;box-sizing:border-box;}"
+        ".player-panel{flex:1.2;}"
+        ".partner-panel{flex:1;max-width:360px;}"
+        ".player-personas h2,.partner-info h2{margin:0 0 1rem 0;font-size:1.2rem;}"
+        ".persona-grid{display:flex;flex-direction:column;gap:1rem;}"
+        ".persona-card .profile-card{width:100%;}"
+        ".profile-card{display:flex;flex-direction:column;align-items:center;gap:0.75rem;padding:1rem;border-radius:12px;background:#fafafa;border:1px solid #e2e2e2;transition:border-color 0.2s ease,box-shadow 0.2s ease;}"
+        ".profile-card--active{border-color:#2b6cb0;box-shadow:0 0 0 3px rgba(43,108,176,0.15);}"
+        ".profile-tag{margin:0;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;color:#2b6cb0;font-weight:600;}"
         ".profile-photo{width:120px;height:120px;border-radius:10px;background:linear-gradient(135deg,#ececec,#d5d5d5);display:flex;align-items:center;justify-content:center;color:#666;font-weight:600;font-size:0.9rem;}"
         ".profile-name{margin:0;font-size:1.1rem;text-align:center;}"
+        ".profile-link{text-decoration:none;color:inherit;}"
+        ".profile-link:hover{color:#1a4d87;text-decoration:underline;}"
         ".attribute-list{list-style:none;padding:0;margin:0;width:100%;}"
         ".attribute-list li{display:flex;justify-content:space-between;padding:0.25rem 0;border-bottom:1px solid #e5e5e5;font-size:0.9rem;}"
         ".attribute-list li:last-child{border-bottom:none;}"
         ".credibility-box{width:100%;padding:0.5rem;border:1px solid #d6d6d6;border-radius:8px;background:#fffdfa;text-align:center;font-size:0.9rem;}"
         ".credibility-box span{display:block;font-size:0.75rem;color:#555;margin-bottom:0.2rem;}"
+        ".conversation-panel{background:#ffffff;border-radius:12px;border:1px solid #e2e2e2;padding:1.5rem;box-shadow:0 8px 24px rgba(15,23,42,0.05);}"
+        ".conversation-panel section{margin-bottom:1.5rem;}"
+        ".conversation-panel section:last-child{margin-bottom:0;}"
+        ".options-form ul{list-style:none;padding:0;margin:0;}"
+        ".options-form li{margin-bottom:0.75rem;}"
         ".reroll-actions{display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:0.5rem;}"
         ".reroll-actions form{margin:0;}"
+        ".profile-page{max-width:780px;margin:2rem auto;display:flex;flex-direction:column;gap:1.5rem;}"
+        ".profile-details p{margin:0.75rem 0;line-height:1.6;}"
+        ".back-link{color:#2b6cb0;font-weight:600;text-decoration:none;}"
+        ".back-link:hover{text-decoration:underline;}"
         "</style>"
     )
 
@@ -131,6 +223,7 @@ def create_app() -> Flask:
 
     def _reload_state(config: GameConfig) -> None:
         nonlocal config_in_use, initial_characters, game_state, last_history_signature
+        nonlocal player_personas, player_personas_by_slug
         global current_config
         logger.info("Reloading game state with config %s", config)
         config_in_use = config
@@ -170,6 +263,7 @@ def create_app() -> Flask:
             )
             return
         game_state = new_state
+        _load_personas(config)
         pending_player_options.clear()
         player_option_signatures.clear()
         pending_npc_responses.clear()
@@ -205,7 +299,13 @@ def create_app() -> Flask:
             + "</section>"
         )
 
-    def _profile_panel(character: Character, *, credibility: int | None = None) -> str:
+    def _profile_panel(
+        character: Character,
+        *,
+        credibility: int | None = None,
+        is_active: bool = False,
+        label: str | None = None,
+    ) -> str:
         attributes = "".join(
             f"<li><span>{label}</span><span>{int(character.attribute_score(label.lower()))}</span></li>"
             for label in ("Leadership", "Technology", "Policy", "Network")
@@ -218,18 +318,71 @@ def create_app() -> Flask:
                 f"<strong>{int(credibility)}</strong>"
                 "</div>"
             )
+        classes = ["profile-card"]
+        if is_active:
+            classes.append("profile-card--active")
+        profile_class = " ".join(classes)
+        tag_html = ""
+        if label:
+            tag_html = f"<p class='profile-tag'>{escape(label, quote=False)}</p>"
+        name_html = escape(character.display_name, quote=False)
+        profile_url = getattr(character, "profile_url", "")
+        if profile_url:
+            safe_url = escape(str(profile_url), quote=True)
+            name_html = f"<a class='profile-link' href='{safe_url}'>{name_html}</a>"
         return (
-            "<div class='profile-card'>"
+            f"<div class='{profile_class}'>"
+            f"{tag_html}"
             "<div class='profile-photo' role='img' aria-label='Portrait placeholder'>Portrait</div>"
-            f"<h2 class='profile-name'>{escape(character.display_name, quote=False)}</h2>"
+            f"<h2 class='profile-name'>{name_html}</h2>"
             f"<ul class='attribute-list'>{attributes}</ul>"
             f"{credibility_block}"
             "</div>"
         )
 
+    def _player_profile_details(persona: Character) -> str:
+        sections: List[str] = []
+        detail_fields = [
+            ("Perks", getattr(persona, "perks", "")),
+            ("Motivations", getattr(persona, "motivations", "")),
+            ("Weaknesses", getattr(persona, "weaknesses", "")),
+            ("Background", getattr(persona, "background", "")),
+        ]
+        for title, raw in detail_fields:
+            text = str(raw or "").strip()
+            if not text:
+                continue
+            safe_text = escape(text, quote=False).replace("\n", "<br>")
+            sections.append(
+                f"<p><strong>{escape(title, quote=False)}</strong><br>{safe_text}</p>"
+            )
+        if not sections:
+            return "<p>No additional profile details available.</p>"
+        return "".join(sections)
+
     @app.before_request
     def log_request() -> None:
         logger.info("%s %s", request.method, request.path)
+
+    @app.route("/player-profiles/<slug>", methods=["GET"])
+    def player_profile(slug: str) -> Response:
+        persona = player_personas_by_slug.get(slug)
+        if persona is None:
+            return Response("Profile not found", status=404)
+        label = persona_labels.get(
+            getattr(persona, "profile_sector", ""), "Player Persona"
+        )
+        details_html = _player_profile_details(persona)
+        content = (
+            panel_style
+            + "<div class='profile-page'>"
+            + "<p><a class='back-link' href='/start'>&larr; Back to the negotiation</a></p>"
+            + _profile_panel(persona, is_active=True, label=label)
+            + f"<section class='profile-details'>{details_html}</section>"
+            + "</div>"
+            + footer
+        )
+        return Response(content)
 
     @app.route("/", methods=["GET", "POST"])
     def main_page() -> Response | str:
@@ -860,14 +1013,21 @@ def create_app() -> Flask:
             + f"<section><h2>Responses</h2>{form_html}</section>"
             + "<section><a href='/start'>Back to characters</a></section>"
         )
-        player_panel = _profile_panel(player)
-        partner_panel = _profile_panel(character, credibility=partner_credibility)
+        active_sector = _sector_for_character(character)
+        player_section = _player_persona_section(player, active_sector)
+        partner_section = (
+            "<section class='partner-info'><h2>Conversation Partner</h2>"
+            + _profile_panel(character, credibility=partner_credibility)
+            + "</section>"
+        )
         layout = (
             panel_style
-            + "<div class='layout-container'>"
-            + f"<div class='panel player-panel'>{player_panel}</div>"
-            + f"<div class='panel conversation-panel'>{conversation_panel}</div>"
-            + f"<div class='panel partner-panel'>{partner_panel}</div>"
+            + "<div class='conversation-layout'>"
+            + "<div class='profile-row'>"
+            + f"<div class='panel player-panel'>{player_section}</div>"
+            + f"<div class='panel partner-panel'>{partner_section}</div>"
+            + "</div>"
+            + f"<div class='conversation-panel'>{conversation_panel}</div>"
             + "</div>"
         )
         return layout + state_html + footer
@@ -919,14 +1079,21 @@ def create_app() -> Flask:
                 "<section><h2>Conversation So Far</h2><p>No conversation yet.</p></section>"
             )
         conversation_panel = outcome_section + convo_block
-        player_panel = _profile_panel(player)
-        partner_panel = _profile_panel(character, credibility=partner_credibility)
+        active_sector = _sector_for_character(character)
+        player_section = _player_persona_section(player, active_sector)
+        partner_section = (
+            "<section class='partner-info'><h2>Conversation Partner</h2>"
+            + _profile_panel(character, credibility=partner_credibility)
+            + "</section>"
+        )
         layout = (
             panel_style
-            + "<div class='layout-container'>"
-            + f"<div class='panel player-panel'>{player_panel}</div>"
-            + f"<div class='panel conversation-panel'>{conversation_panel}</div>"
-            + f"<div class='panel partner-panel'>{partner_panel}</div>"
+            + "<div class='conversation-layout'>"
+            + "<div class='profile-row'>"
+            + f"<div class='panel player-panel'>{player_section}</div>"
+            + f"<div class='panel partner-panel'>{partner_section}</div>"
+            + "</div>"
+            + f"<div class='conversation-panel'>{conversation_panel}</div>"
             + "</div>"
         )
         return layout + state_html + footer
