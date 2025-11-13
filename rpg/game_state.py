@@ -676,17 +676,55 @@ class GameState:
             HTML string describing character progress and history.
         """
         logger.info("Rendering game state")
-        lines = []
+        style_block = (
+            "<style>"
+            ".scoreboard{margin:1.5rem 0;padding:1.25rem;border:1px solid #d4dbe6;border-radius:12px;background:#f5f8fd;}"
+            ".scoreboard h2{margin:0 0 1rem 0;font-size:1.15rem;color:#1f2933;}"
+            ".score-row{display:flex;align-items:center;gap:1rem;margin-bottom:0.85rem;}"
+            ".score-label{flex:0 0 190px;font-weight:600;color:#1f2933;}"
+            ".score-bar{flex:1;height:12px;border-radius:999px;background:#e2e8f5;position:relative;overflow:hidden;}"
+            ".score-bar-fill{display:block;height:100%;background:linear-gradient(90deg,#2b6cb0,#63b3ed);}"
+            ".score-value{width:3rem;text-align:right;font-weight:600;color:#1f2933;}"
+            ".score-empty{margin:0;color:#64748b;font-style:italic;}"
+            ".final-score{margin-top:1.25rem;font-size:1.05rem;font-weight:600;color:#1f2933;}"
+            ".action-history{margin-top:1.5rem;}"
+            ".action-history h2{margin:0 0 0.75rem 0;font-size:1.1rem;color:#1f2933;}"
+            ".action-history ol{margin:0;padding-left:1.25rem;}"
+            "</style>"
+        )
+        rows: List[str] = []
         for key, scores in self.progress.items():
             label = escape(self.faction_labels.get(key, key), quote=False)
-            lines.append(
-                f"{label}: {scores} (weighted: {self._faction_weighted_score(key)})"
+            average = 0
+            if scores:
+                average = round(sum(int(score) for score in scores) / len(scores))
+            width = max(0, min(average, 100))
+            rows.append(
+                "<div class='score-row'>"
+                f"<span class='score-label'>{label}</span>"
+                "<div class='score-bar'>"
+                f"<span class='score-bar-fill' style='width:{width}%;'></span>"
+                "</div>"
+                f"<span class='score-value'>{average}</span>"
+                "</div>"
             )
+        if not rows:
+            rows.append("<p class='score-empty'>No progress recorded yet.</p>")
+        final_score = self.final_weighted_score()
+        scoreboard_html = (
+            "<section class='scoreboard'><h2>Score Progress</h2>"
+            + "".join(rows)
+            + f"<div class='final-score'>Final weighted score: <strong>{final_score}</strong></div>"
+            + "</section>"
+        )
+        history_html = ""
         if self.history:
             hist_items = "".join(
                 f"<li><strong>{escape(n, quote=False)}</strong>: {escape(a, quote=False)}</li>"
                 for n, a in self.history
             )
-            lines.append(f"<h2>Action History</h2><ol>{hist_items}</ol>")
-        lines.append(f"Final weighted score: {self.final_weighted_score()}")
-        return "<div id='state'>" + "<br>".join(lines) + "</div>"
+            history_html = (
+                "<section class='action-history'><h2>Action History</h2>"
+                f"<ol>{hist_items}</ol></section>"
+            )
+        return style_block + "<div id='state'>" + scoreboard_html + history_html + "</div>"

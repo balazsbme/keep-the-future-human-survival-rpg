@@ -800,15 +800,44 @@ class PlayerCharacter(Character):
         model: str = "gemini-2.5-flash",
         *,
         config: GameConfig | None = None,
+        profile_selector: str | int | None = None,
     ) -> None:
         base_dir = Path(__file__).resolve().parent
         profile_path = base_dir / "player_character.yaml"
         profile_entries = _character_entries(_load_yaml(profile_path))
         if not profile_entries:
             raise ValueError("player_character.yaml must define at least one character entry")
-        profile = dict(profile_entries[0])
+        selected: dict | None = None
+        if profile_selector is not None and profile_entries:
+            if isinstance(profile_selector, int):
+                index = max(0, min(len(profile_entries) - 1, profile_selector))
+                selected = profile_entries[index]
+            else:
+                selector = str(profile_selector).strip().lower()
+                for entry in profile_entries:
+                    comparison_values = [
+                        entry.get("sector"),
+                        entry.get("faction"),
+                        entry.get("slug"),
+                        entry.get("name"),
+                    ]
+                    if any(
+                        str(value).strip().lower() == selector
+                        for value in comparison_values
+                        if value is not None
+                    ):
+                        selected = entry
+                        break
+        profile = dict(selected or profile_entries[0])
         faction = str(profile.get("faction", "CivilSociety")) or "CivilSociety"
         name = str(profile.get("name", "Player")) or "Player"
+        raw_slug = str(profile.get("slug", "") or "").strip()
+        if not raw_slug:
+            raw_slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "player"
+        self.profile_slug = raw_slug
+        self.profile_sector = str(profile.get("sector", "") or "").strip().lower()
+        profile_url = str(profile.get("profile_url", "") or "").strip()
+        self.profile_url = profile_url
 
         cfg = config or load_game_config()
         scenario_path = base_dir.parent / "scenarios" / f"{cfg.scenario}.yaml"
