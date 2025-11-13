@@ -184,9 +184,7 @@ def create_app() -> Flask:
         src = _profile_photo_from_name(name)
         safe_alt = escape(alt_label, False)
         if src:
-            return (
-                f"<div class='{css_class}'><img src='{src}' alt='{safe_alt}'></div>"
-            )
+            return f"<div class='{css_class}'><img src='{src}' alt='{safe_alt}'></div>"
         initials = "".join(part[:1] for part in name.split()) or "?"
         return (
             f"<div class='{css_class}' role='img' aria-label='{safe_alt}'>"
@@ -258,11 +256,21 @@ def create_app() -> Flask:
         if guidance_text:
             header_parts.append(f"<p class='persona-guidance'>{guidance_text}</p>")
         header_parts.append("</div></div>")
-        attribute_items = [
-            f"<li><span>{escape(label, False)}</span><span>{escape(str(value), False)}</span></li>"
-            for label, value in attributes
-            if str(value).strip()
-        ]
+        attribute_items = []
+        for label, value in attributes:
+            if not str(value).strip():
+                continue
+            key = label.lower()
+            tooltip_text = attribute_tooltips.get(key)
+            label_html = (
+                f"<span class='attribute-label'>{escape(label, False)}"
+                + (_tooltip_icon(tooltip_text) if tooltip_text else "")
+                + "</span>"
+            )
+            value_html = (
+                f"<span class='attribute-value'>{escape(str(value), False)}</span>"
+            )
+            attribute_items.append(f"<li>{label_html}{value_html}</li>")
         attributes_block = (
             f"<ul class='persona-attributes'>{''.join(attribute_items)}</ul>"
             if attribute_items
@@ -278,7 +286,13 @@ def create_app() -> Flask:
             if detail_items
             else ""
         )
-        return "<article class='persona-card'>" + "".join(header_parts) + attributes_block + details_block + "</article>"
+        return (
+            "<article class='persona-card'>"
+            + "".join(header_parts)
+            + attributes_block
+            + details_block
+            + "</article>"
+        )
 
     def _persona_card_from_profile(profile: Mapping[str, Any]) -> str:
         name = str(profile.get("name", "") or "Player Persona")
@@ -312,13 +326,13 @@ def create_app() -> Flask:
     def _persona_card_for_character(character: Character) -> str:
         profile_data = getattr(character, "profile", {}) or {}
         if not profile_data:
-            fallback = player_personas_by_name.get(_normalize_key(getattr(character, "name", "")))
+            fallback = player_personas_by_name.get(
+                _normalize_key(getattr(character, "name", ""))
+            )
             if fallback:
                 profile_data = fallback
         guidance = str(
-            profile_data.get("guidance", "")
-            or getattr(character, "guidance", "")
-            or ""
+            profile_data.get("guidance", "") or getattr(character, "guidance", "") or ""
         )
         attributes = [
             (label, str(character.attribute_score(key)))
@@ -351,23 +365,35 @@ def create_app() -> Flask:
     def serve_asset(filename: str) -> Response:
         return send_from_directory(asset_root, filename)
 
+    tooltip_css = (
+        ".tooltip-icon{position:relative;display:inline-flex;align-items:center;justify-content:center;}"
+        ".tooltip-icon img{width:16px;height:16px;border-radius:50%;box-shadow:0 0 0 1px rgba(15,23,42,0.35);cursor:pointer;background:#ffffff;}"
+        ".tooltip-text{position:absolute;bottom:125%;left:50%;transform:translateX(-50%);background:#1f2933;color:#ffffff;padding:0.45rem 0.6rem;border-radius:6px;font-size:0.8rem;line-height:1.2;white-space:normal;width:220px;box-shadow:0 12px 28px rgba(15,23,42,0.25);opacity:0;visibility:hidden;transition:opacity 0.2s ease-in-out,visibility 0.2s ease-in-out;z-index:10;text-align:left;}"
+        ".tooltip-icon:hover .tooltip-text{opacity:1;visibility:visible;}"
+        '.tooltip-icon::after{content:"";position:absolute;bottom:110%;left:50%;transform:translateX(-50%);border-width:6px;border-style:solid;border-color:transparent transparent #1f2933 transparent;opacity:0;transition:opacity 0.2s ease-in-out;}'
+        ".tooltip-icon:hover::after{opacity:1;}"
+    )
+
     panel_style = (
         "<style>"
-        ".layout-container{display:flex;gap:1.5rem;align-items:flex-start;}"
-        ".panel{flex:1;padding:0 1rem;box-sizing:border-box;}"
-        ".player-panel,.partner-panel{flex:1.2;max-width:220px;}"
-        ".conversation-panel{flex:5;}"
-        ".options-form ul{list-style:none;padding:0;margin:0;}"
-        ".options-form li{margin-bottom:0.75rem;}"
-        ".profile-card{display:flex;flex-direction:column;align-items:center;gap:0.75rem;padding:1rem;border-radius:12px;background:#ffffff;border:1px solid #e2e8f0;box-shadow:0 10px 24px rgba(15,23,42,0.06);}"
-        ".profile-photo{width:120px;height:120px;border-radius:12px;overflow:hidden;background:linear-gradient(135deg,#e0e7ff,#c7d2fe);display:flex;align-items:center;justify-content:center;color:#1e3a8a;font-weight:600;font-size:1rem;letter-spacing:0.08em;text-transform:uppercase;}"
+        f"{tooltip_css}"
+        ".layout-container{max-width:1200px;margin:2rem auto;display:grid;grid-template-columns:260px minmax(0,1fr) 260px;gap:1.5rem;align-items:flex-start;padding:0 1.5rem;box-sizing:border-box;}"
+        ".panel{padding:0;box-sizing:border-box;}"
+        ".player-panel,.partner-panel{position:sticky;top:1.5rem;}"
+        ".profile-card{display:flex;flex-direction:column;align-items:center;gap:0.75rem;padding:1.25rem;border-radius:16px;background:#ffffff;border:1px solid #e2e8f0;box-shadow:0 12px 28px rgba(15,23,42,0.08);}"
+        ".profile-photo{width:120px;height:120px;border-radius:14px;overflow:hidden;background:linear-gradient(135deg,#e0e7ff,#c7d2fe);display:flex;align-items:center;justify-content:center;color:#1e3a8a;font-weight:600;font-size:1rem;letter-spacing:0.08em;text-transform:uppercase;}"
         ".profile-photo img{width:100%;height:100%;object-fit:cover;display:block;}"
-        ".profile-name{margin:0;font-size:1.1rem;text-align:center;}"
-        ".attribute-list{list-style:none;padding:0;margin:0;width:100%;}"
-        ".attribute-list li{display:flex;justify-content:space-between;padding:0.25rem 0;border-bottom:1px solid #e5e7eb;font-size:0.9rem;}"
-        ".attribute-list li:last-child{border-bottom:none;}"
-        ".credibility-box{width:100%;padding:0.6rem;border:1px solid #cbd5f5;border-radius:10px;background:#eef2ff;text-align:center;font-size:0.9rem;color:#1e3a8a;font-weight:600;}"
-        ".credibility-box span{display:block;font-size:0.75rem;color:#475569;margin-bottom:0.25rem;}"
+        ".profile-name{margin:0;font-size:1.15rem;text-align:center;}"
+        ".attribute-list{list-style:none;padding:0;margin:0;width:100%;display:flex;flex-direction:column;gap:0.6rem;}"
+        ".attribute-list li{display:flex;justify-content:space-between;align-items:center;padding:0.65rem 0.75rem;border-radius:12px;background:#f8fafc;box-shadow:0 8px 18px rgba(15,23,42,0.05);}"
+        ".attribute-label{display:flex;align-items:center;gap:0.35rem;font-weight:600;color:#1d4ed8;}"
+        ".attribute-value{font-weight:600;color:#0f172a;}"
+        ".credibility-box{width:100%;padding:0.85rem;border:1px solid #cbd5f5;border-radius:12px;background:#eef2ff;text-align:center;font-size:0.95rem;color:#1e3a8a;font-weight:600;margin-top:0.75rem;}"
+        ".credibility-box .attribute-label{justify-content:center;color:#1e3a8a;}"
+        ".credibility-box strong{display:block;font-size:1.25rem;margin-top:0.35rem;color:#0f172a;}"
+        ".profile-footer{margin-top:0.75rem;}"
+        ".profile-footer a{color:#1d4ed8;font-weight:600;text-decoration:none;}"
+        ".profile-footer a:hover{text-decoration:underline;}"
         ".reroll-actions{display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:0.5rem;}"
         ".reroll-actions form{margin:0;}"
         ".action-outcome-actions{display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:0.75rem;}"
@@ -378,21 +404,61 @@ def create_app() -> Flask:
         ".roll-indicator.fade-out{opacity:0;}"
         ".roll-indicator img{width:64px;height:64px;object-fit:contain;margin:0;}"
         ".roll-indicator p{margin:0;font-size:1rem;color:#1d4ed8;}"
+        "@media (max-width:1100px){.layout-container{grid-template-columns:repeat(1,minmax(0,1fr));}.player-panel,.partner-panel{position:static;}}"
+        "</style>"
+    )
+
+    conversation_style = (
+        "<style>"
+        f"{tooltip_css}"
+        "body{font-family:'Inter',sans-serif;margin:0;background:#f8fafc;color:#0f172a;}"
+        ".conversation-page{padding-bottom:2rem;}"
+        ".conversation-panel{width:100%;}"
+        ".conversation-content{display:flex;flex-direction:column;gap:1.5rem;}"
+        ".conversation-content section{background:#ffffff;border-radius:16px;padding:1.5rem;box-shadow:0 12px 28px rgba(15,23,42,0.08);}"
+        ".conversation-content h2{margin-top:0;font-size:1.35rem;}"
+        ".conversation-log{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:1rem;}"
+        ".conversation-log li{background:#f8fafc;border-radius:14px;padding:1rem 1.15rem;box-shadow:0 10px 24px rgba(15,23,42,0.06);}"
+        ".message-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem;}"
+        ".message-header .speaker{font-weight:600;color:#1d4ed8;}"
+        ".message-header .message-type{font-size:0.85rem;font-weight:600;color:#475569;background:#e2e8f0;border-radius:999px;padding:0.25rem 0.6rem;text-transform:uppercase;letter-spacing:0.05em;}"
+        ".conversation-log p{margin:0;color:#1f2933;line-height:1.55;}"
+        ".empty-conversation{margin:0;color:#475569;font-style:italic;}"
+        ".options-form{display:flex;flex-direction:column;gap:1rem;}"
+        ".options-form ul{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:1rem;}"
+        ".response-option{display:flex;gap:0.9rem;align-items:flex-start;background:#f8fafc;border-radius:14px;padding:1rem 1.15rem;box-shadow:0 12px 28px rgba(15,23,42,0.08);}"
+        ".response-option input[type='radio']{width:20px;height:20px;margin-top:0.25rem;}"
+        ".response-option label{cursor:pointer;display:flex;flex-direction:column;gap:0.3rem;font-weight:500;color:#0f172a;}"
+        ".option-title{font-size:1rem;font-weight:600;color:#111827;}"
+        ".option-description{font-size:0.9rem;color:#475569;}"
+        ".options-actions{display:flex;gap:0.75rem;flex-wrap:wrap;}"
+        ".primary-button{display:inline-flex;align-items:center;justify-content:center;padding:0.75rem 1.75rem;border-radius:999px;background:#1d4ed8;color:#ffffff;font-weight:600;text-decoration:none;border:none;cursor:pointer;box-shadow:0 12px 28px rgba(29,78,216,0.18);}"
+        ".primary-button:hover{background:#1e40af;}"
+        ".primary-button.secondary{background:#334155;}"
+        ".primary-button.secondary:hover{background:#1f2937;}"
+        ".conversation-actions{display:flex;gap:0.75rem;flex-wrap:wrap;}"
+        ".conversation-actions a{min-width:200px;text-align:center;}"
+        ".inline-loading{display:flex;align-items:center;gap:0.5rem;font-weight:500;color:#1e293b;}"
+        ".inline-loading img{width:32px;height:32px;object-fit:contain;}"
+        ".loading-page{min-height:60vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem;background:#f8fafc;color:#0f172a;font-family:'Inter',sans-serif;gap:1rem;}"
+        ".state-container{margin:2rem auto 0 auto;max-width:960px;padding:0 1.5rem;box-sizing:border-box;}"
         "</style>"
     )
 
     persona_style = (
         "<style>"
+        f"{tooltip_css}"
         ".persona-card{background:#ffffff;border-radius:16px;padding:1.5rem;box-shadow:0 12px 28px rgba(15,23,42,0.1);display:flex;flex-direction:column;gap:1rem;}"
         ".persona-header{display:flex;align-items:flex-start;gap:1rem;}"
         ".persona-photo{width:96px;height:96px;border-radius:14px;overflow:hidden;background:linear-gradient(135deg,#e0f2fe,#bfdbfe);display:flex;align-items:center;justify-content:center;font-weight:700;color:#1e3a8a;letter-spacing:0.08em;text-transform:uppercase;}"
         ".persona-photo img{width:100%;height:100%;object-fit:cover;display:block;}"
-        ".persona-header h3{margin:0;font-size:1.25rem;color:#0f172a;}"
+        ".persona-header h3{margin:0;font-size:1.3rem;color:#0f172a;}"
         ".persona-faction{margin:0.25rem 0 0 0;font-weight:600;color:#1e3a8a;}"
-        ".persona-guidance{margin:0.5rem 0 0 0;font-size:0.95rem;color:#1f2933;line-height:1.4;}"
-        ".persona-attributes{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0.5rem;}"
-        ".persona-attributes li{display:flex;justify-content:space-between;align-items:center;padding:0.45rem 0.6rem;border-radius:10px;background:#f8fafc;font-size:0.9rem;}"
-        ".persona-attributes span:first-child{font-weight:600;color:#1d4ed8;}"
+        ".persona-guidance{margin:0.5rem 0 0 0;font-size:0.95rem;color:#1f2933;line-height:1.5;}"
+        ".persona-attributes{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0.6rem;}"
+        ".persona-attributes li{display:flex;justify-content:space-between;align-items:center;padding:0.6rem 0.75rem;border-radius:12px;background:#f8fafc;box-shadow:0 10px 24px rgba(15,23,42,0.06);}"
+        ".persona-attributes .attribute-label{font-weight:600;color:#1d4ed8;}"
+        ".persona-attributes .attribute-value{font-weight:600;color:#0f172a;}"
         ".persona-body p{margin:0.35rem 0;line-height:1.55;font-size:0.95rem;color:#1f2933;}"
         ".persona-body strong{color:#0f172a;}"
         "</style>"
@@ -400,12 +466,22 @@ def create_app() -> Flask:
 
     character_profile_style = (
         "<style>"
+        f"{tooltip_css}"
         "body{font-family:'Inter',sans-serif;margin:0;background:#f3f4f8;color:#0f172a;}"
         ".profile-page{max-width:880px;margin:2rem auto;padding:0 1.5rem;}"
         ".profile-page h1{font-size:2.1rem;margin-bottom:1.25rem;text-align:center;}"
-        ".profile-actions{margin-top:1.75rem;text-align:center;}"
-        ".profile-actions a{display:inline-block;padding:0.75rem 1.75rem;border-radius:999px;background:#1d4ed8;color:#fff;text-decoration:none;font-weight:600;box-shadow:0 12px 28px rgba(29,78,216,0.18);}"
+        ".profile-actions{margin-top:1.75rem;text-align:center;display:flex;gap:1rem;flex-wrap:wrap;justify-content:center;}"
+        ".profile-actions a{display:inline-flex;align-items:center;justify-content:center;gap:0.5rem;padding:0.75rem 1.75rem;border-radius:999px;background:#1d4ed8;color:#fff;text-decoration:none;font-weight:600;box-shadow:0 12px 28px rgba(29,78,216,0.18);}"
+        ".profile-actions a.secondary{background:#334155;}"
         ".profile-actions a:hover{background:#1e40af;}"
+        ".profile-actions a.secondary:hover{background:#1f2937;}"
+        ".credibility-matrix{margin-top:2rem;background:#ffffff;border-radius:16px;padding:1.5rem;box-shadow:0 12px 28px rgba(15,23,42,0.08);}"
+        ".credibility-matrix table{width:100%;border-collapse:collapse;}"
+        ".credibility-matrix th,.credibility-matrix td{padding:0.75rem;border-bottom:1px solid #e2e8f0;text-align:left;}"
+        ".credibility-matrix th{font-size:0.95rem;font-weight:700;color:#111827;}"
+        ".credibility-matrix td{font-size:0.95rem;color:#1f2933;font-weight:500;}"
+        ".credibility-matrix tbody tr:last-child td{border-bottom:none;}"
+        ".credibility-note{margin:0.75rem 0 0 0;color:#475569;font-size:0.9rem;line-height:1.5;}"
         "</style>"
     )
 
@@ -490,7 +566,7 @@ def create_app() -> Flask:
         ".tooltip-icon img{width:16px;height:16px;border-radius:50%;box-shadow:0 0 0 1px rgba(15,23,42,0.35);cursor:pointer;}"
         ".tooltip-text{position:absolute;bottom:125%;left:50%;transform:translateX(-50%);background:#1f2933;color:#fff;padding:0.45rem 0.6rem;border-radius:6px;font-size:0.8rem;line-height:1.2;white-space:normal;width:220px;box-shadow:0 12px 28px rgba(15,23,42,0.25);opacity:0;visibility:hidden;transition:opacity 0.2s ease-in-out,visibility 0.2s ease-in-out;z-index:10;}"
         ".tooltip-icon:hover .tooltip-text{opacity:1;visibility:visible;}"
-        ".tooltip-icon::after{content:\"\";position:absolute;bottom:110%;left:50%;transform:translateX(-50%);border-width:6px;border-style:solid;border-color:transparent transparent #1f2933 transparent;opacity:0;transition:opacity 0.2s ease-in-out;}"
+        '.tooltip-icon::after{content:"";position:absolute;bottom:110%;left:50%;transform:translateX(-50%);border-width:6px;border-style:solid;border-color:transparent transparent #1f2933 transparent;opacity:0;transition:opacity 0.2s ease-in-out;}'
         ".tooltip-icon:hover::after{opacity:1;}"
         ".config-settings input,.config-settings select{margin-top:0.25rem;padding:0.45rem;border:1px solid #c6c6c6;border-radius:6px;font-size:0.95rem;}"
         ".config-settings button{align-self:flex-start;padding:0.45rem 0.9rem;font-size:0.95rem;}"
@@ -507,6 +583,15 @@ def create_app() -> Flask:
         ".scenario-summary p{margin:0.5rem 0;line-height:1.5;}"
         "</style>"
     )
+
+    attribute_tooltips = {
+        "leadership": "Leadership captures how well you coordinate allies and keep coalitions focused on shared commitments.",
+        "technology": "Technology reflects your technical literacy for evaluating safeguards and translating expert findings.",
+        "policy": "Policy measures your ability to craft enforceable agreements and navigate governance trade-offs.",
+        "network": "Network gauges access to relationships that unlock cooperation and surface new opportunities.",
+    }
+
+    credibility_tooltip = "Credibility shows how much trust this faction currently places in your leadership. Higher values reduce reroll costs and unlock stronger commitments."
 
     tooltip_asset_path = "/assets/tooltip.jpg"
     roll_asset_path = "/assets/rolling.gif"
@@ -525,6 +610,15 @@ def create_app() -> Flask:
             f"<span class='config-label-text'>{escape(title, False)}"
             + _tooltip_icon(description)
             + "</span>"
+        )
+
+    def _loading_markup(text: str) -> str:
+        safe_text = escape(text, False)
+        return (
+            "<div class='inline-loading'>"
+            + f"<img src='{roll_asset_path}' alt='Loading indicator'>"
+            + f"<span>{safe_text}</span>"
+            + "</div>"
         )
 
     roll_indicator_markup = (
@@ -607,10 +701,10 @@ def create_app() -> Flask:
         scenario = CAMPAIGN_SCENARIOS[level_index]
         if sector == "private":
             enabled = PRIVATE_SECTOR_FACTIONS
-            player_faction = "CivilSociety"
+            player_faction = "ScientificCommunity"
         else:
             enabled = PUBLIC_SECTOR_FACTIONS
-            player_faction = "ScientificCommunity"
+            player_faction = "CivilSociety"
         return GameConfig(
             scenario=scenario,
             win_threshold=baseline.win_threshold,
@@ -699,16 +793,99 @@ def create_app() -> Flask:
             + "</section>"
         )
 
-    def _profile_panel(character: Character, *, credibility: int | None = None) -> str:
-        attributes = "".join(
-            f"<li><span>{label}</span><span>{int(character.attribute_score(label.lower()))}</span></li>"
-            for label in ("Leadership", "Technology", "Policy", "Network")
+    def _credibility_matrix_block(
+        *,
+        player_faction: str | None,
+        partner_faction: str | None,
+        credibility_value: int | None,
+    ) -> str:
+        if not partner_faction:
+            return ""
+        player_label = _format_faction_label(player_faction)
+        partner_label = _format_faction_label(partner_faction)
+        value_text = (
+            "—" if credibility_value is None else f"{int(credibility_value)} / 100"
         )
+        return (
+            "<section class='credibility-matrix'>"
+            + "<h2>Credibility Snapshot</h2>"
+            + "<table><thead><tr><th>Player faction</th><th>Partner faction</th><th>Credibility"
+            + _tooltip_icon(credibility_tooltip)
+            + "</th></tr></thead><tbody>"
+            + "<tr>"
+            + f"<td>{escape(player_label or 'Unknown', False)}</td>"
+            + f"<td>{escape(partner_label or 'Unknown', False)}</td>"
+            + f"<td>{escape(value_text, False)}</td>"
+            + "</tr></tbody></table>"
+            + "<p class='credibility-note'>This value comes from the credibility matrix and influences how costly rerolls are and how much trust partners extend.</p>"
+            + "</section>"
+        )
+
+    def _conversation_log(conversation: Sequence[ConversationEntry]) -> str:
+        if not conversation:
+            return "<p class='empty-conversation'>No conversation yet. Start by greeting the character.</p>"
+        items = []
+        for entry in conversation:
+            type_label = str(entry.type or "dialogue").replace("_", " ").title()
+            items.append(
+                "<li>"
+                + "<div class='message-header'>"
+                + f"<span class='speaker'>{escape(entry.speaker, False)}</span>"
+                + f"<span class='message-type'>{escape(type_label, False)}</span>"
+                + "</div>"
+                + f"<p>{escape(entry.text, False)}</p>"
+                + "</li>"
+            )
+        return "<ul class='conversation-log'>" + "".join(items) + "</ul>"
+
+    def _conversation_frame(
+        player_panel_html: str,
+        middle_panel_html: str,
+        partner_panel_html: str,
+        state_html: str,
+    ) -> str:
+        return (
+            conversation_style
+            + panel_style
+            + roll_indicator_markup
+            + "<main class='conversation-page'>"
+            + "<div class='layout-container'>"
+            + f"<div class='panel player-panel'>{player_panel_html}</div>"
+            + f"<div class='panel conversation-panel'>{middle_panel_html}</div>"
+            + f"<div class='panel partner-panel'>{partner_panel_html}</div>"
+            + "</div>"
+            + f"<div class='state-container'>{state_html}</div>"
+            + "</main>"
+        )
+
+    def _profile_panel(
+        character: Character,
+        *,
+        credibility: int | None = None,
+        profile_url: str | None = None,
+    ) -> str:
+        attribute_items: List[str] = []
+        for label in ("Leadership", "Technology", "Policy", "Network"):
+            key = label.lower()
+            tooltip_text = attribute_tooltips.get(key)
+            label_html = (
+                f"<span class='attribute-label'>{escape(label, False)}"
+                + (_tooltip_icon(tooltip_text) if tooltip_text else "")
+                + "</span>"
+            )
+            value_html = f"<span class='attribute-value'>{int(character.attribute_score(key))}</span>"
+            attribute_items.append(f"<li>{label_html}{value_html}</li>")
+        attributes = "".join(attribute_items)
         credibility_block = ""
         if credibility is not None:
+            label_html = (
+                "<span class='attribute-label'>Credibility"
+                + _tooltip_icon(credibility_tooltip)
+                + "</span>"
+            )
             credibility_block = (
                 "<div class='credibility-box'>"
-                "<span>Credibility</span>"
+                f"{label_html}"
                 f"<strong>{int(credibility)}</strong>"
                 "</div>"
             )
@@ -717,12 +894,20 @@ def create_app() -> Flask:
             css_class="profile-photo",
             alt_label=f"Portrait of {getattr(character, 'display_name', character.name)}",
         )
+        footer_block = ""
+        if profile_url:
+            footer_block = (
+                "<div class='profile-footer'>"
+                + f"<a href='{escape(profile_url, quote=True)}'>View profile</a>"
+                + "</div>"
+            )
         return (
             "<div class='profile-card'>"
             f"{photo_block}"
             f"<h2 class='profile-name'>{escape(character.display_name, quote=False)}</h2>"
             f"<ul class='attribute-list'>{attributes}</ul>"
             f"{credibility_block}"
+            f"{footer_block}"
             "</div>"
         )
 
@@ -734,16 +919,18 @@ def create_app() -> Flask:
     def main_page() -> str:
         current_summary = ""
         if campaign_state.active:
-            level_index = min(
-                campaign_state.current_level, len(CAMPAIGN_SCENARIOS) - 1
-            )
+            level_index = min(campaign_state.current_level, len(CAMPAIGN_SCENARIOS) - 1)
             level_name = _scenario_display_name(CAMPAIGN_SCENARIOS[level_index])
-            sector_note = "Choose your next sector to begin." if campaign_state.sector_choice is None else (
-                "Working with the Public Sector." if campaign_state.sector_choice == "public" else "Working with the Private Sector."
+            sector_note = (
+                "Choose your next sector to begin."
+                if campaign_state.sector_choice is None
+                else (
+                    "Working with the Public Sector."
+                    if campaign_state.sector_choice == "public"
+                    else "Working with the Private Sector."
+                )
             )
-            current_summary = (
-                f"<p>Current campaign run: Level {level_index + 1} – {escape(level_name, False)}. {sector_note}</p>"
-            )
+            current_summary = f"<p>Current campaign run: Level {level_index + 1} – {escape(level_name, False)}. {sector_note}</p>"
         free_play_actions = (
             "<div class='mode-actions'>"
             "<a href='/free-play'>Configure Free Play</a>"
@@ -767,12 +954,8 @@ def create_app() -> Flask:
                 "</form>"
                 "</div>"
             )
-        campaign_description = (
-            "<p>Tackle a guided three-level journey through scenarios 01, 02, and 03. At the start of each level you choose to coordinate with the Public or Private sector, which reshapes your faction alignment and the coalitions available to you.</p>"
-        )
-        free_play_description = (
-            "<p>Experiment freely with every system in the negotiation sandbox. Tune the active scenario, scoring thresholds, and pacing rules before diving straight into a single open-ended session.</p>"
-        )
+        campaign_description = "<p>Tackle a guided three-level journey through scenarios 01, 02, and 03. At the start of each level you choose to coordinate with the Public or Private sector, which reshapes your faction alignment and the coalitions available to you.</p>"
+        free_play_description = "<p>Experiment freely with every system in the negotiation sandbox. Tune the active scenario, scoring thresholds, and pacing rules before diving straight into a single open-ended session.</p>"
         body = (
             landing_style
             + "<main>"
@@ -803,7 +986,9 @@ def create_app() -> Flask:
         campaign_state.active = False
         config_snapshot = config_in_use
         selectable_scenarios = [
-            name for name in available_scenarios if name not in FREE_PLAY_HIDDEN_SCENARIOS
+            name
+            for name in available_scenarios
+            if name not in FREE_PLAY_HIDDEN_SCENARIOS
         ]
         if not selectable_scenarios:
             selectable_scenarios = list(available_scenarios)
@@ -836,7 +1021,9 @@ def create_app() -> Flask:
                     scenario = config_snapshot.scenario
                 elif selectable_scenarios:
                     scenario = selectable_scenarios[0]
-            win_threshold = max(0, _parse_int("win_threshold", config_snapshot.win_threshold))
+            win_threshold = max(
+                0, _parse_int("win_threshold", config_snapshot.win_threshold)
+            )
             max_rounds = max(1, _parse_int("max_rounds", config_snapshot.max_rounds))
             roll_threshold = max(
                 1,
@@ -980,13 +1167,19 @@ def create_app() -> Flask:
             + _config_label("Max rounds", field_help["max_rounds"])
             + f"<input type='number' name='max_rounds' min='1' value='{form_config.max_rounds}'></label>"
             + "<label>"
-            + _config_label("Roll success threshold", field_help["roll_success_threshold"])
+            + _config_label(
+                "Roll success threshold", field_help["roll_success_threshold"]
+            )
             + f"<input type='number' name='roll_success_threshold' min='1' value='{form_config.roll_success_threshold}'></label>"
             + "<label>"
-            + _config_label("Action time cost (years)", field_help["action_time_cost_years"])
+            + _config_label(
+                "Action time cost (years)", field_help["action_time_cost_years"]
+            )
             + f"<input type='number' step='0.1' min='0' name='action_time_cost_years' value='{form_config.action_time_cost_years}'></label>"
             + "<label>"
-            + _config_label("Prompt character limit", field_help["format_prompt_character_limit"])
+            + _config_label(
+                "Prompt character limit", field_help["format_prompt_character_limit"]
+            )
             + f"<input type='number' min='1' name='format_prompt_character_limit' value='{form_config.format_prompt_character_limit}'></label>"
             + "<label>"
             + _config_label(
@@ -1041,7 +1234,9 @@ def create_app() -> Flask:
             campaign_state.sector_choice = selected_sector
             new_config = _campaign_config(level_index, selected_sector)
             logger.info(
-                "Starting campaign level %s with %s sector", level_index + 1, selected_sector
+                "Starting campaign level %s with %s sector",
+                level_index + 1,
+                selected_sector,
             )
             with state_lock:
                 _reload_state(new_config)
@@ -1063,10 +1258,10 @@ def create_app() -> Flask:
                 for faction in PUBLIC_SECTOR_FACTIONS
             )
             + "</ul>"
-            + "<p><strong>Player faction:</strong> Scientific Community</p>"
+            + "<p><strong>Player faction:</strong> Civil Society</p>"
         )
         public_persona_section = ""
-        public_profile = _player_profile_by_faction("ScientificCommunity")
+        public_profile = _player_profile_by_faction("CivilSociety")
         if public_profile:
             public_persona_section = (
                 "<div class='sector-player-card'><h3>Your Persona</h3>"
@@ -1080,10 +1275,10 @@ def create_app() -> Flask:
                 for faction in PRIVATE_SECTOR_FACTIONS
             )
             + "</ul>"
-            + "<p><strong>Player faction:</strong> Civil Society</p>"
+            + "<p><strong>Player faction:</strong> Scientific Community</p>"
         )
         private_persona_section = ""
-        private_profile = _player_profile_by_faction("CivilSociety")
+        private_profile = _player_profile_by_faction("ScientificCommunity")
         if private_profile:
             private_persona_section = (
                 "<div class='sector-player-card'><h3>Your Persona</h3>"
@@ -1113,11 +1308,11 @@ def create_app() -> Flask:
         active_sector_note = ""
         if campaign_state.sector_choice:
             label = (
-                "Public Sector" if campaign_state.sector_choice == "public" else "Private Sector"
+                "Public Sector"
+                if campaign_state.sector_choice == "public"
+                else "Private Sector"
             )
-            active_sector_note = (
-                f"<p><strong>Previous selection:</strong> {escape(label, False)}. Choosing a sector again will restart this level.</p>"
-            )
+            active_sector_note = f"<p><strong>Previous selection:</strong> {escape(label, False)}. Choosing a sector again will restart this level.</p>"
         body = (
             persona_style
             + campaign_style
@@ -1125,7 +1320,11 @@ def create_app() -> Flask:
             + "<div class='campaign-header'>"
             + f"<h1>Level {level_index + 1}: {escape(scenario_name, False)}</h1>"
             + "<p>Select who you will coordinate with before launching the next negotiation.</p>"
-            + (f"<div class='campaign-summary'>{summary_html}</div>" if summary_html else "")
+            + (
+                f"<div class='campaign-summary'>{summary_html}</div>"
+                if summary_html
+                else ""
+            )
             + active_sector_note
             + "</div>"
             + "<div class='sector-grid'>"
@@ -1167,9 +1366,7 @@ def create_app() -> Flask:
             score_text = "Not completed"
             result_text = ""
             if record:
-                score_text = (
-                    f"Score: {record['score']:.0f} / {record['threshold']:.0f}"
-                )
+                score_text = f"Score: {record['score']:.0f} / {record['threshold']:.0f}"
                 result_text = (
                     "Victory" if record["score"] >= record["threshold"] else "Defeat"
                 )
@@ -1203,7 +1400,11 @@ def create_app() -> Flask:
     def list_characters() -> Response:
         logger.info("Listing characters")
         nonlocal last_history_signature
-        if current_mode == "campaign" and campaign_state.active and campaign_state.sector_choice is None:
+        if (
+            current_mode == "campaign"
+            and campaign_state.active
+            and campaign_state.sector_choice is None
+        ):
             return redirect("/campaign/level")
         with state_lock:
             score = game_state.final_weighted_score()
@@ -1222,7 +1423,10 @@ def create_app() -> Flask:
                 game_state.current_credibility(getattr(char, "faction", None))
                 for char in characters
             ]
-        if score >= game_state.config.win_threshold or hist_len >= game_state.config.max_rounds:
+        if (
+            score >= game_state.config.win_threshold
+            or hist_len >= game_state.config.max_rounds
+        ):
             return redirect("/result")
         if enable_parallel:
             history_signature = tuple(
@@ -1244,15 +1448,10 @@ def create_app() -> Flask:
                 if convo:
                     return
                 key = _player_pending_key(idx, len(convo))
-                signature = _player_context_signature(
-                    history_snapshot, convo, actions
-                )
+                signature = _player_context_signature(history_snapshot, convo, actions)
                 existing_signature = player_option_signatures.get(key)
                 entry = pending_player_options.get(key)
-                if (
-                    existing_signature == signature
-                    and entry is not None
-                ):
+                if existing_signature == signature and entry is not None:
                     current_event, value = entry
                     if value is not None or not current_event.is_set():
                         return
@@ -1283,7 +1482,9 @@ def create_app() -> Flask:
                             conversation_cache=cache_snapshot,
                         )
                     except Exception:  # pragma: no cover - defensive logging
-                        logger.exception("Failed to generate player responses in background")
+                        logger.exception(
+                            "Failed to generate player responses in background"
+                        )
                         options = []
                     current = pending_player_options.get(pending_key)
                     if current is None:
@@ -1304,7 +1505,9 @@ def create_app() -> Flask:
 
                 cache_snapshot = {
                     faction: tuple(entries)
-                    for faction, entries in game_state.conversation_cache_for_player(char).items()
+                    for faction, entries in game_state.conversation_cache_for_player(
+                        char
+                    ).items()
                 }
                 threading.Thread(
                     target=worker,
@@ -1345,9 +1548,7 @@ def create_app() -> Flask:
         summary_section = _scenario_summary_section(
             getattr(game_state, "scenario_summary", "")
         )
-        time_block = (
-            f"<p class='character-timing'>Time passed since November 2025: {game_state.time_elapsed_years:.1f} years</p>"
-        )
+        time_block = f"<p class='character-timing'>Time passed since November 2025: {game_state.time_elapsed_years:.1f} years</p>"
         body = (
             character_select_style
             + "<main class='character-select-container'>"
@@ -1371,18 +1572,63 @@ def create_app() -> Flask:
 
     @app.route("/characters/<int:char_id>/profile", methods=["GET"])
     def show_character_profile(char_id: int) -> Response:
+        return_target = request.args.get("return", "")
+        safe_return = return_target if return_target.startswith("/") else None
         with state_lock:
             if char_id < 0 or char_id >= len(game_state.characters):
                 return redirect("/start")
             character = game_state.characters[char_id]
+            player_faction = getattr(game_state.player_character, "faction", None)
+            credibility_value = game_state.current_credibility(
+                getattr(character, "faction", None)
+            )
         persona_html = _persona_card_for_character(character)
+        matrix_html = _credibility_matrix_block(
+            player_faction=player_faction,
+            partner_faction=getattr(character, "faction", None),
+            credibility_value=credibility_value,
+        )
+        actions = ["<div class='profile-actions'>"]
+        if safe_return:
+            actions.append(
+                f"<a class='secondary' href='{escape(safe_return, quote=True)}'>Return to conversation</a>"
+            )
+        actions.append("<a href='/start'>Back to character selection</a>")
+        actions.append("</div>")
         body = (
             persona_style
             + character_profile_style
             + "<main class='profile-page'>"
             + f"<h1>{escape(character.display_name, False)}</h1>"
             + persona_html
-            + "<div class='profile-actions'><a href='/start'>Back to character selection</a></div>"
+            + matrix_html
+            + "".join(actions)
+            + "</main>"
+            + footer
+        )
+        return Response(body)
+
+    @app.route("/player/profile", methods=["GET"])
+    def show_player_profile() -> Response:
+        return_target = request.args.get("return", "")
+        safe_return = return_target if return_target.startswith("/") else None
+        with state_lock:
+            player_character = game_state.player_character
+        persona_html = _persona_card_for_character(player_character)
+        actions = ["<div class='profile-actions'>"]
+        if safe_return:
+            actions.append(
+                f"<a class='secondary' href='{escape(safe_return, quote=True)}'>Return to conversation</a>"
+            )
+        actions.append("<a href='/start'>Back to character selection</a>")
+        actions.append("</div>")
+        body = (
+            persona_style
+            + character_profile_style
+            + "<main class='profile-page'>"
+            + f"<h1>{escape(player_character.display_name, False)}</h1>"
+            + persona_html
+            + "".join(actions)
             + "</main>"
             + footer
         )
@@ -1433,9 +1679,7 @@ def create_app() -> Flask:
     ) -> Tuple[List[ResponseOption] | None, bool]:
         conversation_length = len(conversation)
         key = _player_pending_key(char_id, conversation_length)
-        signature = _player_context_signature(
-            history, conversation, available_actions
-        )
+        signature = _player_context_signature(history, conversation, available_actions)
         existing_signature = player_option_signatures.get(key)
         entry = pending_player_options.get(key)
         if existing_signature is not None and existing_signature != signature:
@@ -1513,7 +1757,9 @@ def create_app() -> Flask:
 
         cache_snapshot = {
             faction: tuple(entries)
-            for faction, entries in game_state.conversation_cache_for_player(character).items()
+            for faction, entries in game_state.conversation_cache_for_player(
+                character
+            ).items()
         }
         threading.Thread(
             target=worker,
@@ -1629,9 +1875,7 @@ def create_app() -> Flask:
                     limit = getattr(
                         game_state.config, "conversation_force_action_after", 0
                     )
-                    force_action_required = (
-                        limit > 0 and len(simulated) >= limit
-                    )
+                    force_action_required = limit > 0 and len(simulated) >= limit
                     replies = character.generate_responses(
                         hist,
                         simulated,
@@ -1640,9 +1884,7 @@ def create_app() -> Flask:
                         force_action=force_action_required,
                     )
                 except Exception:  # pragma: no cover - defensive logging
-                    logger.exception(
-                        "Failed to generate NPC responses in background"
-                    )
+                    logger.exception("Failed to generate NPC responses in background")
                     replies = []
                 if len(simulated) != expected_length:
                     # Conversation changed while computing; drop result.
@@ -1692,9 +1934,15 @@ def create_app() -> Flask:
             return None, True
         if enable_parallel and entry is None:
             pending_choice = pending_player_choices.get(char_id)
-            if pending_choice and pending_choice[0] == conversation_length and pending_choice[1] == signature:
+            if (
+                pending_choice
+                and pending_choice[0] == conversation_length
+                and pending_choice[1] == signature
+            ):
                 return None, True
-        credibility = game_state.current_credibility(getattr(character, "faction", None))
+        credibility = game_state.current_credibility(
+            getattr(character, "faction", None)
+        )
         force_action_required = game_state.should_force_action(character)
         replies = character.generate_responses(
             history,
@@ -1733,63 +1981,69 @@ def create_app() -> Flask:
             payload = escape(json.dumps(option.to_payload()), quote=True)
             label_html = escape(option.text, quote=False)
             option_items.append(
-                f"<li><input type='radio' name='response' value='{payload}' id='opt{option_counter}' data-kind='chat'>"
-                f"<label for='opt{option_counter}'>{label_html}</label></li>"
+                "<li class='response-option chat-option'>"
+                + f"<input type='radio' name='response' value='{payload}' id='opt{option_counter}' data-kind='chat'>"
+                + f"<label for='opt{option_counter}'><span class='option-title'>{label_html}</span></label>"
+                + "</li>"
             )
             option_counter += 1
         for action_index, option in enumerate(action_options, 1):
             payload = escape(json.dumps(option.to_payload()), quote=True)
             label_text = action_labels.get(option.text)
             if not label_text:
-                attribute = option.related_attribute.title() if option.related_attribute else "None"
+                attribute = (
+                    option.related_attribute.title()
+                    if option.related_attribute
+                    else "None"
+                )
                 label_text = f"Action {action_index} [{attribute}]"
             option_items.append(
-                f"<li><input type='radio' name='response' value='{payload}' id='opt{option_counter}' data-kind='action'>"
-                f"<label for='opt{option_counter}' title='{escape(option.text, quote=True)}'>"
-                f"<strong>{escape(label_text, quote=False)}</strong></label></li>"
+                "<li class='response-option action-option'>"
+                + f"<input type='radio' name='response' value='{payload}' id='opt{option_counter}' data-kind='action'>"
+                + f"<label for='opt{option_counter}'>"
+                + f"<span class='option-title'>{escape(label_text, quote=False)}</span>"
+                + f"<span class='option-description'>{escape(option.text, quote=False)}</span>"
+                + "</label></li>"
             )
             option_counter += 1
         options_html_parts: List[str] = []
         if loading_chat:
-            options_html_parts.append("<p><em>Loading chat responses...</em></p>")
+            options_html_parts.append(_loading_markup("Loading chat responses..."))
         if option_items:
             options_html_parts.append("<ul>" + "".join(option_items) + "</ul>")
         elif not loading_chat:
-            options_html_parts.append("<p>No options available.</p>")
+            options_html_parts.append(
+                "<p class='empty-conversation'>No options available.</p>"
+            )
         options_html = "".join(options_html_parts)
         form_html = (
             "<form class='options-form' method='post' action='/actions'>"
             + options_html
             + f"<input type='hidden' name='character' value='{char_id}'>"
-            + "<button type='submit'>Send</button>"
+            + "<div class='options-actions'><button type='submit' class='primary-button'>Send</button></div>"
             + "</form>"
         )
-        if conversation:
-            convo_items = "".join(
-                f"<li><strong>{escape(entry.speaker, quote=False)}</strong>: {escape(entry.text, quote=False)} "
-                f"<em>({entry.type})</em></li>"
-                for entry in conversation
-            )
-            convo_block = f"<ol>{convo_items}</ol>"
-        else:
-            convo_block = "<p>No conversation yet. Start by greeting the character.</p>"
+        conversation_html = _conversation_log(conversation)
         conversation_panel = (
-            f"<section><h2>Conversation with {escape(character.display_name, quote=False)}</h2>{convo_block}</section>"
-            + f"<section><h2>Responses</h2>{form_html}</section>"
-            + "<section><a href='/start'>Back to characters</a></section>"
-        )
-        player_panel = _profile_panel(player)
-        partner_panel = _profile_panel(character, credibility=partner_credibility)
-        layout = (
-            panel_style
-            + roll_indicator_markup
-            + "<div class='layout-container'>"
-            + f"<div class='panel player-panel'>{player_panel}</div>"
-            + f"<div class='panel conversation-panel'>{conversation_panel}</div>"
-            + f"<div class='panel partner-panel'>{partner_panel}</div>"
+            "<div class='conversation-content'>"
+            + f"<section class='conversation-thread'><h2>Conversation with {escape(character.display_name, quote=False)}</h2>{conversation_html}</section>"
+            + f"<section class='conversation-responses'><h2>Responses</h2>{form_html}</section>"
+            + "<section class='conversation-actions'><a class='primary-button secondary' href='/start'>Back to characters</a></section>"
             + "</div>"
         )
-        return layout + state_html + footer + roll_indicator_script
+        player_panel = _profile_panel(
+            player,
+            profile_url=f"/player/profile?return=/actions?character={char_id}",
+        )
+        partner_panel = _profile_panel(
+            character,
+            credibility=partner_credibility,
+            profile_url=f"/characters/{char_id}/profile?return=/actions?character={char_id}",
+        )
+        page = _conversation_frame(
+            player_panel, conversation_panel, partner_panel, state_html
+        )
+        return page + footer + roll_indicator_script
 
     def _render_success_page(
         char_id: int,
@@ -1816,48 +2070,48 @@ def create_app() -> Flask:
         keep_talking_form = (
             "<form method='get' action='/actions'>"
             + f"<input type='hidden' name='character' value='{char_id}'>"
-            + f"<button type='submit'>Keep talking to {escape(character.display_name, quote=False)}</button>"
+            + f"<button type='submit' class='primary-button'>Keep talking to {escape(character.display_name, quote=False)}</button>"
             + "</form>"
         )
         back_form = (
             "<form method='get' action='/start'>"
-            + "<button type='submit'>Back to character selection</button>"
+            + "<button type='submit' class='primary-button secondary'>Back to character selection</button>"
             + "</form>"
         )
         outcome_section = (
-            "<section><h2>Action Outcome</h2>"
-            f"<p>{escape(success_text, quote=False)}</p>"
-            f"<p>{escape(credibility_text, quote=False)}</p>"
+            "<section class='action-outcome'>"
+            + "<h2>Action Outcome</h2>"
+            + f"<p>{escape(success_text, quote=False)}</p>"
+            + f"<p>{escape(credibility_text, quote=False)}</p>"
             + "<div class='action-outcome-actions'>"
             + keep_talking_form
             + back_form
             + "</div></section>"
         )
-        if conversation:
-            convo_items = "".join(
-                f"<li><strong>{escape(entry.speaker, quote=False)}</strong>: {escape(entry.text, quote=False)} <em>({entry.type})</em></li>"
-                for entry in conversation
-            )
-            convo_block = (
-                "<section><h2>Conversation So Far</h2><ol>" + convo_items + "</ol></section>"
-            )
-        else:
-            convo_block = (
-                "<section><h2>Conversation So Far</h2><p>No conversation yet.</p></section>"
-            )
-        conversation_panel = outcome_section + convo_block
-        player_panel = _profile_panel(player)
-        partner_panel = _profile_panel(character, credibility=partner_credibility)
-        layout = (
-            panel_style
-            + roll_indicator_markup
-            + "<div class='layout-container'>"
-            + f"<div class='panel player-panel'>{player_panel}</div>"
-            + f"<div class='panel conversation-panel'>{conversation_panel}</div>"
-            + f"<div class='panel partner-panel'>{partner_panel}</div>"
+        conversation_section = (
+            "<section class='conversation-thread'><h2>Conversation So Far</h2>"
+            + _conversation_log(conversation)
+            + "</section>"
+        )
+        conversation_panel = (
+            "<div class='conversation-content'>"
+            + outcome_section
+            + conversation_section
             + "</div>"
         )
-        return layout + state_html + footer + roll_indicator_script
+        player_panel = _profile_panel(
+            player,
+            profile_url=f"/player/profile?return=/actions?character={char_id}",
+        )
+        partner_panel = _profile_panel(
+            character,
+            credibility=partner_credibility,
+            profile_url=f"/characters/{char_id}/profile?return=/actions?character={char_id}",
+        )
+        page = _conversation_frame(
+            player_panel, conversation_panel, partner_panel, state_html
+        )
+        return page + footer + roll_indicator_script
 
     def _render_failure_page(
         char_id: int,
@@ -1887,57 +2141,62 @@ def create_app() -> Flask:
             base = "Insufficient credibility to reroll."
             if credibility_notes:
                 details = "; ".join(credibility_notes)
-                shortage_text = (
-                    f"<p class='warning-text'>{escape(base + ' ' + details, quote=False)}</p>"
-                )
+                shortage_text = f"<p class='warning-text'>{escape(base + ' ' + details, quote=False)}</p>"
             else:
-                shortage_text = f"<p class='warning-text'>{escape(base, quote=False)}</p>"
-        outcome_section = (
-            "<section><h2>Action Outcome</h2>"
-            f"<p>{escape(failure_text, quote=False)}</p>"
-            f"<p>{reroll_note}</p>"
-        )
-        if shortage_text:
-            outcome_section += shortage_text
-        outcome_section += "<div class='reroll-actions'>"
+                shortage_text = (
+                    f"<p class='warning-text'>{escape(base, quote=False)}</p>"
+                )
+        reroll_forms = "<div class='reroll-actions'>"
         if can_reroll:
-            outcome_section += (
+            reroll_forms += (
                 "<form method='post' action='/reroll' class='roll-trigger'>"
                 + f"<input type='hidden' name='character' value='{char_id}'>"
                 + f"<input type='hidden' name='action' value='{payload}'>"
-                + f"<button type='submit'>{reroll_label}</button>"
+                + f"<button type='submit' class='primary-button'>{escape(reroll_label, False)}</button>"
                 + "</form>"
             )
-        outcome_section += (
+        reroll_forms += (
             "<form method='post' action='/finalize_failure'>"
             + f"<input type='hidden' name='character' value='{char_id}'>"
             + f"<input type='hidden' name='action' value='{payload}'>"
-            + "<button type='submit'>Accept Failure</button>"
-            + "</form></div></section>"
+            + "<button type='submit' class='primary-button secondary'>Accept Failure</button>"
+            + "</form>"
         )
-        if conversation:
-            convo_items = "".join(
-                f"<li><strong>{escape(entry.speaker, quote=False)}</strong>: {escape(entry.text, quote=False)} <em>({entry.type})</em></li>"
-                for entry in conversation
-            )
-            convo_block = f"<section><h2>Conversation So Far</h2><ol>{convo_items}</ol></section>"
-        else:
-            convo_block = (
-                "<section><h2>Conversation So Far</h2><p>No conversation yet.</p></section>"
-            )
-        conversation_panel = outcome_section + convo_block
-        player_panel = _profile_panel(player)
-        partner_panel = _profile_panel(character, credibility=partner_credibility)
-        layout = (
-            panel_style
-            + roll_indicator_markup
-            + "<div class='layout-container'>"
-            + f"<div class='panel player-panel'>{player_panel}</div>"
-            + f"<div class='panel conversation-panel'>{conversation_panel}</div>"
-            + f"<div class='panel partner-panel'>{partner_panel}</div>"
+        reroll_forms += "</div>"
+        outcome_section = (
+            "<section class='action-outcome'>"
+            + "<h2>Action Outcome</h2>"
+            + f"<p>{escape(failure_text, quote=False)}</p>"
+            + f"<p>{escape(reroll_note, quote=False)}</p>"
+            + shortage_text
+            + reroll_forms
+            + "</section>"
+        )
+        conversation_section = (
+            "<section class='conversation-thread'><h2>Conversation So Far</h2>"
+            + _conversation_log(conversation)
+            + "</section>"
+        )
+        conversation_panel = (
+            "<div class='conversation-content'>"
+            + outcome_section
+            + conversation_section
             + "</div>"
         )
-        return layout + state_html + footer + roll_indicator_script
+        player_panel = _profile_panel(
+            player,
+            profile_url=f"/player/profile?return=/actions?character={char_id}",
+        )
+        partner_panel = _profile_panel(
+            character,
+            credibility=partner_credibility,
+            profile_url=f"/characters/{char_id}/profile?return=/actions?character={char_id}",
+        )
+        page = _conversation_frame(
+            player_panel, conversation_panel, partner_panel, state_html
+        )
+        return page + footer + roll_indicator_script
+
     @app.route("/actions", methods=["GET", "POST"])
     def character_actions() -> Response:
         char_id = int(request.values["character"])
@@ -1998,7 +2257,9 @@ def create_app() -> Flask:
                             finally:
                                 with assessment_lock:
                                     try:
-                                        assessment_threads.remove(threading.current_thread())
+                                        assessment_threads.remove(
+                                            threading.current_thread()
+                                        )
                                     except ValueError:
                                         pass
 
@@ -2074,9 +2335,11 @@ def create_app() -> Flask:
             )
             if waiting:
                 body = (
-                    "<p>Loading...</p>"
-                    f"<meta http-equiv='refresh' content='1;url=/actions?character={char_id}'>"
-                    f"{footer}"
+                    "<main class='loading-page'>"
+                    + _loading_markup("Loading...")
+                    + "</main>"
+                    + f"<meta http-equiv='refresh' content='1;url=/actions?character={char_id}'>"
+                    + f"{footer}"
                 )
                 return Response(body)
             replies = replies or []
@@ -2116,9 +2379,11 @@ def create_app() -> Flask:
                 )
                 if waiting:
                     body = (
-                        "<p>Loading...</p>"
-                        f"<meta http-equiv='refresh' content='1;url=/actions?character={char_id}'>"
-                        f"{footer}"
+                        "<main class='loading-page'>"
+                        + _loading_markup("Loading...")
+                        + "</main>"
+                        + f"<meta http-equiv='refresh' content='1;url=/actions?character={char_id}'>"
+                        + f"{footer}"
                     )
                     return Response(body)
                 replies = replies or []
@@ -2183,9 +2448,7 @@ def create_app() -> Flask:
             loading_chat=loading,
         )
         if loading:
-            page += (
-                f"<meta http-equiv='refresh' content='1;url=/actions?character={char_id}'>"
-            )
+            page += f"<meta http-equiv='refresh' content='1;url=/actions?character={char_id}'>"
         return Response(page)
 
     @app.route("/reroll", methods=["POST"])
@@ -2198,9 +2461,7 @@ def create_app() -> Flask:
                 character, option
             )
             if not can_reroll:
-                attempt = game_state.pending_failures.get(
-                    (character.name, option.text)
-                )
+                attempt = game_state.pending_failures.get((character.name, option.text))
                 if attempt is None:
                     raise ValueError("No pending failed action to reroll")
                 next_can_reroll = can_reroll
@@ -2393,7 +2654,9 @@ def create_app() -> Flask:
             threshold = game_state.config.win_threshold
             scenario_key = game_state.config.scenario
             if current_mode == "campaign":
-                level_index = min(campaign_state.current_level, len(CAMPAIGN_SCENARIOS) - 1)
+                level_index = min(
+                    campaign_state.current_level, len(CAMPAIGN_SCENARIOS) - 1
+                )
                 sector_choice = campaign_state.sector_choice
                 campaign_context = (
                     level_index,
@@ -2426,9 +2689,7 @@ def create_app() -> Flask:
             "private": "Private Sector",
         }.get(sector_choice, "Unknown coalition")
         result_title = "Victory" if is_win else "Defeat"
-        score_summary = (
-            f"Final score {final:.0f} with a threshold of {threshold:.0f}."
-        )
+        score_summary = f"Final score {final:.0f} with a threshold of {threshold:.0f}."
         level_intro = (
             f"Level {level_number} – {escape(scenario_name, False)}.<br>"
             f"You partnered with the {escape(sector_label, False)}."
@@ -2439,9 +2700,7 @@ def create_app() -> Flask:
             "<button type='submit' class='secondary'>Restart Level (same sector)</button>"
             "</form>"
         )
-        actions.append(
-            "<a href='/campaign/level'>Change Sector</a>"
-        )
+        actions.append("<a href='/campaign/level'>Change Sector</a>")
         if is_win:
             if level_index >= len(CAMPAIGN_SCENARIOS) - 1:
                 actions.append("<a href='/campaign/complete'>View Campaign Summary</a>")

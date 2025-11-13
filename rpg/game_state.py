@@ -774,23 +774,106 @@ class GameState:
         return round(sum(score * w for score, w in totals) / grand_total)
 
     def render_state(self) -> str:
-        """Return HTML rendering of the current game state.
+        """Return HTML rendering of the current game state."""
 
-        Returns:
-            HTML string describing character progress and history.
-        """
         logger.info("Rendering game state")
-        lines = []
+        faction_rows: List[str] = []
+        chart_data: List[Tuple[str, int]] = []
         for key, scores in self.progress.items():
             label = escape(self.faction_labels.get(key, key), quote=False)
-            lines.append(
-                f"{label}: {scores} (weighted: {self._faction_weighted_score(key)})"
+            weighted = self._faction_weighted_score(key)
+            chart_data.append((label, weighted))
+            score_list = ", ".join(str(value) for value in scores)
+            faction_rows.append(
+                "<li>"
+                + f"<span class='progress-faction'>{label}</span>"
+                + f"<span class='progress-values'>{escape(score_list, False)}</span>"
+                + f"<span class='progress-weighted'>{weighted}</span>"
+                + "</li>"
             )
+        final_score = self.final_weighted_score()
+        max_value = max([value for _, value in chart_data] + [final_score, 1])
+        bar_items: List[str] = []
+        for label, value in chart_data:
+            width = 0 if max_value <= 0 else round((value / max_value) * 100)
+            bar_items.append(
+                "<div class='score-bar'>"
+                + f"<div class='score-bar-label'>{label}</div>"
+                + "<div class='score-bar-track'>"
+                + f"<div class='score-bar-fill' style='width:{width}%'></div>"
+                + "</div>"
+                + f"<div class='score-bar-value'>{value}</div>"
+                + "</div>"
+            )
+        final_width = 0 if max_value <= 0 else round((final_score / max_value) * 100)
+        bar_items.append(
+            "<div class='score-bar final-score'>"
+            + "<div class='score-bar-label'>Final Score</div>"
+            + "<div class='score-bar-track'>"
+            + f"<div class='score-bar-fill' style='width:{final_width}%'></div>"
+            + "</div>"
+            + f"<div class='score-bar-value'>{final_score}</div>"
+            + "</div>"
+        )
+        chart_section = (
+            "<section class='score-chart'>"
+            + "<h2>Faction Performance</h2>"
+            + "<div class='score-bars'>"
+            + "".join(bar_items)
+            + "</div>"
+            + "</section>"
+        )
+        progress_section = ""
+        if faction_rows:
+            progress_section = (
+                "<section class='progress-overview'>"
+                + "<h2>Detailed Scores</h2>"
+                + "<ul class='progress-list'>"
+                + "".join(faction_rows)
+                + "</ul>"
+                + "</section>"
+            )
+        history_section = ""
         if self.history:
             hist_items = "".join(
-                f"<li><strong>{escape(n, quote=False)}</strong>: {escape(a, quote=False)}</li>"
-                for n, a in self.history
+                f"<li><strong>{escape(name, False)}</strong>: {escape(action, False)}</li>"
+                for name, action in self.history
             )
-            lines.append(f"<h2>Action History</h2><ol>{hist_items}</ol>")
-        lines.append(f"Final weighted score: {self.final_weighted_score()}")
-        return "<div id='state'>" + "<br>".join(lines) + "</div>"
+            history_section = (
+                "<section class='history-section'>"
+                + "<h2>Action History</h2>"
+                + f"<ol>{hist_items}</ol>"
+                + "</section>"
+            )
+        final_section = (
+            "<section class='final-score-summary'>"
+            + "<h2>Final Score</h2>"
+            + f"<p>Your weighted score is <strong>{final_score}</strong>.</p>"
+            + "</section>"
+        )
+        style = (
+            "<style>"
+            "#state{max-width:960px;margin:2rem auto;padding:1.5rem;background:#ffffff;border-radius:16px;"
+            "box-shadow:0 12px 28px rgba(15,23,42,0.08);font-family:'Inter',sans-serif;color:#0f172a;}"
+            ".score-chart h2,.progress-overview h2,.history-section h2,.final-score-summary h2{margin-top:0;}"
+            ".score-bars{display:flex;flex-direction:column;gap:0.75rem;}"
+            ".score-bar{display:grid;grid-template-columns:minmax(0,180px) 1fr auto;gap:1rem;align-items:center;"
+            "padding:0.75rem 1rem;border-radius:12px;background:#f8fafc;box-shadow:0 8px 18px rgba(15,23,42,0.05);}"
+            ".score-bar-label{font-weight:600;color:#1d4ed8;}"
+            ".score-bar-track{background:#e2e8f0;border-radius:999px;overflow:hidden;height:12px;}"
+            ".score-bar-fill{height:100%;background:#1d4ed8;}"
+            ".score-bar.final-score .score-bar-fill{background:#f97316;}"
+            ".score-bar-value{font-weight:700;color:#0f172a;}"
+            ".progress-list{list-style:none;padding:0;margin:1.5rem 0 0 0;display:flex;flex-direction:column;gap:0.75rem;}"
+            ".progress-list li{display:grid;grid-template-columns:minmax(0,200px) 1fr auto;gap:1rem;align-items:center;"
+            "padding:0.75rem 1rem;border-radius:12px;background:#f8fafc;box-shadow:0 8px 18px rgba(15,23,42,0.05);}"
+            ".progress-faction{font-weight:600;color:#1d4ed8;}"
+            ".progress-values{color:#475569;}"
+            ".progress-weighted{font-weight:700;color:#0f172a;}"
+            ".history-section ol{margin:0;padding-left:1.25rem;}"
+            ".history-section li{margin:0.35rem 0;}"
+            ".final-score-summary p{margin:0.5rem 0 0 0;font-size:1.05rem;}"
+            "</style>"
+        )
+        content = chart_section + progress_section + history_section + final_section
+        return style + "<div id='state'>" + content + "</div>"
