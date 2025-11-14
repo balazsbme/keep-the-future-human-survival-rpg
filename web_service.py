@@ -328,6 +328,127 @@ def create_app() -> Flask:
             details=details,
         )
 
+
+    def _sector_preview_block(
+        profile: Mapping[str, Any] | None,
+        *,
+        label: str,
+        profile_url: str,
+    ) -> str:
+        if not profile:
+            return ""
+        name = str(profile.get("name", "") or "Player Persona")
+        photo = _profile_image_html(
+            name,
+            css_class="preview-photo",
+            alt_label=f"Portrait of {name}",
+        )
+        return (
+            "<div class='sector-player-preview'>"
+            + photo
+            + "<div class='sector-player-preview-text'>"
+            + f"<p class='preview-name'>{escape(name, False)}</p>"
+            + f"<a href='{escape(profile_url, quote=True)}'>View {escape(label, False)} profile</a>"
+            + "</div>"
+            + "</div>"
+        )
+
+    def _list_section(title: str, entries: Sequence[str]) -> str:
+        items = [
+            f"<li>{escape(str(entry), False)}</li>"
+            for entry in entries
+            if str(entry or "").strip()
+        ]
+        if not items:
+            return ""
+        return (
+            "<section class='faction-section'>"
+            + f"<h2>{escape(title, False)}</h2>"
+            + "<ul>"
+            + "".join(items)
+            + "</ul>"
+            + "</section>"
+        )
+
+    def _gap_section(gaps: Sequence[Mapping[str, Any]]) -> str:
+        items: List[str] = []
+        for gap in gaps:
+            if not isinstance(gap, Mapping):
+                continue
+            severity = escape(str(gap.get("severity", "")).strip(), False)
+            explanation = escape(str(gap.get("explanation", "")).strip(), False)
+            if not severity and not explanation:
+                continue
+            if severity and explanation:
+                items.append(
+                    f"<li><span class='gap-severity'>{severity}</span> {explanation}</li>"
+                )
+            else:
+                items.append(f"<li>{severity or explanation}</li>")
+        if not items:
+            return ""
+        return (
+            "<section class='faction-section gap-section'>"
+            + "<h2>Gap to close</h2>"
+            + "<ul class='gap-list'>"
+            + "".join(items)
+            + "</ul>"
+            + "</section>"
+        )
+
+    def _quote_section(quotes: Sequence[str]) -> str:
+        items = [
+            f"<li>{escape(str(entry), False)}</li>"
+            for entry in quotes
+            if str(entry or "").strip()
+        ]
+        if not items:
+            return ""
+        return (
+            "<section class='faction-section quote-section'>"
+            + "<h2>Referenced quotes</h2>"
+            + "<ul class='quote-list'>"
+            + "".join(items)
+            + "</ul>"
+            + "</section>"
+        )
+
+    scoring_note = (
+        "<p class='faction-note'>Faction scoring is judged on how well recent actions address the identified gaps, "
+        "grounded in the referenced quotes from the Keep the Future Human essay. "
+        "Review the source material at <a href='https://keepthefuturehuman.ai/' target='_blank' rel='noopener'>keepthefuturehuman.ai</a>."
+        "</p>"
+    )
+
+    def _faction_sections(detail: Mapping[str, Any]) -> str:
+        initial = _list_section("Initial state", detail.get("initial_states", []))
+        end_state = _list_section("Desired end state", detail.get("end_states", []))
+        gaps = _gap_section(detail.get("gaps", []))
+        quotes = _quote_section(detail.get("referenced_quotes", []))
+        return "".join(part for part in (initial, end_state, gaps, quotes) if part)
+
+    def _render_faction_article(
+        detail: Mapping[str, Any], *, heading_tag: str = "h1", include_link: bool = False
+    ) -> str:
+        label = escape(str(detail.get("label", "Faction")), False)
+        slug = str(detail.get("slug", "") or "")
+        sections = _faction_sections(detail)
+        link_block = ""
+        if include_link and slug:
+            href = escape(f"/factions/{slug}", quote=True)
+            link_block = (
+                "<div class='faction-card-actions'>"
+                + f"<a href='{href}'>Open faction page</a>"
+                + "</div>"
+            )
+        return (
+            "<article class='faction-detail'>"
+            + f"<{heading_tag}>{label}</{heading_tag}>"
+            + sections
+            + link_block
+            + "</article>"
+        )
+
     def _persona_card_for_character(character: Character) -> str:
         profile_data = getattr(character, "profile", {}) or {}
         if not profile_data:
@@ -450,6 +571,45 @@ def create_app() -> Flask:
         "</style>"
     )
 
+    faction_detail_style = (
+        "<style>"
+        "body{font-family:'Inter',sans-serif;margin:0;background:#f8fafc;color:#0f172a;}"
+        ".faction-detail-page{max-width:960px;margin:2rem auto;padding:0 1.5rem 3rem 1.5rem;}"
+        ".faction-detail-page.single .faction-detail{box-shadow:0 12px 28px rgba(15,23,42,0.08);}"
+        ".faction-detail{background:#ffffff;border-radius:16px;padding:1.75rem;box-shadow:0 10px 24px rgba(15,23,42,0.08);margin-bottom:1.5rem;}"
+        ".faction-detail h1,.faction-detail h2{margin-top:0;}"
+        ".faction-section ul{margin:0.75rem 0 0 1.25rem;line-height:1.6;}"
+        ".gap-list{list-style:none;padding:0;margin:0.75rem 0 0 0;display:flex;flex-direction:column;gap:0.75rem;}"
+        ".gap-list li{background:#f8fafc;border-radius:12px;padding:0.85rem 1rem;box-shadow:0 10px 24px rgba(15,23,42,0.06);}"
+        ".gap-severity{display:inline-block;margin-right:0.5rem;font-weight:700;color:#b45309;text-transform:uppercase;letter-spacing:0.05em;font-size:0.85rem;}"
+        ".quote-list{margin:0.75rem 0 0 1.25rem;line-height:1.6;}"
+        ".faction-actions{display:flex;gap:1rem;flex-wrap:wrap;margin-top:2rem;}"
+        ".faction-actions a{display:inline-flex;align-items:center;justify-content:center;padding:0.75rem 1.6rem;border-radius:999px;background:#1d4ed8;color:#fff;text-decoration:none;font-weight:600;box-shadow:0 12px 28px rgba(29,78,216,0.18);}"
+        ".faction-actions a.secondary{background:#334155;}"
+        ".faction-note{margin:1rem 0 0 0;color:#475569;line-height:1.6;}"
+        ".faction-grid{display:grid;gap:1.5rem;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));}"
+        ".faction-detail-page.single .faction-note{margin-top:1.25rem;}"
+        "</style>"
+    )
+
+    instructions_page_style = (
+        "<style>"
+        "body{font-family:'Inter',sans-serif;margin:0;background:#f8fafc;color:#0f172a;}"
+        ".instructions-page{max-width:960px;margin:2rem auto;padding:2.25rem 1.75rem;background:#ffffff;border-radius:18px;box-shadow:0 12px 28px rgba(15,23,42,0.08);}"
+        ".instructions-page h1{margin-top:0;font-size:2.2rem;}"
+        ".instructions-page ol{margin:1.25rem 0 1.5rem 1.25rem;line-height:1.7;}"
+        ".instructions-page li{margin-bottom:0.85rem;}"
+        ".resource-callout{margin:1.75rem 0;padding:1.25rem;border-radius:14px;background:#eef2ff;box-shadow:0 10px 24px rgba(59,130,246,0.12);}"
+        ".resource-callout h2{margin:0 0 0.75rem 0;font-size:1.3rem;color:#1d4ed8;}"
+        ".instructions-page a{color:#1d4ed8;font-weight:600;text-decoration:none;}"
+        ".instructions-page a:hover{text-decoration:underline;}"
+        ".instructions-page p{line-height:1.6;}"
+        ".instructions-actions{margin-top:2rem;display:flex;gap:1rem;flex-wrap:wrap;}"
+        ".instructions-actions a{display:inline-flex;align-items:center;justify-content:center;padding:0.75rem 1.6rem;border-radius:999px;background:#1d4ed8;color:#fff;text-decoration:none;font-weight:600;box-shadow:0 12px 28px rgba(29,78,216,0.18);}"
+        ".instructions-actions a.secondary{background:#334155;}"
+        "</style>"
+    )
+
     persona_style = (
         "<style>"
         f"{tooltip_css}"
@@ -545,12 +705,15 @@ def create_app() -> Flask:
         ".sector-card ul{margin:0.75rem 0 1.25rem 1.25rem;line-height:1.5;}"
         ".sector-card form{margin-top:1.25rem;}"
         ".sector-card button{padding:0.7rem 1.6rem;border:none;border-radius:999px;background:#1d4ed8;color:#fff;font-size:1rem;cursor:pointer;box-shadow:0 10px 24px rgba(29,78,216,0.15);}"
-        ".sector-card .persona-card{box-shadow:none;border:1px solid #e2e8f0;background:#f8fafc;margin-top:1rem;}"
-        ".sector-player-card{margin-top:1.5rem;}"
-        ".sector-player-card h3{margin:0 0 0.5rem 0;font-size:0.95rem;letter-spacing:0.08em;text-transform:uppercase;color:#475569;}"
-        ".sector-player-card .persona-actions{margin-top:0.85rem;}"
-        ".sector-player-card .persona-actions a{display:inline-flex;align-items:center;justify-content:center;padding:0.55rem 1.1rem;border-radius:999px;background:#1d4ed8;color:#fff;text-decoration:none;font-weight:600;font-size:0.85rem;box-shadow:0 10px 24px rgba(29,78,216,0.15);}"
-        ".sector-player-card .persona-actions a:hover{background:#1e40af;}"
+        ".sector-player-preview{margin-top:1.25rem;display:flex;align-items:center;gap:0.85rem;padding:0.85rem 1rem;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;box-shadow:0 8px 20px rgba(15,23,42,0.05);}"
+        ".sector-player-preview .preview-photo{width:56px;height:56px;border-radius:50%;overflow:hidden;background:#e0e7ff;color:#1d4ed8;font-weight:700;display:flex;align-items:center;justify-content:center;}"
+        ".sector-player-preview .preview-photo img{width:100%;height:100%;object-fit:cover;border-radius:50%;}"
+        ".sector-player-preview-text{display:flex;flex-direction:column;gap:0.25rem;}"
+        ".sector-player-preview-text .preview-name{margin:0;font-weight:600;color:#0f172a;}"
+        ".sector-player-preview-text a{color:#1d4ed8;font-weight:600;text-decoration:none;}"
+        ".sector-player-preview-text a:hover{text-decoration:underline;}"
+        ".sector-player-preview-wrapper{margin-top:1.5rem;}"
+        ".sector-player-preview-wrapper h3{margin:0 0 0.6rem 0;font-size:0.95rem;letter-spacing:0.08em;text-transform:uppercase;color:#475569;}"
         ".campaign-summary-list{list-style:none;padding:0;margin:0;display:grid;gap:1rem;}"
         ".campaign-summary-list li{background:#ffffff;border-radius:12px;padding:1.25rem;box-shadow:0 12px 28px rgba(15,23,42,0.07);}"
         ".campaign-summary-list h3{margin:0 0 0.5rem 0;font-size:1.2rem;}"
@@ -669,6 +832,42 @@ def create_app() -> Flask:
         "if(selected && selected.dataset && selected.dataset.kind==='action'){showIndicator();}"
         "});"
         "});"
+        "});"
+        "</script>"
+    )
+
+    state_refresh_script = (
+        "<script>"
+        "document.addEventListener('DOMContentLoaded',function(){"
+        "const container=document.querySelector('.state-container');"
+        "if(!container){return;}"
+        "const timeTarget=document.getElementById('time-status');"
+        "const findRoot=function(){return container.querySelector('#state');};"
+        "let root=findRoot();"
+        "const readVersion=function(){return root?parseInt(root.getAttribute('data-state-version')||'0',10):0;};"
+        "const readPending=function(){return !!(root && root.getAttribute('data-assessment-pending')==='true');};"
+        "let version=readVersion();"
+        "let pending=readPending();"
+        "let timer=null;"
+        "const applyHtml=function(html){container.innerHTML=html;root=findRoot();version=readVersion();pending=readPending();};"
+        "const schedule=function(delay){if(timer){window.clearTimeout(timer);}timer=window.setTimeout(poll,delay);};"
+        "const poll=function(){"
+        "fetch('/state',{headers:{'Accept':'application/json'}})"
+        ".then(function(response){if(!response.ok){throw new Error('Bad response');}return response.json();})"
+        ".then(function(data){"
+        "if(typeof data.state_html==='string'){"
+        "const changedVersion=typeof data.progress_version==='number' && data.progress_version!==version;"
+        "const changedPending=typeof data.assessment_pending==='boolean' && data.assessment_pending!==pending;"
+        "if(changedVersion || changedPending || !root){applyHtml(data.state_html);}"
+        "}"
+        "if(typeof data.progress_version==='number'){version=data.progress_version;}"
+        "if(typeof data.assessment_pending==='boolean'){pending=data.assessment_pending;if(root){root.setAttribute('data-assessment-pending',pending?'true':'false');}}"
+        "if(timeTarget && typeof data.time_status==='string'){timeTarget.textContent=data.time_status;}"
+        "schedule(pending?1200:4500);"
+        "})"
+        ".catch(function(error){console.error('State polling failed',error);schedule(6000);});"
+        "};"
+        "schedule(pending?1200:4500);"
         "});"
         "</script>"
     )
@@ -1272,17 +1471,12 @@ def create_app() -> Flask:
         public_profile = _player_profile_by_faction("ScientificCommunity")
         if public_profile:
             return_target = quote("/campaign/level", safe="")
-            profile_url = (
-                f"{_player_persona_path('ScientificCommunity')}?return={return_target}"
-            )
+            profile_url = f"{_player_persona_path('ScientificCommunity')}?return={return_target}"
             public_persona_section = (
-                "<div class='sector-player-card'><h3>Your Persona</h3>"
-                + _persona_card_from_profile(public_profile)
-                + "<div class='persona-actions'>"
-                + "<a href='"
-                + profile_url
-                + "'>View Scientific Community profile</a>"
-                + "</div>"
+                "<div class='sector-player-preview-wrapper'><h3>Your Persona</h3>"
+                + _sector_preview_block(
+                    public_profile, label="Scientific Community", profile_url=profile_url
+                )
                 + "</div>"
             )
         private_details = (
@@ -1300,13 +1494,10 @@ def create_app() -> Flask:
             return_target = quote("/campaign/level", safe="")
             profile_url = f"{_player_persona_path('CivilSociety')}?return={return_target}"
             private_persona_section = (
-                "<div class='sector-player-card'><h3>Your Persona</h3>"
-                + _persona_card_from_profile(private_profile)
-                + "<div class='persona-actions'>"
-                + "<a href='"
-                + profile_url
-                + "'>View Civil Society profile</a>"
-                + "</div>"
+                "<div class='sector-player-preview-wrapper'><h3>Your Persona</h3>"
+                + _sector_preview_block(
+                    private_profile, label="Civil Society", profile_url=profile_url
+                )
                 + "</div>"
             )
         sector_cards.append(
@@ -1433,6 +1624,7 @@ def create_app() -> Flask:
         with state_lock:
             score = game_state.final_weighted_score()
             hist_len = len(game_state.history)
+            time_status = game_state.formatted_time_status()
             state_html = game_state.render_state()
             characters = list(game_state.characters)
             history_snapshot = list(game_state.history)
@@ -1572,7 +1764,7 @@ def create_app() -> Flask:
         summary_section = _scenario_summary_section(
             getattr(game_state, "scenario_summary", "")
         )
-        time_block = f"<p class='character-timing'>Time passed since November 2025: {game_state.time_elapsed_years:.1f} years</p>"
+        time_block = f"<p class='character-timing' id='time-status'>{escape(time_status, False)}</p>"
         body = (
             character_select_style
             + "<main class='character-select-container'>"
@@ -1591,6 +1783,7 @@ def create_app() -> Flask:
             + f"<div class='state-container'>{state_html}</div>"
             + "</main>"
             + footer
+            + state_refresh_script
         )
         return Response(body)
 
@@ -1624,6 +1817,7 @@ def create_app() -> Flask:
             + "".join(actions)
             + "</main>"
             + footer
+            + state_refresh_script
         )
         return Response(body)
 
@@ -1662,6 +1856,7 @@ def create_app() -> Flask:
             + "".join(actions)
             + "</main>"
             + footer
+            + state_refresh_script
         )
         return Response(body)
 
@@ -1688,6 +1883,7 @@ def create_app() -> Flask:
             + "".join(actions)
             + "</main>"
             + footer
+            + state_refresh_script
         )
         return Response(body)
 
@@ -2100,7 +2296,7 @@ def create_app() -> Flask:
         page = _conversation_frame(
             player_panel, conversation_panel, partner_panel, state_html
         )
-        return page + footer + roll_indicator_script
+        return page + footer + roll_indicator_script + state_refresh_script
 
     def _render_success_page(
         char_id: int,
@@ -2168,7 +2364,7 @@ def create_app() -> Flask:
         page = _conversation_frame(
             player_panel, conversation_panel, partner_panel, state_html
         )
-        return page + footer + roll_indicator_script
+        return page + footer + roll_indicator_script + state_refresh_script
 
     def _render_failure_page(
         char_id: int,
@@ -2252,7 +2448,7 @@ def create_app() -> Flask:
         page = _conversation_frame(
             player_panel, conversation_panel, partner_panel, state_html
         )
-        return page + footer + roll_indicator_script
+        return page + footer + roll_indicator_script + state_refresh_script
 
     @app.route("/actions", methods=["GET", "POST"])
     def character_actions() -> Response:
@@ -2294,10 +2490,16 @@ def create_app() -> Flask:
                 _clear_pending_npc_entries(char_id)
 
                 if attempt.success:
-                    latest_state_html = state_html
                     partner_view = partner_credibility
                     roll_threshold = roll_threshold_snapshot
                     if enable_parallel:
+                        with state_lock:
+                            game_state.start_assessment()
+                            interim_state_html = game_state.render_state()
+                            partner_view = game_state.current_credibility(
+                                getattr(character, "faction", None)
+                            )
+                            roll_threshold = game_state.config.roll_success_threshold
 
                         def run_assessment(
                             chars: List[Character],
@@ -2328,13 +2530,10 @@ def create_app() -> Flask:
                         with assessment_lock:
                             assessment_threads.append(t)
                         t.start()
-                        with state_lock:
-                            latest_state_html = game_state.render_state()
-                            partner_view = game_state.current_credibility(
-                                getattr(character, "faction", None)
-                            )
-                            roll_threshold = game_state.config.roll_success_threshold
+                        latest_state_html = interim_state_html
                     else:
+                        with state_lock:
+                            game_state.start_assessment()
                         scores = assessor.assess(chars_snapshot, history_snapshot)
                         with state_lock:
                             game_state.update_progress(scores)
@@ -2559,10 +2758,16 @@ def create_app() -> Flask:
             )
             return Response(failure_page)
         if attempt.success:
-            latest_state_html = state_html
             partner_view = partner_credibility
             roll_threshold = roll_threshold_snapshot
             if enable_parallel:
+                with state_lock:
+                    game_state.start_assessment()
+                    interim_state_html = game_state.render_state()
+                    partner_view = game_state.current_credibility(
+                        getattr(character, "faction", None)
+                    )
+                    roll_threshold = game_state.config.roll_success_threshold
 
                 def run_assessment(
                     chars: List[Character],
@@ -2591,13 +2796,10 @@ def create_app() -> Flask:
                 with assessment_lock:
                     assessment_threads.append(t)
                 t.start()
-                with state_lock:
-                    latest_state_html = game_state.render_state()
-                    partner_view = game_state.current_credibility(
-                        getattr(character, "faction", None)
-                    )
-                    roll_threshold = game_state.config.roll_success_threshold
+                latest_state_html = interim_state_html
             else:
+                with state_lock:
+                    game_state.start_assessment()
                 scores = assessor.assess(chars_snapshot, history_snapshot)
                 with state_lock:
                     game_state.update_progress(scores)
@@ -2639,6 +2841,7 @@ def create_app() -> Flask:
         with state_lock:
             character = game_state.characters[char_id]
             game_state.finalize_failed_action(character, option)
+            game_state.start_assessment()
             chars_snapshot = list(game_state.characters)
             history_snapshot = list(game_state.history)
         if enable_parallel:
@@ -2683,20 +2886,111 @@ def create_app() -> Flask:
             _reload_state(config_in_use)
         return redirect("/")
 
+
+    @app.route("/factions", methods=["GET"])
+    def list_faction_details() -> str:
+        with state_lock:
+            details = [dict(entry) for entry in game_state.all_faction_details()]
+        articles = [
+            _render_faction_article(detail, heading_tag="h2", include_link=True)
+            for detail in details
+        ]
+        content = "".join(articles)
+        body = (
+            faction_detail_style
+            + "<section class='faction-detail-page'>"
+            + "<h1>Faction detail directory</h1>"
+            + scoring_note
+            + "<div class='faction-grid'>"
+            + content
+            + "</div>"
+            + "<div class='faction-actions'>"
+            + "<a class='secondary' href='/start'>Back to game</a>"
+            + "</div>"
+            + "</section>"
+            + footer
+        )
+        return body
+
+    @app.route("/factions/<string:slug>", methods=["GET"])
+    def show_faction_detail(slug: str) -> str:
+        with state_lock:
+            detail = game_state.faction_detail(slug)
+        if detail is None:
+            return redirect('/factions')
+        article = _render_faction_article(detail, heading_tag="h1", include_link=False)
+        body = (
+            faction_detail_style
+            + "<section class='faction-detail-page single'>"
+            + article
+            + scoring_note
+            + "<div class='faction-actions'>"
+            + "<a class='secondary' href='/factions'>Browse all factions</a>"
+            + "<a href='/start'>Back to game</a>"
+            + "</div>"
+            + "</section>"
+            + footer
+        )
+        return body
+
+    @app.route("/state", methods=["GET"])
+    def state_snapshot() -> Response:
+        with state_lock:
+            snapshot_html = game_state.render_state()
+            time_status = game_state.formatted_time_status()
+            version = game_state.progress_version
+            pending = game_state.assessment_pending
+        payload = {
+            "state_html": snapshot_html,
+            "time_status": time_status,
+            "progress_version": version,
+            "assessment_pending": pending,
+        }
+        return Response(json.dumps(payload), mimetype="application/json")
+
     @app.route("/instructions", methods=["GET"])
     def instructions() -> str:
-        content = game_state.reference_material or "No reference material configured."
-        return (
-            "<h1>Instructions</h1>"
-            "<h2>Reference material</h2>"
-            f"<pre>{content}</pre>"
-            "<a href='/start'>Back to game</a>"
-            f"{footer}"
+        steps = """<ol>
+            <li>Speak with the representatives of each faction shaping how humanity navigates advanced AI.
+            Build rapport and understand their perspectives.</li>
+            <li>Convince partners to propose actions that close their outstanding gaps.
+            <a href='/factions'>Browse faction details</a> to review the current gaps, desired end states, and reference material.</li>
+            <li>Stay alert for proposals that further a faction's misaligned interests.
+            You can accept them, but expect trade-offs later.</li>
+            <li>After every action all factions are reassessed on a 0–100 scale, judging how well recent moves reduced their gaps.</li>
+            <li>Manage two core resources:
+                <ul>
+                    <li><strong>Time</strong> – every action advances the in-game calendar, limiting how many interventions you can pursue.</li>
+                    <li><strong>Credibility</strong> – aligned actions consume credibility with partner factions, while indulging misaligned requests may boost it.
+                    Credibility costs differ for each player–faction pairing.</li>
+                </ul>
+            </li>
+            <li>Win by pushing the final weighted score above the campaign's victory threshold.
+            Lose if the in-game calendar expires before you secure that mandate.</li>
+        </ol>"""
+        body = (
+            instructions_page_style
+            + "<section class='instructions-page'>"
+            + "<h1>How to keep the future human</h1>"
+            + steps
+            + "<p>The Keep the Future Human coalition evaluates every conversation through the lens of its documented gaps and referenced quotes.</p>"
+            + (
+                "<div class='resource-callout'><h2>Strategy reminders</h2>"
+                "<p>Balance urgent interventions with long-term credibility. "
+                "High-trust partnerships unlock cheaper rerolls and stronger commitments when you need them most.</p>"
+                "</div>"
+            )
+            + "<div class='instructions-actions'>"
+            + "<a href='/start'>Return to the campaign</a>"
+            + "<a class='secondary' href='/factions'>Browse faction details</a>"
+            + "</div>"
+            + "</section>"
+            + footer
         )
+        return body
 
     @app.route("/result", methods=["GET"])
     def result() -> str:
-        nonlocal current_mode
         with assessment_lock:
             running = any(t.is_alive() for t in assessment_threads)
         if running:
