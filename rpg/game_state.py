@@ -777,20 +777,11 @@ class GameState:
         """Return HTML rendering of the current game state."""
 
         logger.info("Rendering game state")
-        faction_rows: List[str] = []
         chart_data: List[Tuple[str, int]] = []
-        for key, scores in self.progress.items():
+        for key in self.progress:
             label = escape(self.faction_labels.get(key, key), quote=False)
             weighted = self._faction_weighted_score(key)
             chart_data.append((label, weighted))
-            score_list = ", ".join(str(value) for value in scores)
-            faction_rows.append(
-                "<li>"
-                + f"<span class='progress-faction'>{label}</span>"
-                + f"<span class='progress-values'>{escape(score_list, False)}</span>"
-                + f"<span class='progress-weighted'>{weighted}</span>"
-                + "</li>"
-            )
         final_score = self.final_weighted_score()
         max_value = max([value for _, value in chart_data] + [final_score, 1])
         bar_items: List[str] = []
@@ -817,22 +808,12 @@ class GameState:
         )
         chart_section = (
             "<section class='score-chart'>"
-            + "<h2>Faction Performance</h2>"
+            + "<h2>Average Faction Performance</h2>"
             + "<div class='score-bars'>"
             + "".join(bar_items)
             + "</div>"
             + "</section>"
         )
-        progress_section = ""
-        if faction_rows:
-            progress_section = (
-                "<section class='progress-overview'>"
-                + "<h2>Detailed Scores</h2>"
-                + "<ul class='progress-list'>"
-                + "".join(faction_rows)
-                + "</ul>"
-                + "</section>"
-            )
         history_section = ""
         if self.history:
             hist_items = "".join(
@@ -853,27 +834,21 @@ class GameState:
         )
         style = (
             "<style>"
-            "#state{max-width:960px;margin:2rem auto;padding:1.5rem;background:#ffffff;border-radius:16px;"
+            "#state{max-width:1100px;margin:2rem auto;padding:1.5rem;background:#ffffff;border-radius:16px;"
             "box-shadow:0 12px 28px rgba(15,23,42,0.08);font-family:'Inter',sans-serif;color:#0f172a;}"
-            ".score-chart h2,.progress-overview h2,.history-section h2,.final-score-summary h2{margin-top:0;}"
-            ".score-bars{display:flex;flex-direction:column;gap:0.75rem;}"
-            ".score-bar{display:grid;grid-template-columns:minmax(0,180px) 1fr auto;gap:1rem;align-items:center;"
-            "padding:0.75rem 1rem;border-radius:12px;background:#f8fafc;box-shadow:0 8px 18px rgba(15,23,42,0.05);}"
-            ".score-bar-label{font-weight:600;color:#1d4ed8;}"
-            ".score-bar-track{background:#e2e8f0;border-radius:999px;overflow:hidden;height:12px;}"
+            ".score-chart h2,.history-section h2,.final-score-summary h2{margin-top:0;}"
+            ".score-bars{display:flex;flex-direction:column;gap:0.9rem;}"
+            ".score-bar{display:flex;align-items:center;gap:1.25rem;padding:0.85rem 1.25rem;border-radius:14px;background:#f8fafc;"
+            "box-shadow:0 8px 20px rgba(15,23,42,0.06);}"
+            ".score-bar-label{flex:0 0 220px;font-weight:600;color:#1d4ed8;}"
+            ".score-bar-track{flex:1;background:#e2e8f0;border-radius:999px;overflow:hidden;height:14px;}"
             ".score-bar-fill{height:100%;background:#1d4ed8;}"
             ".score-bar.final-score .score-bar-fill{background:#f97316;}"
-            ".score-bar-value{font-weight:700;color:#0f172a;}"
-            ".progress-list{list-style:none;padding:0;margin:1.5rem 0 0 0;display:flex;flex-direction:column;gap:0.75rem;}"
-            ".progress-list li{display:grid;grid-template-columns:minmax(0,200px) 1fr auto;gap:1rem;align-items:center;"
-            "padding:0.75rem 1rem;border-radius:12px;background:#f8fafc;box-shadow:0 8px 18px rgba(15,23,42,0.05);}"
-            ".progress-faction{font-weight:600;color:#1d4ed8;}"
-            ".progress-values{color:#475569;}"
-            ".progress-weighted{font-weight:700;color:#0f172a;}"
+            ".score-bar-value{flex:0 0 auto;font-weight:700;color:#0f172a;min-width:3.5rem;text-align:right;}"
             ".history-section ol{margin:0;padding-left:1.25rem;}"
             ".history-section li{margin:0.35rem 0;}"
             ".final-score-summary p{margin:0.5rem 0 0 0;font-size:1.05rem;}"
             "</style>"
         )
-        content = chart_section + progress_section + history_section + final_section
+        content = chart_section + history_section + final_section
         return style + "<div id='state'>" + content + "</div>"
