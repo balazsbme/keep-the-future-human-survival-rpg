@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import threading
+from urllib.parse import quote
 from dataclasses import dataclass, field
 from html import escape
 from pathlib import Path
@@ -222,6 +223,10 @@ def create_app() -> Flask:
         if not key:
             return None
         return player_personas_by_faction.get(key)
+
+    def _player_persona_path(faction: str) -> str:
+        key = _normalize_key(faction)
+        return f"/player/personas/{key}" if key else "/player/profile"
 
     def _format_faction_label(value: str | None) -> str:
         raw = str(value or "").strip()
@@ -543,6 +548,9 @@ def create_app() -> Flask:
         ".sector-card .persona-card{box-shadow:none;border:1px solid #e2e8f0;background:#f8fafc;margin-top:1rem;}"
         ".sector-player-card{margin-top:1.5rem;}"
         ".sector-player-card h3{margin:0 0 0.5rem 0;font-size:0.95rem;letter-spacing:0.08em;text-transform:uppercase;color:#475569;}"
+        ".sector-player-card .persona-actions{margin-top:0.85rem;}"
+        ".sector-player-card .persona-actions a{display:inline-flex;align-items:center;justify-content:center;padding:0.55rem 1.1rem;border-radius:999px;background:#1d4ed8;color:#fff;text-decoration:none;font-weight:600;font-size:0.85rem;box-shadow:0 10px 24px rgba(29,78,216,0.15);}"
+        ".sector-player-card .persona-actions a:hover{background:#1e40af;}"
         ".campaign-summary-list{list-style:none;padding:0;margin:0;display:grid;gap:1rem;}"
         ".campaign-summary-list li{background:#ffffff;border-radius:12px;padding:1.25rem;box-shadow:0 12px 28px rgba(15,23,42,0.07);}"
         ".campaign-summary-list h3{margin:0 0 0.5rem 0;font-size:1.2rem;}"
@@ -701,10 +709,10 @@ def create_app() -> Flask:
         scenario = CAMPAIGN_SCENARIOS[level_index]
         if sector == "private":
             enabled = PRIVATE_SECTOR_FACTIONS
-            player_faction = "ScientificCommunity"
+            player_faction = "CivilSociety"
         else:
             enabled = PUBLIC_SECTOR_FACTIONS
-            player_faction = "CivilSociety"
+            player_faction = "ScientificCommunity"
         return GameConfig(
             scenario=scenario,
             win_threshold=baseline.win_threshold,
@@ -1258,14 +1266,23 @@ def create_app() -> Flask:
                 for faction in PUBLIC_SECTOR_FACTIONS
             )
             + "</ul>"
-            + "<p><strong>Player faction:</strong> Civil Society</p>"
+            + "<p><strong>Player faction:</strong> Scientific Community</p>"
         )
         public_persona_section = ""
-        public_profile = _player_profile_by_faction("CivilSociety")
+        public_profile = _player_profile_by_faction("ScientificCommunity")
         if public_profile:
+            return_target = quote("/campaign/level", safe="")
+            profile_url = (
+                f"{_player_persona_path('ScientificCommunity')}?return={return_target}"
+            )
             public_persona_section = (
                 "<div class='sector-player-card'><h3>Your Persona</h3>"
                 + _persona_card_from_profile(public_profile)
+                + "<div class='persona-actions'>"
+                + "<a href='"
+                + profile_url
+                + "'>View Scientific Community profile</a>"
+                + "</div>"
                 + "</div>"
             )
         private_details = (
@@ -1275,14 +1292,21 @@ def create_app() -> Flask:
                 for faction in PRIVATE_SECTOR_FACTIONS
             )
             + "</ul>"
-            + "<p><strong>Player faction:</strong> Scientific Community</p>"
+            + "<p><strong>Player faction:</strong> Civil Society</p>"
         )
         private_persona_section = ""
-        private_profile = _player_profile_by_faction("ScientificCommunity")
+        private_profile = _player_profile_by_faction("CivilSociety")
         if private_profile:
+            return_target = quote("/campaign/level", safe="")
+            profile_url = f"{_player_persona_path('CivilSociety')}?return={return_target}"
             private_persona_section = (
                 "<div class='sector-player-card'><h3>Your Persona</h3>"
                 + _persona_card_from_profile(private_profile)
+                + "<div class='persona-actions'>"
+                + "<a href='"
+                + profile_url
+                + "'>View Civil Society profile</a>"
+                + "</div>"
                 + "</div>"
             )
         sector_cards.append(
@@ -1565,6 +1589,39 @@ def create_app() -> Flask:
             + "</form>"
             + "</div>"
             + f"<div class='state-container'>{state_html}</div>"
+            + "</main>"
+            + footer
+        )
+        return Response(body)
+
+    @app.route("/player/personas/<string:key>", methods=["GET"])
+    def show_campaign_player_persona(key: str) -> Response:
+        return_target = request.args.get("return", "")
+        safe_return = return_target if return_target.startswith("/") else None
+        normalized = _normalize_key(key)
+        profile = None
+        if normalized:
+            profile = player_personas_by_faction.get(normalized) or player_personas_by_name.get(
+                normalized
+            )
+        if profile is None:
+            return redirect("/campaign/level")
+        persona_html = _persona_card_from_profile(profile)
+        name = str(profile.get("name", "") or "Player Persona")
+        back_href = safe_return or "/campaign/level"
+        actions = [
+            "<div class='profile-actions'>",
+            f"<a class='secondary' href='{escape(back_href, quote=True)}'>Back to sector selection</a>",
+            "<a href='/'>Back to home</a>",
+            "</div>",
+        ]
+        body = (
+            persona_style
+            + character_profile_style
+            + "<main class='profile-page'>"
+            + f"<h1>{escape(name, False)}</h1>"
+            + persona_html
+            + "".join(actions)
             + "</main>"
             + footer
         )
