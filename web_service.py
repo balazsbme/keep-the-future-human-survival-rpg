@@ -967,7 +967,7 @@ def create_app() -> Flask:
         body = (
             landing_style
             + "<main>"
-            + "<h1>AI Safety Negotiation Game</h1>"
+            + "<h1>Keep the Future Human Survival RPG</h1>"
             + "<div class='mode-container'>"
             + "<section class='mode-panel'><div class='mode-content'>"
             + "<span class='mode-tag'>Sandbox Mode</span>"
