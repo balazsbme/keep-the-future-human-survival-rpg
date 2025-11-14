@@ -7,8 +7,10 @@ from __future__ import annotations
 import logging
 import random
 from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta, timezone
 from html import escape
-from typing import Dict, Iterable, List, Sequence, Tuple
+import re
+from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 from .character import Character, PlayerCharacter, ResponseOption
 from .constants import ACTION_ATTRIBUTES
@@ -95,6 +97,18 @@ class GameState:
     last_reroll_count: int = field(default=0, init=False)
     time_elapsed_years: float = field(default=0.0, init=False)
     next_action_label_index: int = field(default=1, init=False)
+    timeline_start: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc), init=False
+    )
+    last_progress_update: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc), init=False
+    )
+    assessment_pending: bool = field(default=False, init=False)
+    progress_version: int = field(default=0, init=False)
+    faction_details: Dict[str, Dict[str, Any]] = field(
+        default_factory=dict, init=False
+    )
+    faction_detail_index: Dict[str, str] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
         """Initialize progress tracking and reference material for the game."""
@@ -168,6 +182,10 @@ class GameState:
                 getattr(character, "referenced_quotes", None),
             )
         self.reference_material = self._build_reference_material()
+        self.faction_details = {}
+        self.faction_detail_index = {}
+        for character in self.characters:
+            self._register_faction_detail(character)
 
     def _add_referenced_quotes(
         self, faction: str | None, quotes: Sequence[str] | None
@@ -195,6 +213,64 @@ class GameState:
             quote_lines = "\n".join(f"- {quote}" for quote in quotes)
             sections.append(f"{faction}:\n{quote_lines}")
         return "\n\n".join(sections)
+
+    @staticmethod
+    def _slugify_identifier(value: str | None) -> str:
+        base = (value or "").strip().lower()
+        cleaned = re.sub(r"[^a-z0-9]+", "-", base).strip("-")
+        return cleaned or "faction"
+
+    def _unique_slug(self, value: str | None) -> str:
+        base = self._slugify_identifier(value)
+        candidate = base
+        counter = 2
+        while candidate in self.faction_detail_index:
+            candidate = f"{base}-{counter}"
+            counter += 1
+        return candidate
+
+    def _register_faction_detail(self, character: Character) -> None:
+        key = character.progress_key
+        label = self.faction_labels.get(key, key)
+        faction_name = getattr(character, "faction", None) or key
+        slug = self._unique_slug(faction_name)
+        initial_states = [
+            str(entry).strip()
+            for entry in getattr(character, "initial_states", [])
+            if str(entry or "").strip()
+        ]
+        end_states = [
+            str(entry).strip()
+            for entry in getattr(character, "end_states", [])
+            if str(entry or "").strip()
+        ]
+        gap_entries: List[Dict[str, str]] = []
+        for gap in getattr(character, "gaps", []):
+            if isinstance(gap, dict):
+                severity = str(gap.get("severity") or gap.get("size") or "").strip()
+                explanation = str(gap.get("explanation") or gap.get("description") or "").strip()
+                gap_entries.append(
+                    {"severity": severity, "explanation": explanation}
+                )
+            else:
+                text = str(gap or "").strip()
+                if text:
+                    gap_entries.append({"severity": "", "explanation": text})
+        referenced = list(
+            self.faction_references.get(faction_name, [])
+            or self.faction_references.get(key, [])
+        )
+        self.faction_detail_index[slug] = key
+        self.faction_details[key] = {
+            "key": key,
+            "label": label,
+            "slug": slug,
+            "faction": faction_name,
+            "initial_states": initial_states,
+            "end_states": end_states,
+            "gaps": gap_entries,
+            "referenced_quotes": referenced,
+        }
 
     def referenced_quotes_for(self, faction: str | None) -> List[str]:
         """Return referenced quotes associated with ``faction``."""
@@ -749,6 +825,9 @@ class GameState:
             for idx, score in enumerate(new_scores):
                 if idx < len(current):
                     current[idx] = score
+        self.assessment_pending = False
+        self.progress_version += 1
+        self.last_progress_update = datetime.now(timezone.utc)
 
     def _faction_weighted_score(self, key: str) -> int:
         """Return weighted score for a single faction."""
@@ -785,34 +864,73 @@ class GameState:
         final_score = self.final_weighted_score()
         max_value = max([value for _, value in chart_data] + [final_score, 1])
         bar_items: List[str] = []
-        for label, value in chart_data:
+        pending_class = " pending" if self.assessment_pending else ""
+        for key in self.progress:
+            label = escape(self.faction_labels.get(key, key), quote=False)
+            value = self._faction_weighted_score(key)
             width = 0 if max_value <= 0 else round((value / max_value) * 100)
+            detail = self.faction_details.get(key)
+            detail_link = ""
+            if detail:
+                slug = detail.get("slug")
+                if slug:
+                    detail_href = escape(f"/factions/{slug}", quote=True)
+                    detail_link = (
+                        f"<a class='score-detail-link' href='{detail_href}'>"
+                        "View faction details</a>"
+                    )
             bar_items.append(
-                "<div class='score-bar'>"
-                + f"<div class='score-bar-label'>{label}</div>"
-                + "<div class='score-bar-track'>"
-                + f"<div class='score-bar-fill' style='width:{width}%'></div>"
-                + "</div>"
-                + f"<div class='score-bar-value'>{value}</div>"
-                + "</div>"
+                f"<div class='score-bar{pending_class}'>"
+                "<div class='score-bar-main'>"
+                f"<div class='score-bar-label'>{label}</div>"
+                "<div class='score-bar-track'>"
+                f"<div class='score-bar-fill' style='width:{width}%'></div>"
+                "</div>"
+                "</div>"
+                "<div class='score-bar-meta'>"
+                f"<div class='score-bar-value'>{value}</div>"
+                f"{detail_link}"
+                "</div>"
+                "</div>"
             )
         final_width = 0 if max_value <= 0 else round((final_score / max_value) * 100)
         bar_items.append(
-            "<div class='score-bar final-score'>"
-            + "<div class='score-bar-label'>Final Score</div>"
-            + "<div class='score-bar-track'>"
-            + f"<div class='score-bar-fill' style='width:{final_width}%'></div>"
-            + "</div>"
-            + f"<div class='score-bar-value'>{final_score}</div>"
-            + "</div>"
+            f"<div class='score-bar final-score{pending_class}'>"
+            "<div class='score-bar-main'>"
+            "<div class='score-bar-label'>Final Score</div>"
+            "<div class='score-bar-track'>"
+            f"<div class='score-bar-fill' style='width:{final_width}%'></div>"
+            "</div>"
+            "</div>"
+            "<div class='score-bar-meta'>"
+            f"<div class='score-bar-value'>{final_score}</div>"
+            "</div>"
+            "</div>"
+        )
+        status_text = (
+            "Assessment in progress – faction scores will refresh once analysis completes."
+            if self.assessment_pending
+            else "Faction scores reflect the latest completed assessment."
+        )
+        status_class = (
+            "assessment-status pending"
+            if self.assessment_pending
+            else "assessment-status"
+        )
+        status_block = (
+            f"<div class='{status_class}'>"
+            "<span class='status-dot'></span>"
+            f"<span>{escape(status_text, False)}</span>"
+            "</div>"
         )
         chart_section = (
             "<section class='score-chart'>"
-            + "<h2>Average Faction Performance</h2>"
-            + "<div class='score-bars'>"
-            + "".join(bar_items)
-            + "</div>"
-            + "</section>"
+            "<h2>Average Faction Performance</h2>"
+            f"{status_block}"
+            "<div class='score-bars'>"
+            f"{''.join(bar_items)}"
+            "</div>"
+            "</section>"
         )
         history_section = ""
         if self.history:
@@ -822,15 +940,15 @@ class GameState:
             )
             history_section = (
                 "<section class='history-section'>"
-                + "<h2>Action History</h2>"
-                + f"<ol>{hist_items}</ol>"
-                + "</section>"
+                "<h2>Action History</h2>"
+                f"<ol>{hist_items}</ol>"
+                "</section>"
             )
         final_section = (
             "<section class='final-score-summary'>"
-            + "<h2>Final Score</h2>"
-            + f"<p>Your weighted score is <strong>{final_score}</strong>.</p>"
-            + "</section>"
+            "<h2>Final Score</h2>"
+            f"<p>Your weighted score is <strong>{final_score}</strong>.</p>"
+            "</section>"
         )
         style = (
             "<style>"
@@ -838,17 +956,67 @@ class GameState:
             "box-shadow:0 12px 28px rgba(15,23,42,0.08);font-family:'Inter',sans-serif;color:#0f172a;}"
             ".score-chart h2,.history-section h2,.final-score-summary h2{margin-top:0;}"
             ".score-bars{display:flex;flex-direction:column;gap:0.9rem;}"
-            ".score-bar{display:flex;align-items:center;gap:1.25rem;padding:0.85rem 1.25rem;border-radius:14px;background:#f8fafc;"
-            "box-shadow:0 8px 20px rgba(15,23,42,0.06);}"
+            ".score-bar{display:flex;align-items:center;justify-content:space-between;gap:1.25rem;padding:0.85rem 1.25rem;"
+            "border-radius:14px;background:#f8fafc;box-shadow:0 8px 20px rgba(15,23,42,0.06);}"
+            ".score-bar.pending{opacity:0.65;}"
+            ".score-bar-main{display:flex;align-items:center;gap:1.25rem;flex:1;}"
             ".score-bar-label{flex:0 0 220px;font-weight:600;color:#1d4ed8;}"
             ".score-bar-track{flex:1;background:#e2e8f0;border-radius:999px;overflow:hidden;height:14px;}"
             ".score-bar-fill{height:100%;background:#1d4ed8;}"
             ".score-bar.final-score .score-bar-fill{background:#f97316;}"
+            ".score-bar-meta{display:flex;flex-direction:column;gap:0.25rem;align-items:flex-end;}"
             ".score-bar-value{flex:0 0 auto;font-weight:700;color:#0f172a;min-width:3.5rem;text-align:right;}"
+            ".score-detail-link{font-size:0.85rem;color:#1d4ed8;font-weight:600;text-decoration:none;}"
+            ".score-detail-link:hover{text-decoration:underline;}"
+            ".assessment-status{display:flex;align-items:center;gap:0.5rem;margin-bottom:1.1rem;padding:0.75rem 1rem;"
+            "border-radius:12px;background:#ecfdf5;color:#047857;font-weight:600;}"
+            ".assessment-status.pending{background:#fff7ed;color:#c2410c;}"
+            ".assessment-status .status-dot{width:10px;height:10px;border-radius:50%;background:#10b981;}"
+            ".assessment-status.pending .status-dot{background:#f97316;animation:pulse 1.1s ease-in-out infinite;}"
+            "@keyframes pulse{0%{transform:scale(1);opacity:0.9;}50%{transform:scale(1.35);opacity:0.5;}100%{transform:scale(1);opacity:0.9;}}"
             ".history-section ol{margin:0;padding-left:1.25rem;}"
             ".history-section li{margin:0.35rem 0;}"
             ".final-score-summary p{margin:0.5rem 0 0 0;font-size:1.05rem;}"
             "</style>"
         )
         content = chart_section + history_section + final_section
-        return style + "<div id='state'>" + content + "</div>"
+        attrs = (
+            f"id='state' data-state-version='{self.progress_version}' "
+            f"data-assessment-pending={'true' if self.assessment_pending else 'false'}"
+        )
+        return style + f"<div {attrs}>" + content + "</div>"
+
+    def start_assessment(self) -> None:
+        """Mark that an assessment is running so UI can show pending state."""
+
+        self.assessment_pending = True
+
+    def current_in_game_datetime(self) -> datetime:
+        """Return the in-game datetime based on elapsed years."""
+
+        offset_days = self.time_elapsed_years * 365
+        return self.timeline_start + timedelta(days=offset_days)
+
+    def formatted_time_status(self) -> str:
+        """Return a formatted string describing the current in-game date."""
+
+        current_date = self.current_in_game_datetime()
+        label = current_date.strftime("%B %Y")
+        return (
+            f"Current date: {label} ({self.time_elapsed_years:.1f} years passed since start)"
+        )
+
+    def faction_detail(self, identifier: str) -> Dict[str, Any] | None:
+        """Return the stored faction detail by slug or key."""
+
+        if not identifier:
+            return None
+        key = self.faction_detail_index.get(identifier) or identifier
+        return self.faction_details.get(key)
+
+    def all_faction_details(self) -> List[Dict[str, Any]]:
+        """Return all faction detail mappings sorted by label."""
+
+        return sorted(
+            self.faction_details.values(), key=lambda entry: entry.get("label", "")
+        )
