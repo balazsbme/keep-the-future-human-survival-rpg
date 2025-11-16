@@ -153,9 +153,26 @@ def create_app() -> Flask:
     assessment_threads: List[threading.Thread] = []
     assessment_lock = threading.Lock()
     state_lock = threading.Lock()
+    footer_style = (
+        "<style>"
+        ".global-footer{max-width:960px;margin:3rem auto 2rem;"
+        "padding-top:1.5rem;border-top:1px solid #e2e8f0;"
+        "text-align:center;font-family:'Inter',sans-serif;color:#475569;}"
+        ".global-footer .footer-links{display:flex;justify-content:center;"
+        "gap:1.5rem;margin-top:0.75rem;flex-wrap:wrap;}"
+        ".global-footer a{color:#1d4ed8;font-weight:600;text-decoration:none;}"
+        ".global-footer a:hover{text-decoration:underline;}"
+        "</style>"
+    )
     footer = (
-        "<p><a href='/instructions'>Instructions</a> | "
-        f"<a href='{GITHUB_URL}'>GitHub</a></p>"
+        footer_style
+        + "<footer class='global-footer'>"
+        + "<p class='footer-note'>Need a refresher or want to inspect the code?</p>"
+        + "<div class='footer-links'>"
+        + "<a href='/instructions'>Instructions</a>"
+        + f"<a href='{GITHUB_URL}' target='_blank' rel='noopener'>GitHub</a>"
+        + "</div>"
+        + "</footer>"
     )
     asset_root = Path(__file__).resolve().parent / "assets"
 
@@ -202,6 +219,8 @@ def create_app() -> Flask:
         return []
 
     player_persona_path = Path(__file__).resolve().parent / "player_character.yaml"
+    if not player_persona_path.exists():
+        player_persona_path = Path(__file__).resolve().parent / "rpg" / "player_character.yaml"
     try:
         with open(player_persona_path, "r", encoding="utf-8") as fh:
             player_persona_payload = yaml.safe_load(fh) or {}
@@ -420,19 +439,24 @@ def create_app() -> Flask:
         "</p>"
     )
 
-    def _faction_sections(detail: Mapping[str, Any]) -> str:
+    def _faction_sections(
+        detail: Mapping[str, Any], *, include_quotes: bool = True
+    ) -> str:
         initial = _list_section("Initial state", detail.get("initial_states", []))
         end_state = _list_section("Desired end state", detail.get("end_states", []))
         gaps = _gap_section(detail.get("gaps", []))
-        quotes = _quote_section(detail.get("referenced_quotes", []))
+        quotes = ""
+        if include_quotes:
+            quotes = _quote_section(detail.get("referenced_quotes", []))
         return "".join(part for part in (initial, end_state, gaps, quotes) if part)
 
     def _render_faction_article(
-        detail: Mapping[str, Any], *, heading_tag: str = "h1", include_link: bool = False
+        detail: Mapping[str, Any], *, heading_tag: str = "h1", include_link: bool = False,
+        include_quotes: bool = True
     ) -> str:
         label = escape(str(detail.get("label", "Faction")), False)
         slug = str(detail.get("slug", "") or "")
-        sections = _faction_sections(detail)
+        sections = _faction_sections(detail, include_quotes=include_quotes)
         link_block = ""
         if include_link and slug:
             href = escape(f"/factions/{slug}", quote=True)
@@ -762,7 +786,11 @@ def create_app() -> Flask:
         "network": "Network gauges access to relationships that unlock cooperation and surface new opportunities.",
     }
 
-    credibility_tooltip = "Credibility shows how much trust this faction currently places in your leadership. Higher values reduce reroll costs and unlock stronger commitments."
+    credibility_tooltip = (
+        "Credibility measures how much latitude this faction gives you. "
+        "High scores lower reroll costs and keep triplet-aligned commitments on the table. "
+        "When credibility drops below the triplet cost, the faction stops collaborating and only pushes its own agenda."
+    )
 
     tooltip_asset_path = "/assets/tooltip.jpg"
     roll_asset_path = "/assets/rolling.gif"
@@ -1024,7 +1052,7 @@ def create_app() -> Flask:
             + f"<td>{escape(partner_label or 'Unknown', False)}</td>"
             + f"<td>{escape(value_text, False)}</td>"
             + "</tr></tbody></table>"
-            + "<p class='credibility-note'>This value comes from the credibility matrix and influences how costly rerolls are and how much trust partners extend.</p>"
+            + "<p class='credibility-note'>Values come from the credibility matrix that seeds each player–faction pairing. Higher credibility both reduces reroll costs and keeps triplet collaborations possible; falling below the required triplet cost forces partners to act only in their own interest.</p>"
             + "</section>"
         )
 
@@ -2892,7 +2920,12 @@ def create_app() -> Flask:
         with state_lock:
             details = [dict(entry) for entry in game_state.all_faction_details()]
         articles = [
-            _render_faction_article(detail, heading_tag="h2", include_link=True)
+            _render_faction_article(
+                detail,
+                heading_tag="h2",
+                include_link=True,
+                include_quotes=False,
+            )
             for detail in details
         ]
         content = "".join(articles)
@@ -2918,7 +2951,9 @@ def create_app() -> Flask:
             detail = game_state.faction_detail(slug)
         if detail is None:
             return redirect('/factions')
-        article = _render_faction_article(detail, heading_tag="h1", include_link=False)
+        article = _render_faction_article(
+            detail, heading_tag="h1", include_link=False, include_quotes=True
+        )
         body = (
             faction_detail_style
             + "<section class='faction-detail-page single'>"
@@ -2974,12 +3009,6 @@ def create_app() -> Flask:
             + "<h1>How to keep the future human</h1>"
             + steps
             + "<p>The Keep the Future Human coalition evaluates every conversation through the lens of its documented gaps and referenced quotes.</p>"
-            + (
-                "<div class='resource-callout'><h2>Strategy reminders</h2>"
-                "<p>Balance urgent interventions with long-term credibility. "
-                "High-trust partnerships unlock cheaper rerolls and stronger commitments when you need them most.</p>"
-                "</div>"
-            )
             + "<div class='instructions-actions'>"
             + "<a href='/start'>Return to the campaign</a>"
             + "<a class='secondary' href='/factions'>Browse faction details</a>"
