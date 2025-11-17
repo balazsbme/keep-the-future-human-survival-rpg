@@ -4,8 +4,8 @@ attribute_tooltips:
   policy: "Policy measures your ability to craft enforceable agreements and navigate governance trade-offs."
   network: "Network gauges access to relationships that unlock cooperation and surface new opportunities."
 credibility: >-
-  Credibility measures how much latitude this faction gives you. High scores lower reroll costs and keep
-  triplet-aligned commitments on the table. When credibility drops below the triplet cost, the faction stops
+  It is the resource that is spent and gained by agreeing on actions.
+  When credibility drops below the triplet cost, the faction stops
   collaborating and only pushes its own agenda.
 config_field_help:
   scenario: "Select the narrative scenario used for free play sessions."
@@ -13,7 +13,7 @@ config_field_help:
   max_rounds: "Maximum number of conversation rounds before the game ends."
   roll_success_threshold: "Minimum roll total required for an action to succeed."
   action_time_cost_years: "Years of in-game time that pass whenever you attempt an action."
-  format_prompt_character_limit: "Maximum characters allowed when prompts are formatted for the model."
+  format_prompt_character_limit: "Maximum characters allowed in the NPC responses."
   conversation_force_action_after: "Force an action to be offered after this many exchanges without one."
-  enabled_factions: "Factions that can appear in free play encounters."
+  enabled_factions: "Factions that participate in free play encounters."
   player_faction: "Faction alignment assigned to your player character."
