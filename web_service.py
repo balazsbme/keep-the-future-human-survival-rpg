@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from html import escape
 from pathlib import Path
 from functools import lru_cache
-from typing import Any, Dict, List, Mapping, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Sequence, Tuple
 
 from flask import Flask, Response, redirect, request, send_from_directory
 from dotenv import load_dotenv
@@ -63,6 +63,246 @@ DEFAULT_CONFIG_FIELD_HELP = {
 }
 
 
+logger = logging.getLogger(__name__)
+
+
+PLAYER_PERSONA_PATH = Path(__file__).resolve().parent / "rpg" / "player_character.yaml"
+FACTION_IMAGE_MAP: dict[str, str] = {
+    "governments": "gov-1-neutral.jpg",
+    "corporations": "corp-1-neutral.jpg",
+    "hardwaremanufacturers": "hwman-1-neutral.jpg",
+    "regulators": "reg-1-neutral.jpg",
+    "civilsociety": "civ-1-neutral.jpg",
+    "scientificcommunity": "sci-1-neutral.jpg",
+}
+
+
+def _normalize_key(value: str | None) -> str:
+    """Return a lowercase slug used for persona lookups."""
+
+    if not value:
+        return ""
+    cleaned = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return cleaned
+
+
+def _load_player_personas() -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Load player persona definitions from ``player_character.yaml``."""
+
+    try:
+        with open(PLAYER_PERSONA_PATH, "r", encoding="utf-8") as fh:
+            payload = yaml.safe_load(fh) or {}
+    except FileNotFoundError:
+        logger.warning("Player persona definition missing at %s", PLAYER_PERSONA_PATH)
+        return {}, {}
+    entries = payload.get("Characters") if isinstance(payload, Mapping) else None
+    if not isinstance(entries, Sequence):
+        return {}, {}
+    by_faction: dict[str, dict[str, Any]] = {}
+    by_name: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        if not isinstance(entry, Mapping):
+            continue
+        profile = {str(key): value for key, value in entry.items()}
+        faction_key = _normalize_key(str(profile.get("faction", "") or ""))
+        name_key = _normalize_key(str(profile.get("name", "") or ""))
+        if faction_key:
+            by_faction[faction_key] = profile
+        if name_key:
+            by_name[name_key] = profile
+    return by_faction, by_name
+
+
+player_personas_by_faction, player_personas_by_name = _load_player_personas()
+
+
+def _player_profile_by_faction(faction: str | None) -> dict[str, Any] | None:
+    """Return a persona profile for the provided faction, if available."""
+
+    normalized = _normalize_key(faction or "")
+    if not normalized:
+        return None
+    profile = player_personas_by_faction.get(normalized)
+    return dict(profile) if profile else None
+
+
+def _player_persona_path(key: str) -> str:
+    """Return the routed URL for a persona profile."""
+
+    normalized = _normalize_key(key)
+    if not normalized:
+        return "/player/profile"
+    return f"/player/personas/{normalized}"
+
+
+def _format_faction_label(name: str | None) -> str:
+    """Return a human readable faction label."""
+
+    cleaned = (name or "").strip()
+    if not cleaned:
+        return ""
+    spaced = re.sub(r"(?<!^)(?=[A-Z])", " ", cleaned).strip()
+    return spaced or cleaned
+
+
+def _profile_image_html(
+    name: str,
+    *,
+    css_class: str = "profile-photo",
+    alt_label: str | None = None,
+    faction: str | None = None,
+) -> str:
+    """Return HTML for a profile photo placeholder or image."""
+
+    alt_text = alt_label or f"Portrait of {name or 'the player persona'}"
+    filename = FACTION_IMAGE_MAP.get(_normalize_key(faction or "")) if faction else None
+    if filename:
+        src = f"/assets/character-pictures/{filename}"
+        return (
+            f"<div class='{css_class}'>"
+            + f"<img src='{escape(src, quote=True)}' alt='{escape(alt_text, quote=True)}'>"
+            + "</div>"
+        )
+    initials = "".join(part[0].upper() for part in str(name).split() if part)
+    initials = initials[:2] or "KTFH"
+    return f"<div class='{css_class}'>{escape(initials, False)}</div>"
+
+
+def _persona_attribute_items(
+    lookup: Mapping[str, Any] | Character,
+    value_getter: Callable[[Mapping[str, Any] | Character, str], int],
+) -> list[str]:
+    items: list[str] = []
+    for label in ("Leadership", "Technology", "Policy", "Network"):
+        key = label.lower()
+        score = value_getter(lookup, key)
+        items.append(
+            "<li>"
+            + f"<span class='attribute-label'>{escape(label, False)}</span>"
+            + f"<span class='attribute-value'>{int(score)}</span>"
+            + "</li>"
+        )
+    return items
+
+
+def _persona_card_from_profile(profile: Mapping[str, Any]) -> str:
+    """Return persona markup for a raw profile mapping."""
+
+    name = str(profile.get("name", "Player Persona") or "Player Persona")
+    faction = _format_faction_label(str(profile.get("faction", "")))
+    guidance = str(profile.get("guidance", "") or "").strip()
+    header = (
+        "<div class='persona-header'>"
+        + _profile_image_html(name, css_class="persona-photo", faction=str(profile.get("faction", "")))
+        + "<div>"
+        + f"<h3>{escape(name, False)}</h3>"
+        + (f"<p class='persona-faction'>{escape(faction, False)}</p>" if faction else "")
+        + (f"<p class='persona-guidance'>{escape(guidance, False)}</p>" if guidance else "")
+        + "</div></div>"
+    )
+
+    def _score_lookup(_: Mapping[str, Any], key: str) -> int:
+        raw = profile.get(key) or profile.get(key.capitalize())
+        try:
+            return max(0, min(10, int(raw)))
+        except (TypeError, ValueError):
+            return 0
+
+    attributes = _persona_attribute_items(profile, _score_lookup)
+    attribute_block = (
+        "<ul class='persona-attributes'>" + "".join(attributes) + "</ul>"
+    )
+    body_parts: list[str] = []
+    for label, key in (
+        ("Background", "background"),
+        ("Perks", "perks"),
+        ("Motivations", "motivations"),
+        ("Weaknesses", "weaknesses"),
+    ):
+        text = str(profile.get(key, "") or "").strip()
+        if text:
+            body_parts.append(
+                f"<p><strong>{escape(label, False)}:</strong> {escape(text, False)}</p>"
+            )
+    body = "<div class='persona-body'>" + "".join(body_parts) + "</div>"
+    return "<article class='persona-card'>" + header + attribute_block + body + "</article>"
+
+
+def _persona_card_for_character(character: Character) -> str:
+    """Return persona markup for a :class:`Character`."""
+
+    name = getattr(character, "display_name", getattr(character, "name", ""))
+    faction = _format_faction_label(getattr(character, "faction", ""))
+    guidance = getattr(character, "guidance", "") or getattr(character, "motivations", "")
+
+    def _character_score(_: Character, key: str) -> int:
+        return int(character.attribute_score(key))
+
+    header = (
+        "<div class='persona-header'>"
+        + _profile_image_html(name, css_class="persona-photo", faction=getattr(character, "faction", ""))
+        + "<div>"
+        + f"<h3>{escape(name, False)}</h3>"
+        + (f"<p class='persona-faction'>{escape(faction, False)}</p>" if faction else "")
+        + (f"<p class='persona-guidance'>{escape(str(guidance), False)}</p>" if guidance else "")
+        + "</div></div>"
+    )
+    attributes = _persona_attribute_items(character, _character_score)
+    attribute_block = "<ul class='persona-attributes'>" + "".join(attributes) + "</ul>"
+    body_parts: list[str] = []
+    for label, attr_name in (
+        ("Background", "background"),
+        ("Perks", "perks"),
+        ("Motivations", "motivations"),
+        ("Weaknesses", "weaknesses"),
+    ):
+        value = getattr(character, attr_name, "")
+        if value:
+            body_parts.append(
+                f"<p><strong>{escape(label, False)}:</strong> {escape(str(value), False)}</p>"
+            )
+    body = "<div class='persona-body'>" + "".join(body_parts) + "</div>"
+    return "<article class='persona-card'>" + header + attribute_block + body + "</article>"
+
+
+def _sector_preview_block(
+    profile: Mapping[str, Any],
+    *,
+    label: str,
+    profile_url: str | None = None,
+) -> str:
+    """Render the compact persona preview used on the campaign sector cards."""
+
+    name = str(profile.get("name", "Player Persona") or "Player Persona")
+    snippet = str(profile.get("guidance", "") or "").strip()
+    if not snippet:
+        snippet = str(profile.get("background", "") or "").strip()
+    if len(snippet) > 140:
+        snippet = snippet[:137].rstrip() + "\u2026"
+    photo = _profile_image_html(
+        name,
+        css_class="preview-photo",
+        faction=str(profile.get("faction", "") or label),
+        alt_label=f"Portrait of {name}",
+    )
+    link_html = (
+        f"<a href='{escape(profile_url, quote=True)}'>View full profile</a>"
+        if profile_url
+        else ""
+    )
+    body_parts = [f"<p class='preview-name'>{escape(name, False)}</p>"]
+    if snippet:
+        body_parts.append(f"<p>{escape(snippet, False)}</p>")
+    body_parts.append(link_html)
+    return (
+        "<div class='sector-player-preview'>"
+        + photo
+        + "<div class='sector-player-preview-text'>"
+        + "".join(part for part in body_parts if part)
+        + "</div></div>"
+    )
+
+
 @lru_cache(maxsize=None)
 def _load_snippet(snippet_name: str) -> str:
     """Return the snippet text stored under ``snippet_name``."""
@@ -103,8 +343,6 @@ def _load_tooltip_texts() -> tuple[dict[str, str], str, dict[str, str]]:
 
     return attribute_tooltips, credibility_text, config_tooltips
 
-
-logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -448,12 +686,15 @@ def create_app() -> Flask:
             return "<p class='empty-conversation'>No conversation yet. Start by greeting the character.</p>"
         items = []
         for entry in conversation:
-            type_label = str(entry.type or "dialogue").replace("_", " ").title()
+            raw_type = str(entry.type or "dialogue").strip().lower()
+            type_label = raw_type.replace("_", " ").title()
+            type_hint = f"<em>({escape(raw_type, False)})</em>" if raw_type else ""
             items.append(
                 "<li>"
                 + "<div class='message-header'>"
                 + f"<span class='speaker'>{escape(entry.speaker, False)}</span>"
                 + f"<span class='message-type'>{escape(type_label, False)}</span>"
+                + type_hint
                 + "</div>"
                 + f"<p>{escape(entry.text, False)}</p>"
                 + "</li>"
@@ -579,6 +820,7 @@ def create_app() -> Flask:
         body = (
             "<main class='landing-page'>"
             + "<h1>Keep the Future Human Survival RPG</h1>"
+            + "<p class='landing-tagline'>AI Safety Negotiation Game</p>"
             + "<div class='mode-container'>"
             + "<section class='mode-panel'><div class='mode-content'>"
             + "<span class='mode-tag'>Sandbox Mode</span>"
@@ -1636,7 +1878,12 @@ def create_app() -> Flask:
                 + f"<input type='radio' name='response' value='{payload}' id='opt{option_counter}' data-kind='action'>"
                 + f"<label for='opt{option_counter}'>"
                 + f"<span class='option-title'>{escape(label_text, quote=False)}</span>"
-                + f"<span class='option-description'>{escape(option.text, quote=False)}</span>"
+                + (
+                    "<span class='option-description' title='{desc}'>{text}</span>".format(
+                        desc=escape(option.text, quote=True),
+                        text=escape(option.text, quote=False),
+                    )
+                )
                 + "</label></li>"
             )
             option_counter += 1
@@ -2363,6 +2610,8 @@ def create_app() -> Flask:
             "<section class='instructions-page'>"
             + "<h1>How to keep the future human</h1>"
             + steps
+            + "<h2>Reference material</h2>"
+            + "<p>Review the <a href='/factions'>faction dossiers</a> for the current reference material, including gaps, desired end states, and quotes.</p>"
             + "<p>The Keep the Future Human coalition evaluates every conversation through the lens of its documented gaps and referenced quotes.</p>"
             + "<div class='instructions-actions'>"
             + "<a href='/start'>Return to the campaign</a>"
