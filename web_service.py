@@ -13,6 +13,7 @@ from urllib.parse import quote
 from dataclasses import dataclass, field
 from html import escape
 from pathlib import Path
+from functools import lru_cache
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 from flask import Flask, Response, redirect, request, send_from_directory
@@ -29,6 +30,78 @@ from rpg.game_state import ActionAttempt, GameState
 
 
 GITHUB_URL = "https://github.com/balazsbme/keep-the-future-human-survival-rpg"
+
+
+WEB_RESOURCES_DIR = Path(__file__).resolve().parent / "web"
+SNIPPET_DIR = WEB_RESOURCES_DIR / "snippets"
+STYLE_BASENAME = "style.css"
+TOOLTIP_CONFIG_PATH = WEB_RESOURCES_DIR / "tooltips.yaml"
+
+DEFAULT_ATTRIBUTE_TOOLTIPS = {
+    "leadership": "Leadership captures how well you coordinate allies and keep coalitions focused on shared commitments.",
+    "technology": "Technology reflects your technical literacy for evaluating safeguards and translating expert findings.",
+    "policy": "Policy measures your ability to craft enforceable agreements and navigate governance trade-offs.",
+    "network": "Network gauges access to relationships that unlock cooperation and surface new opportunities.",
+}
+
+DEFAULT_CREDIBILITY_TOOLTIP = (
+    "Credibility measures how much latitude this faction gives you. "
+    "High scores lower reroll costs and keep triplet-aligned commitments on the table. "
+    "When credibility drops below the triplet cost, the faction stops collaborating and only pushes its own agenda."
+)
+
+DEFAULT_CONFIG_FIELD_HELP = {
+    "scenario": "Select the narrative scenario used for free play sessions.",
+    "win_threshold": "Score needed to achieve a win at the end of the run.",
+    "max_rounds": "Maximum number of conversation rounds before the game ends.",
+    "roll_success_threshold": "Minimum roll total required for an action to succeed.",
+    "action_time_cost_years": "Years of in-game time that pass whenever you attempt an action.",
+    "format_prompt_character_limit": "Maximum characters allowed when prompts are formatted for the model.",
+    "conversation_force_action_after": "Force an action to be offered after this many exchanges without one.",
+    "enabled_factions": "Factions that can appear in free play encounters.",
+    "player_faction": "Faction alignment assigned to your player character.",
+}
+
+
+@lru_cache(maxsize=None)
+def _load_snippet(snippet_name: str) -> str:
+    """Return the snippet text stored under ``snippet_name``."""
+
+    path = SNIPPET_DIR / snippet_name
+    if not path.exists():
+        raise FileNotFoundError(f"Missing snippet file: {snippet_name}")
+    return path.read_text(encoding="utf-8")
+
+
+def _load_tooltip_texts() -> tuple[dict[str, str], str, dict[str, str]]:
+    """Load tooltip strings from ``tooltips.yaml`` (with defaults)."""
+
+    try:
+        with open(TOOLTIP_CONFIG_PATH, "r", encoding="utf-8") as fh:
+            payload = yaml.safe_load(fh) or {}
+    except FileNotFoundError:
+        payload = {}
+    attribute_payload = payload.get("attribute_tooltips") if isinstance(payload, dict) else None
+    config_payload = payload.get("config_field_help") if isinstance(payload, dict) else None
+    credibility_payload = payload.get("credibility") if isinstance(payload, dict) else None
+
+    attribute_tooltips = dict(DEFAULT_ATTRIBUTE_TOOLTIPS)
+    if isinstance(attribute_payload, Mapping):
+        for key, value in attribute_payload.items():
+            if value is not None:
+                attribute_tooltips[str(key)] = str(value)
+
+    config_tooltips = dict(DEFAULT_CONFIG_FIELD_HELP)
+    if isinstance(config_payload, Mapping):
+        for key, value in config_payload.items():
+            if value is not None:
+                config_tooltips[str(key)] = str(value)
+
+    credibility_text = DEFAULT_CREDIBILITY_TOOLTIP
+    if isinstance(credibility_payload, str):
+        credibility_text = credibility_payload
+
+    return attribute_tooltips, credibility_text, config_tooltips
 
 
 logger = logging.getLogger(__name__)
@@ -153,647 +226,42 @@ def create_app() -> Flask:
     assessment_threads: List[threading.Thread] = []
     assessment_lock = threading.Lock()
     state_lock = threading.Lock()
-    footer_style = (
-        "<style>"
-        ".global-footer{max-width:960px;margin:3rem auto 2rem;"
-        "padding-top:1.5rem;border-top:1px solid #e2e8f0;"
-        "text-align:center;font-family:'Inter',sans-serif;color:#475569;}"
-        ".global-footer .footer-links{display:flex;justify-content:center;"
-        "gap:1.5rem;margin-top:0.75rem;flex-wrap:wrap;}"
-        ".global-footer a{color:#1d4ed8;font-weight:600;text-decoration:none;}"
-        ".global-footer a:hover{text-decoration:underline;}"
-        "</style>"
-    )
-    footer = (
-        footer_style
-        + "<footer class='global-footer'>"
-        + "<p class='footer-note'>Need a refresher or want to inspect the code?</p>"
-        + "<div class='footer-links'>"
-        + "<a href='/instructions'>Instructions</a>"
-        + f"<a href='{GITHUB_URL}' target='_blank' rel='noopener'>GitHub</a>"
-        + "</div>"
-        + "</footer>"
-    )
+    attribute_tooltips, credibility_tooltip_text, config_field_help_texts = _load_tooltip_texts()
+
     asset_root = Path(__file__).resolve().parent / "assets"
-
-    def _normalize_key(value: str | None) -> str:
-        return "".join(ch for ch in str(value or "").lower() if ch.isalnum())
-
-    profile_photo_map = {
-        "elenamarkovic": "character-pictures/gov-1-neutral.jpg",
-        "victorchen": "character-pictures/corp-1-neutral.jpg",
-        "akiratanaka": "character-pictures/hwman-1-neutral.jpg",
-        "isabelladuarte": "character-pictures/reg-1-neutral.jpg",
-        "malikokoro": "character-pictures/civ-1-neutral.jpg",
-        "drsofiaalvarez": "character-pictures/sci-1-neutral.jpg",
-        "jordanellis": "character-pictures/civ-2-neutral.jpg",
-        "drmayaibarra": "character-pictures/sci-2-neutral.jpg",
-    }
-
-    def _profile_photo_from_name(name: str | None) -> str | None:
-        if not name:
-            return None
-        candidate = profile_photo_map.get(_normalize_key(name))
-        if candidate:
-            return f"/assets/{candidate}"
-        return None
-
-    def _profile_image_html(name: str, *, css_class: str, alt_label: str) -> str:
-        src = _profile_photo_from_name(name)
-        safe_alt = escape(alt_label, False)
-        if src:
-            return f"<div class='{css_class}'><img src='{src}' alt='{safe_alt}'></div>"
-        initials = "".join(part[:1] for part in name.split()) or "?"
-        return (
-            f"<div class='{css_class}' role='img' aria-label='{safe_alt}'>"
-            f"{escape(initials.upper(), False)}</div>"
-        )
-
-    def _persona_entries(payload: object) -> List[Dict[str, Any]]:
-        if isinstance(payload, dict):
-            characters = payload.get("Characters")
-            if isinstance(characters, list):
-                return [entry for entry in characters if isinstance(entry, dict)]
-        if isinstance(payload, list):
-            return [entry for entry in payload if isinstance(entry, dict)]
-        return []
-
-    player_persona_path = Path(__file__).resolve().parent / "player_character.yaml"
-    if not player_persona_path.exists():
-        player_persona_path = Path(__file__).resolve().parent / "rpg" / "player_character.yaml"
-    try:
-        with open(player_persona_path, "r", encoding="utf-8") as fh:
-            player_persona_payload = yaml.safe_load(fh) or {}
-    except FileNotFoundError:
-        player_persona_payload = {}
-    player_persona_entries = _persona_entries(player_persona_payload)
-    player_personas_by_name: Dict[str, Dict[str, Any]] = {}
-    player_personas_by_faction: Dict[str, Dict[str, Any]] = {}
-    for entry in player_persona_entries:
-        name_key = _normalize_key(entry.get("name"))
-        faction_key = _normalize_key(entry.get("faction"))
-        if name_key:
-            player_personas_by_name[name_key] = entry
-        if faction_key and faction_key not in player_personas_by_faction:
-            player_personas_by_faction[faction_key] = entry
-
-    def _player_profile_by_faction(faction: str) -> Dict[str, Any] | None:
-        key = _normalize_key(faction)
-        if not key:
-            return None
-        return player_personas_by_faction.get(key)
-
-    def _player_persona_path(faction: str) -> str:
-        key = _normalize_key(faction)
-        return f"/player/personas/{key}" if key else "/player/profile"
-
-    def _format_faction_label(value: str | None) -> str:
-        raw = str(value or "").strip()
-        if not raw:
-            return ""
-        spaced = re.sub(r"(?<!^)(?=[A-Z])", " ", raw)
-        return spaced.replace("_", " ").strip()
-
-    def _persona_card_html(
-        *,
-        name: str,
-        faction: str,
-        guidance: str,
-        attributes: Sequence[Tuple[str, str]],
-        details: Sequence[Tuple[str, str]],
-    ) -> str:
-        safe_name = escape(name or "Unknown", False)
-        faction_label = escape(faction, False) if faction else ""
-        guidance_text = escape(guidance, False) if guidance else ""
-        header_parts = [
-            "<div class='persona-header'>",
-            _profile_image_html(
-                name or "Unknown",
-                css_class="persona-photo",
-                alt_label=f"Portrait of {name or 'persona'}",
-            ),
-            "<div>",
-            f"<h3>{safe_name}</h3>",
-        ]
-        if faction_label:
-            header_parts.append(f"<p class='persona-faction'>{faction_label}</p>")
-        if guidance_text:
-            header_parts.append(f"<p class='persona-guidance'>{guidance_text}</p>")
-        header_parts.append("</div></div>")
-        attribute_items = []
-        for label, value in attributes:
-            if not str(value).strip():
-                continue
-            key = label.lower()
-            tooltip_text = attribute_tooltips.get(key)
-            label_html = (
-                f"<span class='attribute-label'>{escape(label, False)}"
-                + (_tooltip_icon(tooltip_text) if tooltip_text else "")
-                + "</span>"
-            )
-            value_html = (
-                f"<span class='attribute-value'>{escape(str(value), False)}</span>"
-            )
-            attribute_items.append(f"<li>{label_html}{value_html}</li>")
-        attributes_block = (
-            f"<ul class='persona-attributes'>{''.join(attribute_items)}</ul>"
-            if attribute_items
-            else ""
-        )
-        detail_items = [
-            f"<p><strong>{escape(label, False)}:</strong> {escape(str(value), False)}</p>"
-            for label, value in details
-            if str(value).strip()
-        ]
-        details_block = (
-            f"<div class='persona-body'>{''.join(detail_items)}</div>"
-            if detail_items
-            else ""
-        )
-        return (
-            "<article class='persona-card'>"
-            + "".join(header_parts)
-            + attributes_block
-            + details_block
-            + "</article>"
-        )
-
-    def _persona_card_from_profile(profile: Mapping[str, Any]) -> str:
-        name = str(profile.get("name", "") or "Player Persona")
-        faction = _format_faction_label(profile.get("faction"))
-        guidance = str(profile.get("guidance", "") or "")
-        attributes: List[Tuple[str, str]] = []
-        for key in ("leadership", "technology", "policy", "network"):
-            raw = profile.get(key)
-            if raw is None:
-                raw = profile.get(key.title())
-            if raw is not None:
-                attributes.append((key.title(), str(raw)))
-        details: List[Tuple[str, str]] = []
-        for label, key in (
-            ("Perks", "perks"),
-            ("Weaknesses", "weaknesses"),
-            ("Motivations", "motivations"),
-            ("Background", "background"),
-        ):
-            value = profile.get(key)
-            if value:
-                details.append((label, str(value)))
-        return _persona_card_html(
-            name=name,
-            faction=faction,
-            guidance=guidance,
-            attributes=attributes,
-            details=details,
-        )
-
-
-    def _sector_preview_block(
-        profile: Mapping[str, Any] | None,
-        *,
-        label: str,
-        profile_url: str,
-    ) -> str:
-        if not profile:
-            return ""
-        name = str(profile.get("name", "") or "Player Persona")
-        photo = _profile_image_html(
-            name,
-            css_class="preview-photo",
-            alt_label=f"Portrait of {name}",
-        )
-        return (
-            "<div class='sector-player-preview'>"
-            + photo
-            + "<div class='sector-player-preview-text'>"
-            + f"<p class='preview-name'>{escape(name, False)}</p>"
-            + f"<a href='{escape(profile_url, quote=True)}'>View {escape(label, False)} profile</a>"
-            + "</div>"
-            + "</div>"
-        )
-
-    def _list_section(title: str, entries: Sequence[str]) -> str:
-        items = [
-            f"<li>{escape(str(entry), False)}</li>"
-            for entry in entries
-            if str(entry or "").strip()
-        ]
-        if not items:
-            return ""
-        return (
-            "<section class='faction-section'>"
-            + f"<h2>{escape(title, False)}</h2>"
-            + "<ul>"
-            + "".join(items)
-            + "</ul>"
-            + "</section>"
-        )
-
-    def _gap_section(gaps: Sequence[Mapping[str, Any]]) -> str:
-        items: List[str] = []
-        for gap in gaps:
-            if not isinstance(gap, Mapping):
-                continue
-            severity = escape(str(gap.get("severity", "")).strip(), False)
-            explanation = escape(str(gap.get("explanation", "")).strip(), False)
-            if not severity and not explanation:
-                continue
-            if severity and explanation:
-                items.append(
-                    f"<li><span class='gap-severity'>{severity}</span> {explanation}</li>"
-                )
-            else:
-                items.append(f"<li>{severity or explanation}</li>")
-        if not items:
-            return ""
-        return (
-            "<section class='faction-section gap-section'>"
-            + "<h2>Gap to close</h2>"
-            + "<ul class='gap-list'>"
-            + "".join(items)
-            + "</ul>"
-            + "</section>"
-        )
-
-    def _quote_section(quotes: Sequence[str]) -> str:
-        items = [
-            f"<li>{escape(str(entry), False)}</li>"
-            for entry in quotes
-            if str(entry or "").strip()
-        ]
-        if not items:
-            return ""
-        return (
-            "<section class='faction-section quote-section'>"
-            + "<h2>Referenced quotes</h2>"
-            + "<ul class='quote-list'>"
-            + "".join(items)
-            + "</ul>"
-            + "</section>"
-        )
-
-    scoring_note = (
-        "<p class='faction-note'>Faction scoring is judged on how well recent actions address the identified gaps, "
-        "grounded in the referenced quotes from the Keep the Future Human essay. "
-        "Review the source material at <a href='https://keepthefuturehuman.ai/' target='_blank' rel='noopener'>keepthefuturehuman.ai</a>."
-        "</p>"
-    )
-
-    def _faction_sections(
-        detail: Mapping[str, Any], *, include_quotes: bool = True
-    ) -> str:
-        initial = _list_section("Initial state", detail.get("initial_states", []))
-        end_state = _list_section("Desired end state", detail.get("end_states", []))
-        gaps = _gap_section(detail.get("gaps", []))
-        quotes = ""
-        if include_quotes:
-            quotes = _quote_section(detail.get("referenced_quotes", []))
-        return "".join(part for part in (initial, end_state, gaps, quotes) if part)
-
-    def _render_faction_article(
-        detail: Mapping[str, Any], *, heading_tag: str = "h1", include_link: bool = False,
-        include_quotes: bool = True
-    ) -> str:
-        label = escape(str(detail.get("label", "Faction")), False)
-        slug = str(detail.get("slug", "") or "")
-        sections = _faction_sections(detail, include_quotes=include_quotes)
-        link_block = ""
-        if include_link and slug:
-            href = escape(f"/factions/{slug}", quote=True)
-            link_block = (
-                "<div class='faction-card-actions'>"
-                + f"<a href='{href}'>Open faction page</a>"
-                + "</div>"
-            )
-        return (
-            "<article class='faction-detail'>"
-            + f"<{heading_tag}>{label}</{heading_tag}>"
-            + sections
-            + link_block
-            + "</article>"
-        )
-
-    def _persona_card_for_character(character: Character) -> str:
-        profile_data = getattr(character, "profile", {}) or {}
-        if not profile_data:
-            fallback = player_personas_by_name.get(
-                _normalize_key(getattr(character, "name", ""))
-            )
-            if fallback:
-                profile_data = fallback
-        guidance = str(
-            profile_data.get("guidance", "") or getattr(character, "guidance", "") or ""
-        )
-        attributes = [
-            (label, str(character.attribute_score(key)))
-            for key, label in (
-                ("leadership", "Leadership"),
-                ("technology", "Technology"),
-                ("policy", "Policy"),
-                ("network", "Network"),
-            )
-        ]
-        details: List[Tuple[str, str]] = []
-        for label, key in (
-            ("Perks", "perks"),
-            ("Weaknesses", "weaknesses"),
-            ("Motivations", "motivations"),
-            ("Background", "background"),
-        ):
-            value = profile_data.get(key) or getattr(character, key, "")
-            if value:
-                details.append((label, str(value)))
-        return _persona_card_html(
-            name=getattr(character, "name", ""),
-            faction=_format_faction_label(getattr(character, "faction", "")),
-            guidance=guidance,
-            attributes=attributes,
-            details=details,
-        )
 
     @app.route("/assets/<path:filename>")
     def serve_asset(filename: str) -> Response:
         return send_from_directory(asset_root, filename)
 
-    tooltip_css = (
-        ".tooltip-icon{position:relative;display:inline-flex;align-items:center;justify-content:center;}"
-        ".tooltip-icon img{width:16px;height:16px;border-radius:50%;box-shadow:0 0 0 1px rgba(15,23,42,0.35);cursor:pointer;background:#ffffff;}"
-        ".tooltip-text{position:absolute;bottom:125%;left:50%;transform:translateX(-50%);background:#1f2933;color:#ffffff;padding:0.45rem 0.6rem;border-radius:6px;font-size:0.8rem;line-height:1.2;white-space:normal;width:220px;box-shadow:0 12px 28px rgba(15,23,42,0.25);opacity:0;visibility:hidden;transition:opacity 0.2s ease-in-out,visibility 0.2s ease-in-out;z-index:10;text-align:left;}"
-        ".tooltip-icon:hover .tooltip-text{opacity:1;visibility:visible;}"
-        '.tooltip-icon::after{content:"";position:absolute;bottom:110%;left:50%;transform:translateX(-50%);border-width:6px;border-style:solid;border-color:transparent transparent #1f2933 transparent;opacity:0;transition:opacity 0.2s ease-in-out;}'
-        ".tooltip-icon:hover::after{opacity:1;}"
-    )
-
-    panel_style = (
-        "<style>"
-        f"{tooltip_css}"
-        ".layout-container{max-width:1200px;margin:2rem auto;display:grid;grid-template-columns:260px minmax(0,1fr) 260px;gap:1.5rem;align-items:flex-start;padding:0 1.5rem;box-sizing:border-box;}"
-        ".panel{padding:0;box-sizing:border-box;}"
-        ".player-panel,.partner-panel{position:sticky;top:1.5rem;}"
-        ".profile-card{display:flex;flex-direction:column;align-items:center;gap:0.75rem;padding:1.25rem;border-radius:16px;background:#ffffff;border:1px solid #e2e8f0;box-shadow:0 12px 28px rgba(15,23,42,0.08);}"
-        ".profile-photo{width:120px;height:120px;border-radius:14px;overflow:hidden;background:linear-gradient(135deg,#e0e7ff,#c7d2fe);display:flex;align-items:center;justify-content:center;color:#1e3a8a;font-weight:600;font-size:1rem;letter-spacing:0.08em;text-transform:uppercase;}"
-        ".profile-photo img{width:100%;height:100%;object-fit:cover;display:block;}"
-        ".profile-name{margin:0;font-size:1.15rem;text-align:center;}"
-        ".attribute-list{list-style:none;padding:0;margin:0;width:100%;display:flex;flex-direction:column;gap:0.6rem;}"
-        ".attribute-list li{display:flex;justify-content:space-between;align-items:center;padding:0.65rem 0.75rem;border-radius:12px;background:#f8fafc;box-shadow:0 8px 18px rgba(15,23,42,0.05);}"
-        ".attribute-label{display:flex;align-items:center;gap:0.35rem;font-weight:600;color:#1d4ed8;}"
-        ".attribute-value{font-weight:600;color:#0f172a;}"
-        ".credibility-box{width:100%;padding:0.85rem;border:1px solid #cbd5f5;border-radius:12px;background:#eef2ff;text-align:center;font-size:0.95rem;color:#1e3a8a;font-weight:600;margin-top:0.75rem;}"
-        ".credibility-box .attribute-label{justify-content:center;color:#1e3a8a;}"
-        ".credibility-box strong{display:block;font-size:1.25rem;margin-top:0.35rem;color:#0f172a;}"
-        ".profile-footer{margin-top:0.75rem;}"
-        ".profile-footer a{color:#1d4ed8;font-weight:600;text-decoration:none;}"
-        ".profile-footer a:hover{text-decoration:underline;}"
-        ".reroll-actions{display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:0.5rem;}"
-        ".reroll-actions form{margin:0;}"
-        ".action-outcome-actions{display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:0.75rem;}"
-        ".action-outcome-actions form{margin:0;}"
-        ".warning-text{color:#9c2f2f;font-weight:600;}"
-        ".roll-indicator{display:none;align-items:center;justify-content:center;gap:0.75rem;margin:1.25rem auto 0 auto;padding:0.85rem 1.4rem;border-radius:999px;background:#eef2ff;box-shadow:0 10px 24px rgba(59,130,246,0.18);color:#1d4ed8;font-weight:600;max-width:360px;opacity:0;transition:opacity 0.3s ease;}"
-        ".roll-indicator.visible{display:flex;opacity:1;}"
-        ".roll-indicator.fade-out{opacity:0;}"
-        ".roll-indicator img{width:64px;height:64px;object-fit:contain;margin:0;}"
-        ".roll-indicator p{margin:0;font-size:1rem;color:#1d4ed8;}"
-        "@media (max-width:1100px){.layout-container{grid-template-columns:repeat(1,minmax(0,1fr));}.player-panel,.partner-panel{position:static;}}"
-        "</style>"
-    )
-
-    conversation_style = (
-        "<style>"
-        f"{tooltip_css}"
-        "body{font-family:'Inter',sans-serif;margin:0;background:#f8fafc;color:#0f172a;}"
-        ".conversation-page{padding-bottom:2rem;}"
-        ".conversation-panel{width:100%;}"
-        ".conversation-content{display:flex;flex-direction:column;gap:1.5rem;}"
-        ".conversation-content section{background:#ffffff;border-radius:16px;padding:1.5rem;box-shadow:0 12px 28px rgba(15,23,42,0.08);}"
-        ".conversation-content h2{margin-top:0;font-size:1.35rem;}"
-        ".conversation-log{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:1rem;}"
-        ".conversation-log li{background:#f8fafc;border-radius:14px;padding:1rem 1.15rem;box-shadow:0 10px 24px rgba(15,23,42,0.06);}"
-        ".message-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem;}"
-        ".message-header .speaker{font-weight:600;color:#1d4ed8;}"
-        ".message-header .message-type{font-size:0.85rem;font-weight:600;color:#475569;background:#e2e8f0;border-radius:999px;padding:0.25rem 0.6rem;text-transform:uppercase;letter-spacing:0.05em;}"
-        ".conversation-log p{margin:0;color:#1f2933;line-height:1.55;}"
-        ".empty-conversation{margin:0;color:#475569;font-style:italic;}"
-        ".options-form{display:flex;flex-direction:column;gap:1rem;}"
-        ".options-form ul{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:1rem;}"
-        ".response-option{display:flex;gap:0.9rem;align-items:flex-start;background:#f8fafc;border-radius:14px;padding:1rem 1.15rem;box-shadow:0 12px 28px rgba(15,23,42,0.08);}"
-        ".response-option input[type='radio']{width:20px;height:20px;margin-top:0.25rem;}"
-        ".response-option label{cursor:pointer;display:flex;flex-direction:column;gap:0.3rem;font-weight:500;color:#0f172a;}"
-        ".option-title{font-size:1rem;font-weight:600;color:#111827;}"
-        ".option-description{font-size:0.9rem;color:#475569;}"
-        ".options-actions{display:flex;gap:0.75rem;flex-wrap:wrap;}"
-        ".primary-button{display:inline-flex;align-items:center;justify-content:center;padding:0.75rem 1.75rem;border-radius:999px;background:#1d4ed8;color:#ffffff;font-weight:600;text-decoration:none;border:none;cursor:pointer;box-shadow:0 12px 28px rgba(29,78,216,0.18);}"
-        ".primary-button:hover{background:#1e40af;}"
-        ".primary-button.secondary{background:#334155;}"
-        ".primary-button.secondary:hover{background:#1f2937;}"
-        ".conversation-actions{display:flex;gap:0.75rem;flex-wrap:wrap;}"
-        ".conversation-actions a{min-width:200px;text-align:center;}"
-        ".inline-loading{display:flex;align-items:center;gap:0.5rem;font-weight:500;color:#1e293b;}"
-        ".inline-loading img{width:32px;height:32px;object-fit:contain;}"
-        ".loading-page{min-height:60vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem;background:#f8fafc;color:#0f172a;font-family:'Inter',sans-serif;gap:1rem;}"
-        ".state-container{margin:2rem auto 0 auto;max-width:960px;padding:0 1.5rem;box-sizing:border-box;}"
-        "</style>"
-    )
-
-    faction_detail_style = (
-        "<style>"
-        "body{font-family:'Inter',sans-serif;margin:0;background:#f8fafc;color:#0f172a;}"
-        ".faction-detail-page{max-width:960px;margin:2rem auto;padding:0 1.5rem 3rem 1.5rem;}"
-        ".faction-detail-page.single .faction-detail{box-shadow:0 12px 28px rgba(15,23,42,0.08);}"
-        ".faction-detail{background:#ffffff;border-radius:16px;padding:1.75rem;box-shadow:0 10px 24px rgba(15,23,42,0.08);margin-bottom:1.5rem;}"
-        ".faction-detail h1,.faction-detail h2{margin-top:0;}"
-        ".faction-section ul{margin:0.75rem 0 0 1.25rem;line-height:1.6;}"
-        ".gap-list{list-style:none;padding:0;margin:0.75rem 0 0 0;display:flex;flex-direction:column;gap:0.75rem;}"
-        ".gap-list li{background:#f8fafc;border-radius:12px;padding:0.85rem 1rem;box-shadow:0 10px 24px rgba(15,23,42,0.06);}"
-        ".gap-severity{display:inline-block;margin-right:0.5rem;font-weight:700;color:#b45309;text-transform:uppercase;letter-spacing:0.05em;font-size:0.85rem;}"
-        ".quote-list{margin:0.75rem 0 0 1.25rem;line-height:1.6;}"
-        ".faction-actions{display:flex;gap:1rem;flex-wrap:wrap;margin-top:2rem;}"
-        ".faction-actions a{display:inline-flex;align-items:center;justify-content:center;padding:0.75rem 1.6rem;border-radius:999px;background:#1d4ed8;color:#fff;text-decoration:none;font-weight:600;box-shadow:0 12px 28px rgba(29,78,216,0.18);}"
-        ".faction-actions a.secondary{background:#334155;}"
-        ".faction-note{margin:1rem 0 0 0;color:#475569;line-height:1.6;}"
-        ".faction-grid{display:grid;gap:1.5rem;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));}"
-        ".faction-detail-page.single .faction-note{margin-top:1.25rem;}"
-        "</style>"
-    )
-
-    instructions_page_style = (
-        "<style>"
-        "body{font-family:'Inter',sans-serif;margin:0;background:#f8fafc;color:#0f172a;}"
-        ".instructions-page{max-width:960px;margin:2rem auto;padding:2.25rem 1.75rem;background:#ffffff;border-radius:18px;box-shadow:0 12px 28px rgba(15,23,42,0.08);}"
-        ".instructions-page h1{margin-top:0;font-size:2.2rem;}"
-        ".instructions-page ol{margin:1.25rem 0 1.5rem 1.25rem;line-height:1.7;}"
-        ".instructions-page li{margin-bottom:0.85rem;}"
-        ".resource-callout{margin:1.75rem 0;padding:1.25rem;border-radius:14px;background:#eef2ff;box-shadow:0 10px 24px rgba(59,130,246,0.12);}"
-        ".resource-callout h2{margin:0 0 0.75rem 0;font-size:1.3rem;color:#1d4ed8;}"
-        ".instructions-page a{color:#1d4ed8;font-weight:600;text-decoration:none;}"
-        ".instructions-page a:hover{text-decoration:underline;}"
-        ".instructions-page p{line-height:1.6;}"
-        ".instructions-actions{margin-top:2rem;display:flex;gap:1rem;flex-wrap:wrap;}"
-        ".instructions-actions a{display:inline-flex;align-items:center;justify-content:center;padding:0.75rem 1.6rem;border-radius:999px;background:#1d4ed8;color:#fff;text-decoration:none;font-weight:600;box-shadow:0 12px 28px rgba(29,78,216,0.18);}"
-        ".instructions-actions a.secondary{background:#334155;}"
-        "</style>"
-    )
-
-    persona_style = (
-        "<style>"
-        f"{tooltip_css}"
-        ".persona-card{background:#ffffff;border-radius:16px;padding:1.5rem;box-shadow:0 12px 28px rgba(15,23,42,0.1);display:flex;flex-direction:column;gap:1rem;}"
-        ".persona-header{display:flex;align-items:flex-start;gap:1rem;}"
-        ".persona-photo{width:96px;height:96px;border-radius:14px;overflow:hidden;background:linear-gradient(135deg,#e0f2fe,#bfdbfe);display:flex;align-items:center;justify-content:center;font-weight:700;color:#1e3a8a;letter-spacing:0.08em;text-transform:uppercase;}"
-        ".persona-photo img{width:100%;height:100%;object-fit:cover;display:block;}"
-        ".persona-header h3{margin:0;font-size:1.3rem;color:#0f172a;}"
-        ".persona-faction{margin:0.25rem 0 0 0;font-weight:600;color:#1e3a8a;}"
-        ".persona-guidance{margin:0.5rem 0 0 0;font-size:0.95rem;color:#1f2933;line-height:1.5;}"
-        ".persona-attributes{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0.6rem;}"
-        ".persona-attributes li{display:flex;justify-content:space-between;align-items:center;padding:0.6rem 0.75rem;border-radius:12px;background:#f8fafc;box-shadow:0 10px 24px rgba(15,23,42,0.06);}"
-        ".persona-attributes .attribute-label{font-weight:600;color:#1d4ed8;}"
-        ".persona-attributes .attribute-value{font-weight:600;color:#0f172a;}"
-        ".persona-body p{margin:0.35rem 0;line-height:1.55;font-size:0.95rem;color:#1f2933;}"
-        ".persona-body strong{color:#0f172a;}"
-        "</style>"
-    )
-
-    character_profile_style = (
-        "<style>"
-        f"{tooltip_css}"
-        "body{font-family:'Inter',sans-serif;margin:0;background:#f3f4f8;color:#0f172a;}"
-        ".profile-page{max-width:880px;margin:2rem auto;padding:0 1.5rem;}"
-        ".profile-page h1{font-size:2.1rem;margin-bottom:1.25rem;text-align:center;}"
-        ".profile-actions{margin-top:1.75rem;text-align:center;display:flex;gap:1rem;flex-wrap:wrap;justify-content:center;}"
-        ".profile-actions a{display:inline-flex;align-items:center;justify-content:center;gap:0.5rem;padding:0.75rem 1.75rem;border-radius:999px;background:#1d4ed8;color:#fff;text-decoration:none;font-weight:600;box-shadow:0 12px 28px rgba(29,78,216,0.18);}"
-        ".profile-actions a.secondary{background:#334155;}"
-        ".profile-actions a:hover{background:#1e40af;}"
-        ".profile-actions a.secondary:hover{background:#1f2937;}"
-        ".credibility-matrix{margin-top:2rem;background:#ffffff;border-radius:16px;padding:1.5rem;box-shadow:0 12px 28px rgba(15,23,42,0.08);}"
-        ".credibility-matrix table{width:100%;border-collapse:collapse;}"
-        ".credibility-matrix th,.credibility-matrix td{padding:0.75rem;border-bottom:1px solid #e2e8f0;text-align:left;}"
-        ".credibility-matrix th{font-size:0.95rem;font-weight:700;color:#111827;}"
-        ".credibility-matrix td{font-size:0.95rem;color:#1f2933;font-weight:500;}"
-        ".credibility-matrix tbody tr:last-child td{border-bottom:none;}"
-        ".credibility-note{margin:0.75rem 0 0 0;color:#475569;font-size:0.9rem;line-height:1.5;}"
-        "</style>"
-    )
-
-    character_select_style = (
-        "<style>"
-        "body{font-family:'Inter',sans-serif;margin:0;background:#f8fafc;color:#0f172a;}"
-        ".character-select-container{max-width:960px;margin:2rem auto;padding:0 1.5rem 3rem 1.5rem;}"
-        ".character-select-container h1{font-size:2.4rem;margin-bottom:1rem;text-align:center;}"
-        ".character-timing{margin:0 auto 1rem auto;max-width:760px;text-align:center;font-weight:600;color:#1e293b;}"
-        ".character-options{display:flex;flex-direction:column;gap:1rem;margin-top:1.5rem;}"
-        ".character-option{display:flex;justify-content:space-between;align-items:center;padding:1rem 1.25rem;border-radius:14px;background:#ffffff;box-shadow:0 12px 28px rgba(15,23,42,0.08);}"
-        ".character-input{display:flex;align-items:center;gap:0.85rem;}"
-        ".character-option input[type='radio']{width:20px;height:20px;}"
-        ".character-option label{cursor:pointer;font-weight:600;font-size:1.05rem;color:#111827;display:flex;flex-direction:column;}"
-        ".character-credibility{margin-top:0.25rem;font-size:0.85rem;color:#475569;font-weight:500;}"
-        ".character-option a{font-size:0.9rem;color:#1d4ed8;font-weight:600;text-decoration:none;}"
-        ".character-option a:hover{text-decoration:underline;}"
-        ".character-select-actions{display:flex;gap:1rem;flex-wrap:wrap;justify-content:center;margin-top:1.75rem;}"
-        ".character-select-actions button{padding:0.75rem 1.9rem;border:none;border-radius:999px;background:#1d4ed8;color:#fff;font-size:1rem;font-weight:600;cursor:pointer;box-shadow:0 12px 28px rgba(29,78,216,0.18);}"
-        ".character-select-actions button.secondary{background:#334155;}"
-        ".character-select-actions form{margin:0;}"
-        ".state-container{margin-top:3rem;}"
-        "</style>"
-    )
-
-    landing_style = (
-        "<style>"
-        "body{font-family:'Inter',sans-serif;margin:0;background:#f3f4f8;color:#1f2933;}"
-        "h1{margin:2rem auto 1rem auto;text-align:center;font-size:2.4rem;}"
-        ".mode-container{display:flex;flex-direction:column;min-height:90vh;}"
-        ".mode-panel{flex:1;display:flex;align-items:center;justify-content:center;padding:3rem 1.5rem;}"
-        ".mode-panel:first-child{background:linear-gradient(180deg,#eef2ff 0%,#ffffff 100%);}"
-        ".mode-panel:last-child{background:linear-gradient(180deg,#fff7ed 0%,#ffffff 100%);border-top:1px solid #e0e7ff;}"
-        ".mode-content{max-width:540px;text-align:center;}"
-        ".mode-tag{display:inline-block;margin-bottom:0.75rem;padding:0.4rem 1rem;border-radius:999px;font-weight:600;font-size:0.9rem;background:rgba(29,78,216,0.12);color:#1d4ed8;}"
-        ".mode-content h2{margin:0 0 0.75rem 0;font-size:2rem;}"
-        ".mode-content p{margin:0 0 1.5rem 0;line-height:1.6;font-size:1.05rem;}"
-        ".mode-actions{display:flex;justify-content:center;gap:1rem;flex-wrap:wrap;}"
-        ".mode-actions a,.mode-actions button{display:inline-block;padding:0.75rem 1.75rem;font-size:1rem;border-radius:999px;border:none;background:#1d4ed8;color:#fff;text-decoration:none;cursor:pointer;box-shadow:0 10px 24px rgba(29,78,216,0.15);}"
-        ".mode-actions a.secondary,.mode-actions button.secondary{background:#334155;}"
-        ".mode-actions form{margin:0;}"
-        "</style>"
-    )
-
-    campaign_style = (
-        "<style>"
-        ".campaign-container{max-width:960px;margin:2rem auto;font-family:'Inter',sans-serif;color:#1f2933;}"
-        ".campaign-header{background:#ffffff;border-radius:16px;padding:2rem;box-shadow:0 14px 32px rgba(15,23,42,0.08);margin-bottom:2rem;}"
-        ".campaign-header h1{margin:0 0 0.5rem 0;font-size:2.2rem;}"
-        ".campaign-header p{margin:0.5rem 0 0 0;line-height:1.6;font-size:1.05rem;}"
-        ".campaign-summary{margin-bottom:2rem;}"
-        ".sector-grid{display:flex;flex-wrap:wrap;gap:1.5rem;}"
-        ".sector-card{flex:1 1 280px;background:#ffffff;border-radius:14px;padding:1.75rem;box-shadow:0 12px 28px rgba(15,23,42,0.07);}"
-        ".sector-card h2{margin:0;font-size:1.4rem;}"
-        ".sector-card p{margin:0.75rem 0 0 0;line-height:1.5;}"
-        ".sector-card ul{margin:0.75rem 0 1.25rem 1.25rem;line-height:1.5;}"
-        ".sector-card form{margin-top:1.25rem;}"
-        ".sector-card button{padding:0.7rem 1.6rem;border:none;border-radius:999px;background:#1d4ed8;color:#fff;font-size:1rem;cursor:pointer;box-shadow:0 10px 24px rgba(29,78,216,0.15);}"
-        ".sector-player-preview{margin-top:1.25rem;display:flex;align-items:center;gap:0.85rem;padding:0.85rem 1rem;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;box-shadow:0 8px 20px rgba(15,23,42,0.05);}"
-        ".sector-player-preview .preview-photo{width:56px;height:56px;border-radius:50%;overflow:hidden;background:#e0e7ff;color:#1d4ed8;font-weight:700;display:flex;align-items:center;justify-content:center;}"
-        ".sector-player-preview .preview-photo img{width:100%;height:100%;object-fit:cover;border-radius:50%;}"
-        ".sector-player-preview-text{display:flex;flex-direction:column;gap:0.25rem;}"
-        ".sector-player-preview-text .preview-name{margin:0;font-weight:600;color:#0f172a;}"
-        ".sector-player-preview-text a{color:#1d4ed8;font-weight:600;text-decoration:none;}"
-        ".sector-player-preview-text a:hover{text-decoration:underline;}"
-        ".sector-player-preview-wrapper{margin-top:1.5rem;}"
-        ".sector-player-preview-wrapper h3{margin:0 0 0.6rem 0;font-size:0.95rem;letter-spacing:0.08em;text-transform:uppercase;color:#475569;}"
-        ".campaign-summary-list{list-style:none;padding:0;margin:0;display:grid;gap:1rem;}"
-        ".campaign-summary-list li{background:#ffffff;border-radius:12px;padding:1.25rem;box-shadow:0 12px 28px rgba(15,23,42,0.07);}"
-        ".campaign-summary-list h3{margin:0 0 0.5rem 0;font-size:1.2rem;}"
-        ".campaign-summary-list p{margin:0.25rem 0;line-height:1.5;}"
-        ".campaign-actions{margin-top:2rem;display:flex;gap:1rem;flex-wrap:wrap;}"
-        ".campaign-actions a,.campaign-actions button{padding:0.75rem 1.5rem;border-radius:999px;border:none;background:#1d4ed8;color:#fff;text-decoration:none;cursor:pointer;box-shadow:0 10px 24px rgba(29,78,216,0.15);}"
-        ".campaign-actions a.secondary,.campaign-actions button.secondary{background:#334155;}"
-        "</style>"
-    )
-
-    intro_style = (
-        "<style>"
-        ".instructions,.config-settings{margin:1rem 0;padding:1rem;border:1px solid #dcdcdc;border-radius:10px;background:#f8faff;}"
-        ".instructions h2,.config-settings h2{margin-top:0;margin-bottom:0.5rem;}"
-        ".instructions ul{margin:0.5rem 0 0 1.25rem;}"
-        ".instructions li{margin-bottom:0.4rem;}"
-        ".config-settings form{display:flex;flex-direction:column;gap:0.75rem;max-width:360px;}"
-        ".config-settings label{display:flex;flex-direction:column;font-weight:600;font-size:0.95rem;gap:0.35rem;}"
-        ".config-label-text{display:flex;align-items:center;gap:0.4rem;}"
-        ".tooltip-icon{position:relative;display:inline-flex;align-items:center;justify-content:center;}"
-        ".tooltip-icon img{width:16px;height:16px;border-radius:50%;box-shadow:0 0 0 1px rgba(15,23,42,0.35);cursor:pointer;}"
-        ".tooltip-text{position:absolute;bottom:125%;left:50%;transform:translateX(-50%);background:#1f2933;color:#fff;padding:0.45rem 0.6rem;border-radius:6px;font-size:0.8rem;line-height:1.2;white-space:normal;width:220px;box-shadow:0 12px 28px rgba(15,23,42,0.25);opacity:0;visibility:hidden;transition:opacity 0.2s ease-in-out,visibility 0.2s ease-in-out;z-index:10;}"
-        ".tooltip-icon:hover .tooltip-text{opacity:1;visibility:visible;}"
-        '.tooltip-icon::after{content:"";position:absolute;bottom:110%;left:50%;transform:translateX(-50%);border-width:6px;border-style:solid;border-color:transparent transparent #1f2933 transparent;opacity:0;transition:opacity 0.2s ease-in-out;}'
-        ".tooltip-icon:hover::after{opacity:1;}"
-        ".config-settings input,.config-settings select{margin-top:0.25rem;padding:0.45rem;border:1px solid #c6c6c6;border-radius:6px;font-size:0.95rem;}"
-        ".config-settings button{align-self:flex-start;padding:0.45rem 0.9rem;font-size:0.95rem;}"
-        ".config-error{margin:0 0 0.75rem 0;padding:0.75rem;border:1px solid #d93025;background:#fdecea;color:#a50e0e;border-radius:8px;font-size:0.9rem;}"
-        ".config-note{margin:0;font-size:0.85rem;color:#555;}"
-        "</style>"
-    )
-
-    summary_style = (
-        "<style>"
-        ".scenario-summary{margin:1.5rem 0;padding:1rem;border:1px solid #dcdcdc;"
-        "border-radius:10px;background:#f8f8f8;}"
-        ".scenario-summary h2{margin:0 0 0.5rem 0;font-size:1.2rem;}"
-        ".scenario-summary p{margin:0.5rem 0;line-height:1.5;}"
-        "</style>"
-    )
-
-    attribute_tooltips = {
-        "leadership": "Leadership captures how well you coordinate allies and keep coalitions focused on shared commitments.",
-        "technology": "Technology reflects your technical literacy for evaluating safeguards and translating expert findings.",
-        "policy": "Policy measures your ability to craft enforceable agreements and navigate governance trade-offs.",
-        "network": "Network gauges access to relationships that unlock cooperation and surface new opportunities.",
-    }
-
-    credibility_tooltip = (
-        "Credibility measures how much latitude this faction gives you. "
-        "High scores lower reroll costs and keep triplet-aligned commitments on the table. "
-        "When credibility drops below the triplet cost, the faction stops collaborating and only pushes its own agenda."
-    )
+    @app.route("/web/style.css")
+    def serve_web_style() -> Response:
+        return send_from_directory(WEB_RESOURCES_DIR, STYLE_BASENAME)
 
     tooltip_asset_path = "/assets/tooltip.jpg"
     roll_asset_path = "/assets/rolling.gif"
+    footer_html = _load_snippet("global_footer.html").format(github_url=GITHUB_URL)
+    roll_indicator_markup = _load_snippet("roll_indicator.html").format(
+        roll_asset_path=roll_asset_path
+    )
+    roll_indicator_script = _load_snippet("roll_indicator.js")
+    state_refresh_script = _load_snippet("state_refresh.js")
+    css_link_tag = "<link rel='stylesheet' href='/web/style.css'>"
+
+    def _render_page(
+        content: str,
+        *,
+        body_class: str = "page-default",
+        include_footer: bool = True,
+        extra_scripts: Sequence[str] | None = None,
+    ) -> str:
+        parts: List[str] = [css_link_tag, f"<body class='{body_class}'>", content]
+        if include_footer:
+            parts.append(footer_html)
+        if extra_scripts:
+            parts.extend(extra_scripts)
+        parts.append("</body>")
+        return "".join(parts)
 
     def _tooltip_icon(description: str) -> str:
         content = escape(description, False)
@@ -819,86 +287,6 @@ def create_app() -> Flask:
             + f"<span>{safe_text}</span>"
             + "</div>"
         )
-
-    roll_indicator_markup = (
-        "<div class='roll-indicator' id='roll-indicator' aria-hidden='true'>"
-        f"<img src='{roll_asset_path}' alt='Random sampling animation'>"
-        "<p>Sampling outcomes...</p>"
-        "</div>"
-    )
-
-    roll_indicator_script = (
-        "<script>"
-        "document.addEventListener('DOMContentLoaded',function(){"
-        "const indicator=document.getElementById('roll-indicator');"
-        "if(!indicator){return;}"
-        "let hideTimer=null;"
-        "let finalizeTimer=null;"
-        "const scheduleHide=function(){"
-        "indicator.classList.add('fade-out');"
-        "hideTimer=null;"
-        "finalizeTimer=window.setTimeout(function(){"
-        "indicator.classList.remove('visible');"
-        "indicator.classList.remove('fade-out');"
-        "indicator.setAttribute('aria-hidden','true');"
-        "},350);"
-        "};"
-        "const showIndicator=function(){"
-        "indicator.classList.remove('fade-out');"
-        "indicator.classList.add('visible');"
-        "indicator.setAttribute('aria-hidden','false');"
-        "if(hideTimer){window.clearTimeout(hideTimer);}"
-        "if(finalizeTimer){window.clearTimeout(finalizeTimer);}"
-        "hideTimer=window.setTimeout(scheduleHide,3200);"
-        "};"
-        "document.querySelectorAll('form.roll-trigger').forEach(function(form){"
-        "form.addEventListener('submit',showIndicator);"
-        "});"
-        "document.querySelectorAll('form.options-form').forEach(function(form){"
-        "form.addEventListener('submit',function(){"
-        "const selected=form.querySelector(\"input[name='response']:checked\");"
-        "if(selected && selected.dataset && selected.dataset.kind==='action'){showIndicator();}"
-        "});"
-        "});"
-        "});"
-        "</script>"
-    )
-
-    state_refresh_script = (
-        "<script>"
-        "document.addEventListener('DOMContentLoaded',function(){"
-        "const container=document.querySelector('.state-container');"
-        "if(!container){return;}"
-        "const timeTarget=document.getElementById('time-status');"
-        "const findRoot=function(){return container.querySelector('#state');};"
-        "let root=findRoot();"
-        "const readVersion=function(){return root?parseInt(root.getAttribute('data-state-version')||'0',10):0;};"
-        "const readPending=function(){return !!(root && root.getAttribute('data-assessment-pending')==='true');};"
-        "let version=readVersion();"
-        "let pending=readPending();"
-        "let timer=null;"
-        "const applyHtml=function(html){container.innerHTML=html;root=findRoot();version=readVersion();pending=readPending();};"
-        "const schedule=function(delay){if(timer){window.clearTimeout(timer);}timer=window.setTimeout(poll,delay);};"
-        "const poll=function(){"
-        "fetch('/state',{headers:{'Accept':'application/json'}})"
-        ".then(function(response){if(!response.ok){throw new Error('Bad response');}return response.json();})"
-        ".then(function(data){"
-        "if(typeof data.state_html==='string'){"
-        "const changedVersion=typeof data.progress_version==='number' && data.progress_version!==version;"
-        "const changedPending=typeof data.assessment_pending==='boolean' && data.assessment_pending!==pending;"
-        "if(changedVersion || changedPending || !root){applyHtml(data.state_html);}"
-        "}"
-        "if(typeof data.progress_version==='number'){version=data.progress_version;}"
-        "if(typeof data.assessment_pending==='boolean'){pending=data.assessment_pending;if(root){root.setAttribute('data-assessment-pending',pending?'true':'false');}}"
-        "if(timeTarget && typeof data.time_status==='string'){timeTarget.textContent=data.time_status;}"
-        "schedule(pending?1200:4500);"
-        "})"
-        ".catch(function(error){console.error('State polling failed',error);schedule(6000);});"
-        "};"
-        "schedule(pending?1200:4500);"
-        "});"
-        "</script>"
-    )
 
     def _scenario_display_name(name: str) -> str:
         base = (name or "").replace("-", " ").replace("_", " ").strip()
@@ -1022,8 +410,7 @@ def create_app() -> Flask:
         if not formatted:
             return ""
         return (
-            summary_style
-            + "<section class='scenario-summary'><h2>Scenario Overview</h2>"
+            "<section class='scenario-summary'><h2>Scenario Overview</h2>"
             + formatted
             + "</section>"
         )
@@ -1045,7 +432,7 @@ def create_app() -> Flask:
             "<section class='credibility-matrix'>"
             + "<h2>Credibility Snapshot</h2>"
             + "<table><thead><tr><th>Player faction</th><th>Partner faction</th><th>Credibility"
-            + _tooltip_icon(credibility_tooltip)
+            + _tooltip_icon(credibility_tooltip_text)
             + "</th></tr></thead><tbody>"
             + "<tr>"
             + f"<td>{escape(player_label or 'Unknown', False)}</td>"
@@ -1080,9 +467,7 @@ def create_app() -> Flask:
         state_html: str,
     ) -> str:
         return (
-            conversation_style
-            + panel_style
-            + roll_indicator_markup
+            roll_indicator_markup
             + "<main class='conversation-page'>"
             + "<div class='layout-container'>"
             + f"<div class='panel player-panel'>{player_panel_html}</div>"
@@ -1115,7 +500,7 @@ def create_app() -> Flask:
         if credibility is not None:
             label_html = (
                 "<span class='attribute-label'>Credibility"
-                + _tooltip_icon(credibility_tooltip)
+                + _tooltip_icon(credibility_tooltip_text)
                 + "</span>"
             )
             credibility_block = (
@@ -1192,8 +577,7 @@ def create_app() -> Flask:
         campaign_description = "<p>Tackle a guided three-level journey through scenarios 01, 02, and 03. At the start of each level you choose to coordinate with the Public or Private sector, which reshapes your faction alignment and the coalitions available to you.</p>"
         free_play_description = "<p>Experiment freely with every system in the negotiation sandbox. Tune the active scenario, scoring thresholds, and pacing rules before diving straight into a single open-ended session.</p>"
         body = (
-            landing_style
-            + "<main>"
+            "<main class='landing-page'>"
             + "<h1>Keep the Future Human Survival RPG</h1>"
             + "<div class='mode-container'>"
             + "<section class='mode-panel'><div class='mode-content'>"
@@ -1210,9 +594,8 @@ def create_app() -> Flask:
             + campaign_actions
             + "</div></section>"
             + "</div></main>"
-            + footer
         )
-        return body
+        return _render_page(body, body_class="page-landing")
 
     @app.route("/free-play", methods=["GET", "POST"])
     def free_play() -> Response | str:
@@ -1373,19 +756,9 @@ def create_app() -> Flask:
                 f"<li>{escape(message, False)}</li>" for message in validation_errors
             )
             error_html = f"<div class='config-error'><ul>{error_items}</ul></div>"
-        field_help = {
-            "scenario": "Select the narrative scenario used for free play sessions.",
-            "win_threshold": "Score needed to achieve a win at the end of the run.",
-            "max_rounds": "Maximum number of conversation rounds before the game ends.",
-            "roll_success_threshold": "Minimum roll total required for an action to succeed.",
-            "action_time_cost_years": "Years of in-game time that pass whenever you attempt an action.",
-            "format_prompt_character_limit": "Maximum characters allowed when prompts are formatted for the model.",
-            "conversation_force_action_after": "Force an action to be offered after this many exchanges without one.",
-            "enabled_factions": "Factions that can appear in free play encounters.",
-            "player_faction": "Faction alignment assigned to your player character.",
-        }
+        field_help = config_field_help_texts
         form_body = (
-            intro_style
+            "<main class='config-page'>"
             + "<h1>Configure Free Play</h1>"
             + "<section class='config-settings'>"
             + "<form method='post'>"
@@ -1436,9 +809,9 @@ def create_app() -> Flask:
             + "<button type='submit'>Apply &amp; Start Free Play</button>"
             + "</form>"
             + "</section>"
-            + footer
+            + "</main>"
         )
-        return form_body
+        return _render_page(form_body)
 
     @app.route("/campaign/start", methods=["POST"])
     def campaign_start() -> Response:
@@ -1557,9 +930,7 @@ def create_app() -> Flask:
             )
             active_sector_note = f"<p><strong>Previous selection:</strong> {escape(label, False)}. Choosing a sector again will restart this level.</p>"
         body = (
-            persona_style
-            + campaign_style
-            + "<section class='campaign-container'>"
+            "<section class='campaign-container'>"
             + "<div class='campaign-header'>"
             + f"<h1>Level {level_index + 1}: {escape(scenario_name, False)}</h1>"
             + "<p>Select who you will coordinate with before launching the next negotiation.</p>"
@@ -1574,9 +945,8 @@ def create_app() -> Flask:
             + "".join(sector_cards)
             + "</div>"
             + "</section>"
-            + footer
         )
-        return body
+        return _render_page(body)
 
     @app.route("/campaign/next", methods=["POST"])
     def campaign_next() -> Response:
@@ -1621,8 +991,7 @@ def create_app() -> Flask:
                 + "</li>"
             )
         body = (
-            campaign_style
-            + "<section class='campaign-container'>"
+            "<section class='campaign-container'>"
             + "<div class='campaign-header'>"
             + "<h1>Campaign Summary</h1>"
             + "<p>Review how each level unfolded. You can return to the home screen to start a fresh run or dive into free play with your preferred settings.</p>"
@@ -1635,9 +1004,8 @@ def create_app() -> Flask:
             + "<a href='/free-play'>Configure Free Play</a>"
             + "</div>"
             + "</section>"
-            + footer
         )
-        return body
+        return _render_page(body)
 
     @app.route("/start", methods=["GET"])
     def list_characters() -> Response:
@@ -1794,8 +1162,7 @@ def create_app() -> Flask:
         )
         time_block = f"<p class='character-timing' id='time-status'>{escape(time_status, False)}</p>"
         body = (
-            character_select_style
-            + "<main class='character-select-container'>"
+            "<main class='character-select-container'>"
             + "<h1>Keep the Future Human Survival RPG</h1>"
             + summary_section
             + time_block
@@ -1810,10 +1177,8 @@ def create_app() -> Flask:
             + "</div>"
             + f"<div class='state-container'>{state_html}</div>"
             + "</main>"
-            + footer
-            + state_refresh_script
         )
-        return Response(body)
+        return _render_page(body, extra_scripts=[state_refresh_script])
 
     @app.route("/player/personas/<string:key>", methods=["GET"])
     def show_campaign_player_persona(key: str) -> Response:
@@ -1837,17 +1202,13 @@ def create_app() -> Flask:
             "</div>",
         ]
         body = (
-            persona_style
-            + character_profile_style
-            + "<main class='profile-page'>"
+            "<main class='profile-page'>"
             + f"<h1>{escape(name, False)}</h1>"
             + persona_html
             + "".join(actions)
             + "</main>"
-            + footer
-            + state_refresh_script
         )
-        return Response(body)
+        return _render_page(body, body_class="page-profile", extra_scripts=[state_refresh_script])
 
     @app.route("/characters/<int:char_id>/profile", methods=["GET"])
     def show_character_profile(char_id: int) -> Response:
@@ -1875,18 +1236,14 @@ def create_app() -> Flask:
         actions.append("<a href='/start'>Back to character selection</a>")
         actions.append("</div>")
         body = (
-            persona_style
-            + character_profile_style
-            + "<main class='profile-page'>"
+            "<main class='profile-page'>"
             + f"<h1>{escape(character.display_name, False)}</h1>"
             + persona_html
             + matrix_html
             + "".join(actions)
             + "</main>"
-            + footer
-            + state_refresh_script
         )
-        return Response(body)
+        return _render_page(body, body_class="page-profile", extra_scripts=[state_refresh_script])
 
     @app.route("/player/profile", methods=["GET"])
     def show_player_profile() -> Response:
@@ -1903,17 +1260,13 @@ def create_app() -> Flask:
         actions.append("<a href='/start'>Back to character selection</a>")
         actions.append("</div>")
         body = (
-            persona_style
-            + character_profile_style
-            + "<main class='profile-page'>"
+            "<main class='profile-page'>"
             + f"<h1>{escape(player_character.display_name, False)}</h1>"
             + persona_html
             + "".join(actions)
             + "</main>"
-            + footer
-            + state_refresh_script
         )
-        return Response(body)
+        return _render_page(body, body_class="page-profile", extra_scripts=[state_refresh_script])
 
     def _character_snapshot(
         char_id: int,
@@ -2324,7 +1677,10 @@ def create_app() -> Flask:
         page = _conversation_frame(
             player_panel, conversation_panel, partner_panel, state_html
         )
-        return page + footer + roll_indicator_script + state_refresh_script
+        return _render_page(
+            page,
+            extra_scripts=[roll_indicator_script, state_refresh_script],
+        )
 
     def _render_success_page(
         char_id: int,
@@ -2392,7 +1748,10 @@ def create_app() -> Flask:
         page = _conversation_frame(
             player_panel, conversation_panel, partner_panel, state_html
         )
-        return page + footer + roll_indicator_script + state_refresh_script
+        return _render_page(
+            page,
+            extra_scripts=[roll_indicator_script, state_refresh_script],
+        )
 
     def _render_failure_page(
         char_id: int,
@@ -2476,7 +1835,10 @@ def create_app() -> Flask:
         page = _conversation_frame(
             player_panel, conversation_panel, partner_panel, state_html
         )
-        return page + footer + roll_indicator_script + state_refresh_script
+        return _render_page(
+            page,
+            extra_scripts=[roll_indicator_script, state_refresh_script],
+        )
 
     @app.route("/actions", methods=["GET", "POST"])
     def character_actions() -> Response:
@@ -2623,9 +1985,8 @@ def create_app() -> Flask:
                     + _loading_markup("Loading...")
                     + "</main>"
                     + f"<meta http-equiv='refresh' content='1;url=/actions?character={char_id}'>"
-                    + f"{footer}"
                 )
-                return Response(body)
+                return _render_page(body)
             replies = replies or []
             with state_lock:
                 game_state.log_npc_responses(character, replies)
@@ -2667,9 +2028,8 @@ def create_app() -> Flask:
                         + _loading_markup("Loading...")
                         + "</main>"
                         + f"<meta http-equiv='refresh' content='1;url=/actions?character={char_id}'>"
-                        + f"{footer}"
                     )
-                    return Response(body)
+                    return _render_page(body)
                 replies = replies or []
                 with state_lock:
                     game_state.log_npc_responses(character, replies)
@@ -2930,8 +2290,7 @@ def create_app() -> Flask:
         ]
         content = "".join(articles)
         body = (
-            faction_detail_style
-            + "<section class='faction-detail-page'>"
+            "<section class='faction-detail-page'>"
             + "<h1>Faction detail directory</h1>"
             + scoring_note
             + "<div class='faction-grid'>"
@@ -2941,9 +2300,8 @@ def create_app() -> Flask:
             + "<a class='secondary' href='/start'>Back to game</a>"
             + "</div>"
             + "</section>"
-            + footer
         )
-        return body
+        return _render_page(body)
 
     @app.route("/factions/<string:slug>", methods=["GET"])
     def show_faction_detail(slug: str) -> str:
@@ -2955,8 +2313,7 @@ def create_app() -> Flask:
             detail, heading_tag="h1", include_link=False, include_quotes=True
         )
         body = (
-            faction_detail_style
-            + "<section class='faction-detail-page single'>"
+            "<section class='faction-detail-page single'>"
             + article
             + scoring_note
             + "<div class='faction-actions'>"
@@ -2964,9 +2321,8 @@ def create_app() -> Flask:
             + "<a href='/start'>Back to game</a>"
             + "</div>"
             + "</section>"
-            + footer
         )
-        return body
+        return _render_page(body)
 
     @app.route("/state", methods=["GET"])
     def state_snapshot() -> Response:
@@ -3004,8 +2360,7 @@ def create_app() -> Flask:
             Lose if the in-game calendar expires before you secure that mandate.</li>
         </ol>"""
         body = (
-            instructions_page_style
-            + "<section class='instructions-page'>"
+            "<section class='instructions-page'>"
             + "<h1>How to keep the future human</h1>"
             + steps
             + "<p>The Keep the Future Human coalition evaluates every conversation through the lens of its documented gaps and referenced quotes.</p>"
@@ -3014,19 +2369,21 @@ def create_app() -> Flask:
             + "<a class='secondary' href='/factions'>Browse faction details</a>"
             + "</div>"
             + "</section>"
-            + footer
         )
-        return body
+        return _render_page(body)
 
     @app.route("/result", methods=["GET"])
     def result() -> str:
         with assessment_lock:
             running = any(t.is_alive() for t in assessment_threads)
         if running:
-            return (
-                "<p>Waiting for assessments...</p>"
-                "<meta http-equiv='refresh' content='1'>"
+            body = (
+                "<main class='loading-page'>"
+                + _loading_markup("Waiting for assessments...")
+                + "</main>"
+                + "<meta http-equiv='refresh' content='1'>"
             )
+            return _render_page(body)
         campaign_context: Tuple[int, str, str | None] | None = None
         with state_lock:
             final = game_state.final_weighted_score()
@@ -3052,14 +2409,16 @@ def create_app() -> Flask:
         is_win = final >= threshold
         if not campaign_context:
             outcome = "You won!" if is_win else "You lost!"
-            return (
-                f"<h1>{outcome}</h1>"
-                f"{state_html}"
-                "<form method='post' action='/reset'>"
-                "<button type='submit'>Reset</button>"
-                "</form>"
-                f"{footer}"
+            body = (
+                "<main class='result-page'>"
+                + f"<h1>{outcome}</h1>"
+                + f"{state_html}"
+                + "<form method='post' action='/reset'>"
+                + "<button type='submit'>Reset</button>"
+                + "</form>"
+                + "</main>"
             )
+            return _render_page(body)
 
         level_index, scenario_key, sector_choice = campaign_context
         level_number = level_index + 1
@@ -3092,8 +2451,7 @@ def create_app() -> Flask:
                     "</form>"
                 )
         header = (
-            campaign_style
-            + "<section class='campaign-container'>"
+            "<section class='campaign-container'>"
             + "<div class='campaign-header'>"
             + f"<h1>{result_title}</h1>"
             + f"<p>{level_intro}<br>{score_summary}</p>"
@@ -3103,9 +2461,8 @@ def create_app() -> Flask:
             + "".join(actions)
             + "</div>"
             + "</section>"
-            + footer
         )
-        return header
+        return _render_page(header)
 
     return app
 
