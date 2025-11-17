@@ -5,8 +5,7 @@ WORKDIR /opt
 RUN apt-get update && apt-get install -y --no-install-recommends git && \
     rm -rf /var/lib/apt/lists/*
 
-# Clone the master branch of the repository 
-RUN git clone --depth 1 --branch main https://github.com/balazsbme/keep-the-future-human-survival-rpg.git app
+COPY . app
 
 WORKDIR /opt/app
 
