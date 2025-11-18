@@ -18,6 +18,25 @@ document.addEventListener('DOMContentLoaded', function () {
   let version = readVersion();
   let pending = readPending();
   let timer = null;
+  let redirected = false;
+  const shouldRedirectToVictory = function (payload) {
+    if (redirected || window.location.pathname === '/start') {
+      return false;
+    }
+    if (!payload || typeof payload !== 'object') {
+      return false;
+    }
+    if (payload.assessment_pending) {
+      return false;
+    }
+    if (
+      typeof payload.final_score === 'number' &&
+      typeof payload.win_threshold === 'number'
+    ) {
+      return payload.final_score >= payload.win_threshold;
+    }
+    return false;
+  };
   const applyHtml = function (html) {
     container.innerHTML = html;
     root = findRoot();
@@ -47,6 +66,11 @@ document.addEventListener('DOMContentLoaded', function () {
           if (changedVersion || changedPending || !root) {
             applyHtml(data.state_html);
           }
+        }
+        if (shouldRedirectToVictory(data)) {
+          redirected = true;
+          window.location.href = '/start';
+          return;
         }
         if (typeof data.progress_version === 'number') {
           version = data.progress_version;
