@@ -171,21 +171,36 @@ def _profile_image_html(
 def _persona_attribute_items(
     lookup: Mapping[str, Any] | Character,
     value_getter: Callable[[Mapping[str, Any] | Character, str], int],
+    *,
+    tooltip_lookup: Mapping[str, str] | None = None,
+    tooltip_renderer: Callable[[str], str] | None = None,
 ) -> list[str]:
     items: list[str] = []
     for label in ("Leadership", "Technology", "Policy", "Network"):
         key = label.lower()
         score = value_getter(lookup, key)
+        tooltip_html = ""
+        if tooltip_lookup and tooltip_renderer:
+            tooltip_text = tooltip_lookup.get(key)
+            if tooltip_text:
+                tooltip_html = tooltip_renderer(tooltip_text)
         items.append(
             "<li>"
-            + f"<span class='attribute-label'>{escape(label, False)}</span>"
+            + "<span class='attribute-label'>"
+            + f"{escape(label, False)}{tooltip_html}"
+            + "</span>"
             + f"<span class='attribute-value'>{int(score)}</span>"
             + "</li>"
         )
     return items
 
 
-def _persona_card_from_profile(profile: Mapping[str, Any]) -> str:
+def _persona_card_from_profile(
+    profile: Mapping[str, Any],
+    *,
+    tooltip_lookup: Mapping[str, str] | None = None,
+    tooltip_renderer: Callable[[str], str] | None = None,
+) -> str:
     """Return persona markup for a raw profile mapping."""
 
     name = str(profile.get("name", "Player Persona") or "Player Persona")
@@ -208,7 +223,12 @@ def _persona_card_from_profile(profile: Mapping[str, Any]) -> str:
         except (TypeError, ValueError):
             return 0
 
-    attributes = _persona_attribute_items(profile, _score_lookup)
+    attributes = _persona_attribute_items(
+        profile,
+        _score_lookup,
+        tooltip_lookup=tooltip_lookup,
+        tooltip_renderer=tooltip_renderer,
+    )
     attribute_block = (
         "<ul class='persona-attributes'>" + "".join(attributes) + "</ul>"
     )
@@ -228,7 +248,12 @@ def _persona_card_from_profile(profile: Mapping[str, Any]) -> str:
     return "<article class='persona-card'>" + header + attribute_block + body + "</article>"
 
 
-def _persona_card_for_character(character: Character) -> str:
+def _persona_card_for_character(
+    character: Character,
+    *,
+    tooltip_lookup: Mapping[str, str] | None = None,
+    tooltip_renderer: Callable[[str], str] | None = None,
+) -> str:
     """Return persona markup for a :class:`Character`."""
 
     name = getattr(character, "display_name", getattr(character, "name", ""))
@@ -247,7 +272,12 @@ def _persona_card_for_character(character: Character) -> str:
         + (f"<p class='persona-guidance'>{escape(str(guidance), False)}</p>" if guidance else "")
         + "</div></div>"
     )
-    attributes = _persona_attribute_items(character, _character_score)
+    attributes = _persona_attribute_items(
+        character,
+        _character_score,
+        tooltip_lookup=tooltip_lookup,
+        tooltip_renderer=tooltip_renderer,
+    )
     attribute_block = "<ul class='persona-attributes'>" + "".join(attributes) + "</ul>"
     body_parts: list[str] = []
     for label, attr_name in (
@@ -578,12 +608,20 @@ def create_app() -> Flask:
             player_faction=player_faction,
         )
 
-    def _reload_state(config: GameConfig) -> None:
+    def _reload_state(config: GameConfig, *, preserve_time: bool = False) -> None:
         nonlocal config_in_use, initial_characters, game_state, last_history_signature
         global current_config
         logger.info("Reloading game state with config %s", config)
         config_in_use = config
         current_config = config
+        previous_timeline_start = None
+        previous_elapsed_years = 0.0
+        if preserve_time:
+            try:
+                previous_timeline_start = game_state.timeline_start
+                previous_elapsed_years = game_state.time_elapsed_years
+            except Exception:
+                previous_timeline_start = None
         try:
             new_characters = load_characters(config=config)
         except StopIteration:
@@ -618,6 +656,9 @@ def create_app() -> Flask:
                 exc,
             )
             return
+        if preserve_time and previous_timeline_start is not None:
+            new_state.timeline_start = previous_timeline_start
+            new_state.time_elapsed_years = previous_elapsed_years
         game_state = new_state
         pending_player_options.clear()
         player_option_signatures.clear()
@@ -754,6 +795,7 @@ def create_app() -> Flask:
             getattr(character, "name", ""),
             css_class="profile-photo",
             alt_label=f"Portrait of {getattr(character, 'display_name', character.name)}",
+            faction=getattr(character, "faction", None),
         )
         footer_block = ""
         if profile_url:
@@ -1089,7 +1131,7 @@ def create_app() -> Flask:
                 selected_sector,
             )
             with state_lock:
-                _reload_state(new_config)
+                _reload_state(new_config, preserve_time=True)
             return redirect("/start")
 
         sector_cards = []
@@ -1201,7 +1243,7 @@ def create_app() -> Flask:
         campaign_state.sector_choice = None
         current_mode = "campaign"
         with state_lock:
-            _reload_state(load_game_config())
+            _reload_state(load_game_config(), preserve_time=True)
         logger.info("Advanced to campaign level %s", campaign_state.current_level + 1)
         return redirect("/campaign/level")
 
@@ -1267,6 +1309,8 @@ def create_app() -> Flask:
             characters = list(game_state.characters)
             history_snapshot = list(game_state.history)
             player = game_state.player_character
+            win_threshold = game_state.config.win_threshold
+            assessment_pending = game_state.assessment_pending
             conversation_snapshots = [
                 game_state.conversation_history(char) for char in characters
             ]
@@ -1277,10 +1321,8 @@ def create_app() -> Flask:
                 game_state.current_credibility(getattr(char, "faction", None))
                 for char in characters
             ]
-        if (
-            score >= game_state.config.win_threshold
-            or hist_len >= game_state.config.max_rounds
-        ):
+        reached_victory = score >= win_threshold
+        if not reached_victory and hist_len >= game_state.config.max_rounds:
             return redirect("/result")
         if enable_parallel:
             history_signature = tuple(
@@ -1399,6 +1441,32 @@ def create_app() -> Flask:
                 + "</div>"
             )
         options = "<div class='character-options'>" + "".join(option_items) + "</div>"
+        victory_block = ""
+        if reached_victory and not assessment_pending:
+            score_text = f"Final score {score:.0f} / {win_threshold:.0f}."
+            if current_mode == "campaign":
+                detail_text = (
+                    "Review the victory summary to choose your next coalition."
+                )
+            else:
+                detail_text = "You can review the run or reset to chase another outcome."
+            actions: list[str] = [
+                "<div class='victory-actions'>",
+                "<a class='primary-button' href='/result'>View detailed summary</a>",
+            ]
+            if current_mode == "campaign":
+                actions.append("<a class='secondary' href='/campaign/level'>Plan next sector</a>")
+            else:
+                actions.append("<a class='secondary' href='/'>Return to landing</a>")
+            actions.append("</div>")
+            victory_block = (
+                "<div class='victory-banner'>"
+                + "<h2>Victory secured</h2>"
+                + f"<p>{escape(score_text + ' ' + detail_text, False)}</p>"
+                + "".join(actions)
+                + "</div>"
+            )
+
         summary_section = _scenario_summary_section(
             getattr(game_state, "scenario_summary", "")
         )
@@ -1408,6 +1476,7 @@ def create_app() -> Flask:
             + "<h1>Keep the Future Human Survival RPG</h1>"
             + summary_section
             + time_block
+            + victory_block
             + "<form method='get' action='/actions' class='character-select-form'>"
             + options
             + "<div class='character-select-actions'><button type='submit'>Talk</button></div>"
@@ -1434,7 +1503,11 @@ def create_app() -> Flask:
             )
         if profile is None:
             return redirect("/campaign/level")
-        persona_html = _persona_card_from_profile(profile)
+        persona_html = _persona_card_from_profile(
+            profile,
+            tooltip_lookup=attribute_tooltips,
+            tooltip_renderer=_tooltip_icon,
+        )
         name = str(profile.get("name", "") or "Player Persona")
         back_href = safe_return or "/campaign/level"
         actions = [
@@ -1464,7 +1537,11 @@ def create_app() -> Flask:
             credibility_value = game_state.current_credibility(
                 getattr(character, "faction", None)
             )
-        persona_html = _persona_card_for_character(character)
+        persona_html = _persona_card_for_character(
+            character,
+            tooltip_lookup=attribute_tooltips,
+            tooltip_renderer=_tooltip_icon,
+        )
         matrix_html = _credibility_matrix_block(
             player_faction=player_faction,
             partner_faction=getattr(character, "faction", None),
@@ -1493,7 +1570,11 @@ def create_app() -> Flask:
         safe_return = return_target if return_target.startswith("/") else None
         with state_lock:
             player_character = game_state.player_character
-        persona_html = _persona_card_for_character(player_character)
+        persona_html = _persona_card_for_character(
+            player_character,
+            tooltip_lookup=attribute_tooltips,
+            tooltip_renderer=_tooltip_icon,
+        )
         actions = ["<div class='profile-actions'>"]
         if safe_return:
             actions.append(
@@ -2522,6 +2603,110 @@ def create_app() -> Flask:
         return redirect("/")
 
 
+    def _render_faction_article(
+        detail: Mapping[str, Any],
+        *,
+        heading_tag: str = "h2",
+        include_link: bool = False,
+        include_quotes: bool = True,
+    ) -> str:
+        label = str(detail.get("label") or detail.get("faction") or "Faction dossier")
+        heading = f"<{heading_tag}>{escape(label, False)}</{heading_tag}>"
+        faction_name = str(detail.get("faction") or label)
+        intro = f"<p class='faction-subtitle'>{escape(faction_name, False)}</p>"
+
+        def _list_section(title: str, items: Sequence[str], css_class: str = "") -> str:
+            cleaned = [escape(str(entry), False) for entry in items if str(entry).strip()]
+            if not cleaned:
+                return ""
+            class_attr = f" class='{css_class}'" if css_class else ""
+            entries = "".join(f"<li>{text}</li>" for text in cleaned)
+            return (
+                "<div class='faction-section'>"
+                + f"<h3>{escape(title, False)}</h3>"
+                + f"<ul{class_attr}>{entries}</ul>"
+                + "</div>"
+            )
+
+        gaps = []
+        for entry in detail.get("gaps") or []:
+            severity = str(entry.get("severity") or "").strip() if isinstance(entry, Mapping) else ""
+            explanation = (
+                str(entry.get("explanation") or "").strip()
+                if isinstance(entry, Mapping)
+                else str(entry or "").strip()
+            )
+            if not explanation and not severity:
+                continue
+            severity_html = (
+                f"<span class='gap-severity'>{escape(severity.upper(), False)}</span>"
+                if severity
+                else ""
+            )
+            gaps.append(f"<li>{severity_html}{escape(explanation or 'No details provided', False)}</li>")
+        gap_section = ""
+        if gaps:
+            gap_section = (
+                "<div class='faction-section'>"
+                + "<h3>Current gaps</h3>"
+                + "<ul class='gap-list'>"
+                + "".join(gaps)
+                + "</ul></div>"
+            )
+
+        quote_section = ""
+        if include_quotes:
+            quotes = [
+                escape(str(entry), False)
+                for entry in detail.get("referenced_quotes") or []
+                if str(entry or "").strip()
+            ]
+            if quotes:
+                quote_section = (
+                    "<div class='faction-section'>"
+                    + "<h3>Referenced quotes</h3>"
+                    + "<ul class='quote-list'>"
+                    + "".join(f"<li>\u201c{quote}\u201d</li>" for quote in quotes)
+                    + "</ul></div>"
+                )
+
+        initial_section = _list_section(
+            "Initial state",
+            detail.get("initial_states") or [],
+        )
+        desired_section = _list_section(
+            "Desired end state",
+            detail.get("end_states") or [],
+        )
+        sections = "".join(
+            part
+            for part in (initial_section, desired_section, gap_section, quote_section)
+            if part
+        )
+
+        link_block = ""
+        slug = detail.get("slug")
+        if include_link and slug:
+            href = escape(f"/factions/{slug}", quote=True)
+            link_block = (
+                "<div class='faction-actions'>"
+                + f"<a class='primary-button' href='{href}'>Browse dossier</a>"
+                + "</div>"
+            )
+        return (
+            "<article class='faction-detail'>"
+            + heading
+            + intro
+            + sections
+            + link_block
+            + "</article>"
+        )
+
+    scoring_note = (
+        "<p class='faction-note'>Each dossier combines the faction's initial conditions, desired end states, and the gaps you still need to close."
+        " After every action the coalition reassesses these scores, so improvements will appear both here and on the progress meter.</p>"
+    )
+
     @app.route("/factions", methods=["GET"])
     def list_faction_details() -> str:
         with state_lock:
@@ -2578,11 +2763,15 @@ def create_app() -> Flask:
             time_status = game_state.formatted_time_status()
             version = game_state.progress_version
             pending = game_state.assessment_pending
+            final_score = game_state.final_weighted_score()
+            win_threshold = game_state.config.win_threshold
         payload = {
             "state_html": snapshot_html,
             "time_status": time_status,
             "progress_version": version,
             "assessment_pending": pending,
+            "final_score": final_score,
+            "win_threshold": win_threshold,
         }
         return Response(json.dumps(payload), mimetype="application/json")
 
