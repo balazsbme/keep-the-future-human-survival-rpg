@@ -140,12 +140,6 @@ def test_async_npc_responses(mock_char_genai, mock_assess_genai):
             ), patch("web_service.current_config", test_config):
                 app = create_app()
                 client = app.test_client()
-                handler = app.view_functions["character_actions"]
-                closure_map = dict(
-                    zip(handler.__code__.co_freevars, handler.__closure__ or [])
-                )
-                game_state = closure_map["game_state"].cell_contents
-                gs_character = game_state.characters[0]
                 client.get("/start")
                 resp = client.get("/actions", query_string={"character": "0"})
                 assert resp.status_code == 200
@@ -160,26 +154,12 @@ def test_async_npc_responses(mock_char_genai, mock_assess_genai):
                 finish_evt.set()
                 assert completed_evt.wait(timeout=5)
                 attempts = 0
-                history: list = []
-                while attempts < 50:
-                    resp = client.get(
-                        "/actions", query_string={"character": "0"}
-                    )
-                    history = game_state.conversation_history(gs_character)
-                    if any(
-                        item.speaker == gs_character.display_name
-                        and "Coordinate defenses" in item.text
-                        for item in history
-                    ):
-                        break
+                resp = client.get("/actions", query_string={"character": "0"})
+                while attempts < 50 and b"Coordinate defenses" not in resp.data:
                     time.sleep(0.1)
+                    resp = client.get("/actions", query_string={"character": "0"})
                     attempts += 1
-                assert any(
-                    item.speaker == gs_character.display_name
-                    and "Coordinate defenses" in item.text
-                    for item in history
-                ), (history, observed_conversations)
-                assert b"Coordinate defenses" in resp.data
+                assert b"Coordinate defenses" in resp.data, observed_conversations
                 assert any(
                     text == "Starter 1" for text in observed_conversations
                 ), observed_conversations

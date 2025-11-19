@@ -4,11 +4,13 @@
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
 import re
 import threading
+import uuid
 from urllib.parse import quote
 from dataclasses import dataclass, field
 from html import escape
@@ -16,7 +18,8 @@ from pathlib import Path
 from functools import lru_cache
 from typing import Any, Callable, Dict, List, Mapping, Sequence, Tuple
 
-from flask import Flask, Response, redirect, request, send_from_directory
+from flask import Flask, Response, g, redirect, request, send_from_directory
+from werkzeug.local import LocalProxy
 from dotenv import load_dotenv
 import google.generativeai as genai
 import yaml
@@ -406,6 +409,7 @@ PUBLIC_SECTOR_FACTIONS: tuple[str, ...] = (
     "Regulators",
     "CivilSociety",
 )
+SESSION_COOKIE_NAME = "ktfhrpg-session"
 CAMPAIGN_SCENARIOS: tuple[str, ...] = (
     "01-race-to-contain-power",
     "02-building-the-gates",
@@ -428,6 +432,28 @@ class CampaignState:
         self.current_level = 0
         self.sector_choice = None
         self.level_outcomes.clear()
+
+
+@dataclass
+class SessionData:
+    session_id: str
+    config_in_use: GameConfig
+    campaign_state: CampaignState
+    current_mode: str
+    initial_characters: List[Character]
+    game_state: GameState
+    pending_player_options: Dict[
+        Tuple[int, int], Tuple[threading.Event, List[ResponseOption] | None]
+    ]
+    pending_npc_responses: Dict[
+        Tuple[int, int, str], Tuple[threading.Event, List[ResponseOption] | None]
+    ]
+    pending_player_choices: Dict[int, Tuple[int, str, ResponseOption]]
+    player_option_signatures: Dict[Tuple[int, int], tuple]
+    last_history_signature: Tuple[Tuple[str, str], ...] | None
+    assessment_threads: List[threading.Thread]
+    assessment_lock: threading.Lock
+    state_lock: threading.Lock
 
 
 def _option_from_payload(raw: str) -> ResponseOption:
@@ -494,6 +520,113 @@ def create_app() -> Flask:
     assessment_threads: List[threading.Thread] = []
     assessment_lock = threading.Lock()
     state_lock = threading.Lock()
+    default_session = SessionData(
+        session_id=str(uuid.uuid4()),
+        config_in_use=config_in_use,
+        campaign_state=campaign_state,
+        current_mode=current_mode,
+        initial_characters=list(initial_characters),
+        game_state=game_state,
+        pending_player_options=pending_player_options,
+        pending_npc_responses=pending_npc_responses,
+        pending_player_choices=pending_player_choices,
+        player_option_signatures=player_option_signatures,
+        last_history_signature=last_history_signature,
+        assessment_threads=assessment_threads,
+        assessment_lock=assessment_lock,
+        state_lock=state_lock,
+    )
+    session_store: Dict[str, SessionData] = {default_session.session_id: default_session}
+    session_store_lock = threading.Lock()
+    current_session_id = contextvars.ContextVar(
+        "ktfhrpg_session_id", default=default_session.session_id
+    )
+    def _create_session_state(config: GameConfig | None = None) -> SessionData:
+        session_config = config or current_config
+        characters = list(load_characters(config=session_config))
+        state = GameState(list(characters), config_override=session_config)
+        return SessionData(
+            session_id=str(uuid.uuid4()),
+            config_in_use=session_config,
+            campaign_state=CampaignState(),
+            current_mode="free_play",
+            initial_characters=list(characters),
+            game_state=state,
+            pending_player_options={},
+            pending_npc_responses={},
+            pending_player_choices={},
+            player_option_signatures={},
+            last_history_signature=None,
+            assessment_threads=[],
+            assessment_lock=threading.Lock(),
+            state_lock=threading.Lock(),
+        )
+
+    def _get_or_create_session(session_id: str | None) -> tuple[SessionData, bool]:
+        with session_store_lock:
+            if session_id and session_id in session_store:
+                return session_store[session_id], False
+            session = _create_session_state()
+            session_store[session.session_id] = session
+            return session, True
+
+    def _session() -> SessionData:
+        session = getattr(g, "session_data", None)
+        if session is not None:
+            return session
+        session_key = current_session_id.get()
+        if session_key in session_store:
+            return session_store[session_key]
+        return default_session
+
+    @app.before_request
+    def _attach_session() -> None:
+        session_id = request.cookies.get(SESSION_COOKIE_NAME)
+        session, created = _get_or_create_session(session_id)
+        g.session_data = session
+        g.session_cookie_new = created or session_id != session.session_id
+        g._session_token = current_session_id.set(session.session_id)
+
+    @app.after_request
+    def _persist_session_cookie(response: Response) -> Response:
+        if getattr(g, "session_cookie_new", False):
+            response.set_cookie(
+                SESSION_COOKIE_NAME,
+                g.session_data.session_id,
+                httponly=True,
+                samesite="Lax",
+            )
+        return response
+
+    @app.teardown_request
+    def _clear_session(_: Exception | None) -> None:
+        token = getattr(g, "_session_token", None)
+        if token is not None:
+            current_session_id.reset(token)
+
+    def _session_attr(name: str) -> LocalProxy:
+        return LocalProxy(lambda: getattr(_session(), name))
+
+    config_in_use = _session_attr("config_in_use")
+    campaign_state = _session_attr("campaign_state")
+    current_mode = _session_attr("current_mode")
+    initial_characters = _session_attr("initial_characters")
+    game_state = _session_attr("game_state")
+    pending_player_options = _session_attr("pending_player_options")
+    pending_npc_responses = _session_attr("pending_npc_responses")
+    pending_player_choices = _session_attr("pending_player_choices")
+    player_option_signatures = _session_attr("player_option_signatures")
+    last_history_signature = _session_attr("last_history_signature")
+    assessment_threads = _session_attr("assessment_threads")
+    assessment_lock = _session_attr("assessment_lock")
+    state_lock = _session_attr("state_lock")
+
+    def _spawn_thread(target: Callable[..., None], *args, daemon: bool = True) -> threading.Thread:
+        ctx = contextvars.copy_context()
+        thread = threading.Thread(target=lambda: ctx.run(target, *args), daemon=daemon)
+        thread.start()
+        return thread
+
     attribute_tooltips, credibility_tooltip_text, config_field_help_texts = _load_tooltip_texts()
 
     asset_root = Path(__file__).resolve().parent / "assets"
@@ -609,17 +742,15 @@ def create_app() -> Flask:
         )
 
     def _reload_state(config: GameConfig, *, preserve_time: bool = False) -> None:
-        nonlocal config_in_use, initial_characters, game_state, last_history_signature
-        global current_config
+        session = _session()
         logger.info("Reloading game state with config %s", config)
-        config_in_use = config
-        current_config = config
+        session.config_in_use = config
         previous_timeline_start = None
         previous_elapsed_years = 0.0
         if preserve_time:
             try:
-                previous_timeline_start = game_state.timeline_start
-                previous_elapsed_years = game_state.time_elapsed_years
+                previous_timeline_start = session.game_state.timeline_start
+                previous_elapsed_years = session.game_state.time_elapsed_years
             except Exception:
                 previous_timeline_start = None
         try:
@@ -628,16 +759,17 @@ def create_app() -> Flask:
             logger.warning(
                 "Character loading interrupted by exhausted mock; reusing existing roster"
             )
-            new_characters = list(initial_characters)
+            new_characters = list(session.initial_characters)
         except RuntimeError as exc:
             logger.error(
                 "Failed to load characters with config %s: %s; reusing existing roster",
                 config,
                 exc,
             )
-            new_characters = list(initial_characters)
-        initial_characters = list(new_characters)
-        existing_player = getattr(game_state, "player_character", None)
+            new_characters = list(session.initial_characters)
+        session.initial_characters = list(new_characters)
+        initial_characters = list(session.initial_characters)
+        existing_player = getattr(session.game_state, "player_character", None)
         try:
             new_state = GameState(list(initial_characters), config_override=config)
         except StopIteration:
@@ -659,14 +791,14 @@ def create_app() -> Flask:
         if preserve_time and previous_timeline_start is not None:
             new_state.timeline_start = previous_timeline_start
             new_state.time_elapsed_years = previous_elapsed_years
-        game_state = new_state
-        pending_player_options.clear()
-        player_option_signatures.clear()
-        pending_npc_responses.clear()
-        pending_player_choices.clear()
-        with assessment_lock:
-            assessment_threads.clear()
-        last_history_signature = None
+        session.game_state = new_state
+        session.pending_player_options.clear()
+        session.player_option_signatures.clear()
+        session.pending_npc_responses.clear()
+        session.pending_player_choices.clear()
+        with session.assessment_lock:
+            session.assessment_threads.clear()
+        session.last_history_signature = None
 
     def _format_summary_html(text: str) -> str:
         stripped = (text or "").strip()
@@ -882,10 +1014,9 @@ def create_app() -> Flask:
 
     @app.route("/free-play", methods=["GET", "POST"])
     def free_play() -> Response | str:
-        nonlocal config_in_use, current_mode
-        current_mode = "free_play"
+        _session().current_mode = "free_play"
         campaign_state.active = False
-        config_snapshot = config_in_use
+        config_snapshot = _session().config_in_use
         selectable_scenarios = [
             name
             for name in available_scenarios
@@ -1098,21 +1229,19 @@ def create_app() -> Flask:
 
     @app.route("/campaign/start", methods=["POST"])
     def campaign_start() -> Response:
-        nonlocal current_mode, config_in_use
-        current_mode = "campaign"
+        _session().current_mode = "campaign"
         campaign_state.reset()
         with state_lock:
             _reload_state(load_game_config())
-            config_snapshot = config_in_use
+            config_snapshot = _session().config_in_use
         logger.info("Campaign started with baseline config %s", config_snapshot)
         return redirect("/campaign/level")
 
     @app.route("/campaign/level", methods=["GET", "POST"])
     def campaign_level() -> Response | str:
-        nonlocal current_mode, config_in_use
         if not campaign_state.active:
             return redirect("/")
-        current_mode = "campaign"
+        _session().current_mode = "campaign"
         level_index = min(campaign_state.current_level, len(CAMPAIGN_SCENARIOS) - 1)
         scenario_key = CAMPAIGN_SCENARIOS[level_index]
         scenario_name = _scenario_display_name(scenario_key)
@@ -1233,14 +1362,13 @@ def create_app() -> Flask:
 
     @app.route("/campaign/next", methods=["POST"])
     def campaign_next() -> Response:
-        nonlocal current_mode, config_in_use
         if not campaign_state.active:
             return redirect("/")
         if campaign_state.current_level >= len(CAMPAIGN_SCENARIOS) - 1:
             return redirect("/campaign/complete")
         campaign_state.current_level += 1
         campaign_state.sector_choice = None
-        current_mode = "campaign"
+        _session().current_mode = "campaign"
         with state_lock:
             _reload_state(load_game_config(), preserve_time=True)
         logger.info("Advanced to campaign level %s", campaign_state.current_level + 1)
@@ -1248,8 +1376,7 @@ def create_app() -> Flask:
 
     @app.route("/campaign/complete", methods=["GET"])
     def campaign_complete() -> str:
-        nonlocal current_mode
-        current_mode = "free_play"
+        _session().current_mode = "free_play"
         campaign_state.active = False
         summaries = []
         for idx, scenario in enumerate(CAMPAIGN_SCENARIOS):
@@ -1293,7 +1420,7 @@ def create_app() -> Flask:
     @app.route("/start", methods=["GET"])
     def list_characters() -> Response:
         logger.info("Listing characters")
-        nonlocal last_history_signature
+        session = _session()
         if (
             current_mode == "campaign"
             and campaign_state.active
@@ -1327,12 +1454,12 @@ def create_app() -> Flask:
             history_signature = tuple(
                 (str(label), str(action)) for label, action in history_snapshot
             )
-            if history_signature != last_history_signature:
+            if history_signature != session.last_history_signature:
                 pending_player_options.clear()
                 player_option_signatures.clear()
                 pending_npc_responses.clear()
             pending_player_choices.clear()
-            last_history_signature = history_signature
+            session.last_history_signature = history_signature
 
             def launch(
                 idx: int,
@@ -1404,19 +1531,16 @@ def create_app() -> Flask:
                         char
                     ).items()
                 }
-                threading.Thread(
-                    target=worker,
-                    args=(
-                        tuple(history_snapshot),
-                        char,
-                        tuple(convo),
-                        cache_snapshot,
-                        key,
-                        event,
-                        signature,
-                    ),
-                    daemon=True,
-                ).start()
+                _spawn_thread(
+                    worker,
+                    tuple(history_snapshot),
+                    char,
+                    tuple(convo),
+                    cache_snapshot,
+                    key,
+                    event,
+                    signature,
+                )
 
             for idx, (char, convo, actions) in enumerate(
                 zip(characters, conversation_snapshots, action_snapshots)
@@ -1717,18 +1841,15 @@ def create_app() -> Flask:
                 character
             ).items()
         }
-        threading.Thread(
-            target=worker,
-            args=(
-                tuple(history),
-                tuple(conversation),
-                cache_snapshot,
-                character,
-                key,
-                signature,
-            ),
-            daemon=True,
-        ).start()
+        _spawn_thread(
+            worker,
+            tuple(history),
+            tuple(conversation),
+            cache_snapshot,
+            character,
+            key,
+            signature,
+        )
         _clear_player_option_entries(char_id, keep_length=conversation_length)
         return None, True
 
@@ -1849,18 +1970,15 @@ def create_app() -> Flask:
                 pending_npc_responses[pending_key] = (done_event, list(replies))
                 done_event.set()
 
-            threading.Thread(
-                target=worker,
-                args=(
-                    tuple(history),
-                    tuple(conversation),
-                    option,
-                    player,
-                    base_length + 1,
-                    key,
-                ),
-                daemon=True,
-            ).start()
+            _spawn_thread(
+                worker,
+                tuple(history),
+                tuple(conversation),
+                option,
+                player,
+                base_length + 1,
+                key,
+            )
 
     def _resolve_npc_responses(
         char_id: int,
@@ -2239,9 +2357,11 @@ def create_app() -> Flask:
                                     except ValueError:
                                         pass
 
+                        ctx = contextvars.copy_context()
                         t = threading.Thread(
-                            target=run_assessment,
-                            args=(chars_snapshot, history_snapshot),
+                            target=lambda: ctx.run(
+                                run_assessment, chars_snapshot, history_snapshot
+                            ),
                             daemon=True,
                         )
                         with assessment_lock:
@@ -2503,9 +2623,11 @@ def create_app() -> Flask:
                             except ValueError:
                                 pass
 
+                ctx = contextvars.copy_context()
                 t = threading.Thread(
-                    target=run_assessment,
-                    args=(chars_snapshot, history_snapshot),
+                    target=lambda: ctx.run(
+                        run_assessment, chars_snapshot, history_snapshot
+                    ),
                     daemon=True,
                 )
                 with assessment_lock:
@@ -2580,9 +2702,11 @@ def create_app() -> Flask:
                         except ValueError:
                             pass
 
+            ctx = contextvars.copy_context()
             t = threading.Thread(
-                target=run_assessment,
-                args=(chars_snapshot, history_snapshot),
+                target=lambda: ctx.run(
+                    run_assessment, chars_snapshot, history_snapshot
+                ),
                 daemon=True,
             )
             with assessment_lock:
@@ -2597,8 +2721,9 @@ def create_app() -> Flask:
     @app.route("/reset", methods=["POST"])
     def reset() -> Response:
         logger.info("Resetting game state")
+        session = _session()
         with state_lock:
-            _reload_state(config_in_use)
+            _reload_state(session.config_in_use)
         return redirect("/")
 
 
