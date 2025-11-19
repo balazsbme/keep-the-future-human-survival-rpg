@@ -28,23 +28,28 @@ def test_dynamic_schema_and_inserts(tmp_path: Path) -> None:
     assert "governments_triplet_1" in columns
     assert "governments_triplet_2" in columns
     assert "civilsociety_triplet_1" in columns
+    assert "session_id" in columns
 
     credibility_columns = _get_columns(connector.connection, "credibility")
     assert "credibility_governments" in credibility_columns
     assert "credibility_civilsociety" in credibility_columns
+    assert "session_id" in credibility_columns
 
     execution_columns = _get_columns(connector.connection, "executions")
     assert "action_time_cost_years" in execution_columns
     assert "format_prompt_character_limit" in execution_columns
     assert "conversation_force_action_after" in execution_columns
     assert "log_filename" in execution_columns
+    assert "session_id" in execution_columns
 
     results_columns = _get_columns(connector.connection, "results")
     assert "log_warning_count" in results_columns
     assert "log_error_count" in results_columns
+    assert "session_id" in results_columns
 
     execution_id = connector.insert_execution(
         {
+            "session_id": "abc",
             "player_class": "TestPlayer",
             "automated_player_class": "Auto",
             "scenario": "complete",
@@ -61,6 +66,7 @@ def test_dynamic_schema_and_inserts(tmp_path: Path) -> None:
     action_id = connector.insert_action(
         {
             "execution_id": execution_id,
+            "session_id": "abc",
             "actor": "NPC",
             "title": "Action",
             "option_text": "Do something",
@@ -76,6 +82,7 @@ def test_dynamic_schema_and_inserts(tmp_path: Path) -> None:
         {
             "execution_id": execution_id,
             "action_id": action_id,
+            "session_id": "abc",
             "scenario": "complete",
             "final_weighted_score": 42,
             "assessment_json": {"after": {"Governments": {"1": 50}}},
@@ -90,6 +97,7 @@ def test_dynamic_schema_and_inserts(tmp_path: Path) -> None:
         {
             "execution_id": execution_id,
             "action_id": action_id,
+            "session_id": "abc",
             "cost": 3,
             "reroll_attempt_count": 0,
             "credibility_json": {"CivilSociety": 100},
@@ -101,6 +109,7 @@ def test_dynamic_schema_and_inserts(tmp_path: Path) -> None:
     connector.insert_result(
         {
             "execution_id": execution_id,
+            "session_id": "abc",
             "successful_execution": True,
             "result": "Win",
             "log_warning_count": 2,
@@ -108,13 +117,14 @@ def test_dynamic_schema_and_inserts(tmp_path: Path) -> None:
         }
     )
     row = connector.connection.execute(
-        "SELECT result, successful_execution, log_warning_count, log_error_count FROM results WHERE execution_id = ?",
+        "SELECT result, successful_execution, log_warning_count, log_error_count, session_id FROM results WHERE execution_id = ?",
         (execution_id,),
     ).fetchone()
     assert row["result"] == "Win"
     assert row["successful_execution"] == 1
     assert row["log_warning_count"] == 2
     assert row["log_error_count"] == 1
+    assert row["session_id"] == "abc"
 
     connector.commit()
     connector.close()

@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -227,6 +228,7 @@ class PlayerManager:
         counter_handler.addFilter(thread_filter)
         _configure_root_logger(file_handler, counter_handler)
         observer: Optional[GameRunObserver] = None
+        session_id = str(uuid.uuid4())
         if self._game_observer_factory is not None:
             observer_candidate = self._game_observer_factory(
                 state, player, player_key, game_index
@@ -240,6 +242,7 @@ class PlayerManager:
                     automated_player_class=player.__class__.__name__,
                     game_index=game_index,
                     log_filename=log_filename,
+                    session_id=session_id,
                 )
 
         rounds_progress: List[Dict[str, object]] = []

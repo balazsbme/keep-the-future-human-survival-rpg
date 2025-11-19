@@ -50,12 +50,12 @@ class WebServiceTest(unittest.TestCase):
             ):
                 app = create_app()
                 client = app.test_client()
-        resp = client.get("/free-play")
-        html = resp.data.decode()
-        for name in selectable:
-            self.assertIn(f"value='{name}'", html)
-        for name in hidden:
-            self.assertNotIn(f"value='{name}'", html)
+                resp = client.get("/free-play")
+                html = resp.data.decode()
+                for name in selectable:
+                    self.assertIn(f"value='{name}'", html)
+                for name in hidden:
+                    self.assertNotIn(f"value='{name}'", html)
 
     @patch("rpg.game_state.random.randint", return_value=20)
     def test_conversation_and_win_flow(self, mock_uniform):
@@ -140,72 +140,72 @@ class WebServiceTest(unittest.TestCase):
                 app = create_app()
                 client = app.test_client()
 
-            resp = client.get("/")
-            page = resp.data.decode()
-            self.assertEqual(resp.status_code, 200)
-            self.assertIn("AI Safety Negotiation Game", page)
-            self.assertIn("Free Play", page)
-            self.assertIn("Campaign", page)
+                resp = client.get("/")
+                page = resp.data.decode()
+                self.assertEqual(resp.status_code, 200)
+                self.assertIn("Keep the Future Human Survival RPG", page)
+                self.assertIn("Free Play", page)
+                self.assertIn("Campaign", page)
 
-            start_resp = client.get("/start")
-            start_page = start_resp.data.decode()
-            self.assertEqual(start_resp.status_code, 200)
-            self.assertIn("Talk", start_page)
-            self.assertIn("Scenario Overview", start_page)
-            self.assertIn("Test scenario summary.", start_page)
+                start_resp = client.get("/start")
+                start_page = start_resp.data.decode()
+                self.assertEqual(start_resp.status_code, 200)
+                self.assertIn("Talk", start_page)
+                self.assertIn("Scenario Overview", start_page)
+                self.assertIn("Test scenario summary.", start_page)
 
-            convo_resp = client.get("/actions", query_string={"character": "0"})
-            convo_page = convo_resp.data.decode()
-            self.assertEqual(convo_resp.status_code, 200)
-            self.assertIn("Conversation with", convo_page)
-            self.assertIn(character.display_name, convo_page)
-            self.assertIn("No conversation yet", convo_page)
-            starter_text = "What worries you most?"
-            self.assertIn(starter_text, convo_page)
+                convo_resp = client.get("/actions", query_string={"character": "0"})
+                convo_page = convo_resp.data.decode()
+                self.assertEqual(convo_resp.status_code, 200)
+                self.assertIn("Conversation with", convo_page)
+                self.assertIn(character.display_name, convo_page)
+                self.assertIn("No conversation yet", convo_page)
+                starter_text = "What worries you most?"
+                self.assertIn(starter_text, convo_page)
 
-            chat_payload = json.dumps(
-                ResponseOption(text=starter_text, type="chat").to_payload()
-            )
-            follow_resp = client.post(
-                "/actions",
-                data={"character": "0", "response": chat_payload},
-                follow_redirects=True,
-            )
-            follow_page = follow_resp.data.decode()
-            self.assertIn("<em>(chat)</em>", follow_page)
-            self.assertIn("Action 1 [Leadership]", follow_page)
-            self.assertIn("title='Coordinate oversight teams'", follow_page)
+                chat_payload = json.dumps(
+                    ResponseOption(text=starter_text, type="chat").to_payload()
+                )
+                follow_resp = client.post(
+                    "/actions",
+                    data={"character": "0", "response": chat_payload},
+                    follow_redirects=True,
+                )
+                follow_page = follow_resp.data.decode()
+                self.assertIn("<em>(chat)</em>", follow_page)
+                self.assertIn("Action 1 [Leadership]", follow_page)
+                self.assertIn("title='Coordinate oversight teams'", follow_page)
 
-            action_option = ResponseOption(
-                text=npc_action_text,
-                type="action",
-                related_triplet=1,
-                related_attribute="leadership",
-            )
-            action_resp = client.post(
-                "/actions",
-                data={
-                    "character": "0",
-                    "response": json.dumps(action_option.to_payload()),
-                },
-                follow_redirects=True,
-            )
-            action_page = action_resp.data.decode()
-            self.assertEqual(action_resp.status_code, 200)
-            self.assertIn("Action Outcome", action_page)
-            self.assertIn("Succeeded", action_page)
-            self.assertIn(npc_action_text, action_page)
+                action_option = ResponseOption(
+                    text=npc_action_text,
+                    type="action",
+                    related_triplet=1,
+                    related_attribute="leadership",
+                )
+                action_resp = client.post(
+                    "/actions",
+                    data={
+                        "character": "0",
+                        "response": json.dumps(action_option.to_payload()),
+                    },
+                    follow_redirects=True,
+                )
+                action_page = action_resp.data.decode()
+                self.assertEqual(action_resp.status_code, 200)
+                self.assertIn("Action Outcome", action_page)
+                self.assertIn("Succeeded", action_page)
+                self.assertIn(npc_action_text, action_page)
 
-            inst_resp = client.get("/instructions")
-            inst_page = inst_resp.data.decode()
-            self.assertEqual(inst_resp.status_code, 200)
-            self.assertIn("Instructions", inst_page)
-            self.assertIn("Reference material", inst_page)
+                inst_resp = client.get("/instructions")
+                inst_page = inst_resp.data.decode()
+                self.assertEqual(inst_resp.status_code, 200)
+                self.assertIn("Instructions", inst_page)
+                self.assertIn("Reference material", inst_page)
 
-            reset_resp = client.post("/reset", follow_redirects=True)
-            reset_page = reset_resp.data.decode()
-            self.assertEqual(reset_resp.request.path, "/")
-            self.assertIn("Free Play", reset_page)
+                reset_resp = client.post("/reset", follow_redirects=True)
+                reset_page = reset_resp.data.decode()
+                self.assertEqual(reset_resp.request.path, "/")
+                self.assertIn("Free Play", reset_page)
 
 
 if __name__ == "__main__":

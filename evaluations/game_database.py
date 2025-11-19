@@ -8,6 +8,7 @@ import json
 import os
 from dataclasses import asdict
 from datetime import datetime, timezone
+import uuid
 from typing import Dict, Iterable, MutableMapping
 
 from rpg.game_state import ActionAttempt, GameState
@@ -27,6 +28,7 @@ class GameRunObserver:
         automated_player_class: str,
         game_index: int,
         log_filename: str,
+        session_id: str | None = None,
     ) -> None:
         raise NotImplementedError
 
@@ -71,6 +73,7 @@ class GameDatabaseRecorder(GameRunObserver):
         self._connector = connector
         self._notes = notes
         self._execution_id: int | None = None
+        self._session_id: str | None = None
         self._pre_turn_snapshot: Dict[str, list[int]] | None = None
         self._cached_credibility_targets: Iterable[str] | None = None
         self._faction_triplet_counts: Dict[str, int] | None = None
@@ -89,6 +92,7 @@ class GameDatabaseRecorder(GameRunObserver):
         automated_player_class: str,
         game_index: int,
         log_filename: str,
+        session_id: str | None = None,
     ) -> None:
         self._faction_triplet_counts = {
             faction: len(scores)
@@ -101,12 +105,15 @@ class GameDatabaseRecorder(GameRunObserver):
         self._connector.ensure_columns(
             "executions",
             {
+                "session_id": "TEXT",
                 "action_time_cost_years": "REAL",
                 "format_prompt_character_limit": "INTEGER",
                 "conversation_force_action_after": "INTEGER",
                 "log_filename": "TEXT",
             },
         )
+        for table in ("actions", "assessments", "credibility", "results"):
+            self._connector.ensure_columns(table, {"session_id": "TEXT"})
         self._connector.ensure_columns(
             "results",
             {
@@ -118,6 +125,7 @@ class GameDatabaseRecorder(GameRunObserver):
             self._faction_triplet_counts,
             self._cached_credibility_targets,
         )
+        self._session_id = session_id or str(uuid.uuid4())
         config_payload = asdict(state.config)
         log_level = os.environ.get("LOG_LEVEL")
         enable_parallelism = os.environ.get("ENABLE_PARALLELISM")
@@ -133,6 +141,7 @@ class GameDatabaseRecorder(GameRunObserver):
         except ValueError:
             max_exchanges_int = None
         metadata = {
+            "session_id": self._session_id,
             "player_class": player_class,
             "automated_player_class": automated_player_class,
             "config_json": json.dumps(config_payload, sort_keys=True),
@@ -223,6 +232,7 @@ class GameDatabaseRecorder(GameRunObserver):
         option_payload = attempt.option.to_payload()
         data: MutableMapping[str, object] = {
             "execution_id": self._execution_id,
+            "session_id": self._session_id,
             "actor": state.last_action_actor,
             "title": attempt.label,
             "option_text": attempt.option.text,
@@ -252,6 +262,7 @@ class GameDatabaseRecorder(GameRunObserver):
         assessment_data: Dict[str, object] = {
             "execution_id": self._execution_id,
             "action_id": action_id,
+            "session_id": self._session_id,
             "scenario": state.config.scenario,
             "final_weighted_score": state.final_weighted_score(),
         }
@@ -278,6 +289,7 @@ class GameDatabaseRecorder(GameRunObserver):
         credibility_data: Dict[str, object] = {
             "execution_id": self._execution_id,
             "action_id": action_id,
+            "session_id": self._session_id,
             "cost": attempt.credibility_cost,
             "reroll_attempt_count": state.last_reroll_count,
             "credibility_json": player_row,
@@ -298,6 +310,7 @@ class GameDatabaseRecorder(GameRunObserver):
             return
         payload: Dict[str, object] = {
             "execution_id": self._execution_id,
+            "session_id": self._session_id,
             "successful_execution": successful_execution,
             "result": result or "N/A",
             "log_warning_count": int(self._log_warning_count or 0),
@@ -310,6 +323,7 @@ class GameDatabaseRecorder(GameRunObserver):
 
     def _reset(self) -> None:
         self._execution_id = None
+        self._session_id = None
         self._pre_turn_snapshot = None
         self._cached_credibility_targets = None
         self._faction_triplet_counts = None

@@ -3,6 +3,7 @@ PRAGMA foreign_keys = ON;
 -- 1) Game execution info (one row per run)
 CREATE TABLE IF NOT EXISTS executions (
   execution_id                    INTEGER PRIMARY KEY,
+  session_id                      TEXT,
   player_class                    TEXT,
   automated_player_class          TEXT,
   config_json                     TEXT,
@@ -25,6 +26,7 @@ CREATE TABLE IF NOT EXISTS executions (
 CREATE TABLE IF NOT EXISTS actions (
   action_id             INTEGER PRIMARY KEY,
   execution_id          INTEGER NOT NULL,
+  session_id            TEXT,
   actor                 TEXT,
   title                 TEXT,
   option_text           TEXT,
@@ -51,6 +53,7 @@ CREATE TABLE IF NOT EXISTS assessments (
   assessment_id         INTEGER PRIMARY KEY,
   execution_id          INTEGER NOT NULL,
   action_id             INTEGER NOT NULL,
+  session_id            TEXT,
   scenario              TEXT,
   final_weighted_score  INTEGER,
   assessment_json       TEXT,
@@ -66,6 +69,7 @@ CREATE TABLE IF NOT EXISTS credibility (
   credibility_vector_id INTEGER PRIMARY KEY,
   execution_id          INTEGER NOT NULL,
   action_id             INTEGER NOT NULL,
+  session_id            TEXT,
   cost                  INTEGER NOT NULL,
   reroll_attempt_count  INTEGER NOT NULL,
   credibility_json      TEXT,
@@ -76,6 +80,7 @@ CREATE TABLE IF NOT EXISTS credibility (
 -- 5) Results recorded per execution
 CREATE TABLE IF NOT EXISTS results (
   execution_id          INTEGER PRIMARY KEY,
+  session_id            TEXT,
   successful_execution  INTEGER NOT NULL,
   result                TEXT,
   error_info            TEXT,
