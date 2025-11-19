@@ -257,7 +257,7 @@ class Character(ABC):
         schema_variant = self._response_schema_variant()
         schema_text = _response_schema_text()
         instructions = (
-            "Return the result as a JSON array with exactly three objects in order. Each "
+            "Return the result as a JSON array. Each "
             "object must contain the keys 'text', 'type', 'related-triplet', and "
             "'related-attribute'. The 'text' field holds the natural language response, "
             "which should be short, at most 1-2 sentences, with a hard-limit of "

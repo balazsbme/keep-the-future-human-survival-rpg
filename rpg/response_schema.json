@@ -51,15 +51,23 @@
           ]
         },
         "related-triplet": {
-          "type": "integer",
-          "minimum": 1
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "const": "None"
+            }
+          ]
         },
         "related-attribute": {
           "enum": [
             "leadership",
             "technology",
             "policy",
-            "network"
+            "network",
+            "None" 
           ]
         }
       }

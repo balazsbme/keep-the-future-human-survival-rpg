@@ -1,6 +1,6 @@
 Governments:
   MarkdownContext: |
-    ## Governments & Security Establishments
+    ## Governments
     - **Influence**: Can legislate compute caps, enforce reporting, establish oversight agencies, and negotiate international treaties. Security establishments must shift from AGI “Manhattan projects” to Tool AI “Apollo projects.”
     - **Resources/Capabilities**: Lawmaking power, export controls, intelligence and defense budgets, diplomatic channels.
     - **Motivations**:
@@ -10,7 +10,7 @@ Governments:
 
 Corporations:
   MarkdownContext: |
-    ## Corporations (Major Technology Companies)
+    ## Corporations
     - **Influence**: Directly control AI development trajectory; could stop the AGI race and redirect toward Tool AI. Possess lobbying power to resist or shape regulation.
     - **Resources/Capabilities**: Massive compute, datasets, top AI researchers, financial power, ability to frame narratives of AGI inevitability.
     - **Motivations**:
@@ -21,7 +21,7 @@ Corporations:
 
 HardwareManufacturers:
   MarkdownContext: |
-    ## Hardware Manufacturers & Chip Supply Chain
+    ## Hardware Manufacturers
     - **Influence**: Can embed governance features into chips, enforce compute metering, and serve as chokepoints for international verification.
     - **Resources/Capabilities**: Concentrated global supply chain (TSMC, ASML, NVIDIA, AMD), technical feasibility to implement cryptographic and security controls.
     - **Motivations**:
@@ -31,7 +31,7 @@ HardwareManufacturers:
 
 Regulators:
   MarkdownContext: |
-    ## Regulators & International Institutions
+    ## Regulators
     - **Influence**: Can classify AGI as unacceptable risk, enforce tiered licensing, and potentially create international bodies like an AI IAEA.
     - **Resources/Capabilities**: Authority to set laws, technical standards, and enforcement regimes; ability to mandate liability.
     - **Motivations**:
@@ -42,7 +42,7 @@ Regulators:
 
 CivilSociety:
   MarkdownContext: |
-    ## Civil Society & the Public
+    ## Civil Society
     - **Influence**: Can mobilize public opinion, pressure policymakers, resist AGI inevitability narratives, and demand redistributive mechanisms like data dignity.
     - **Resources/Capabilities**: NGOs, advocacy groups, democratic leverage, public polling already showing opposition to AGI.
     - **Motivations**:
@@ -53,7 +53,7 @@ CivilSociety:
 
 ScientificCommunity:
   MarkdownContext: |
-    ## Scientific & AI Research Community
+    ## Scientific Community
     - **Influence**: Provide technical frameworks for Tool AI and safety verification, educate the public and policymakers, reframe narratives around AI safety.
     - **Resources/Capabilities**: Technical expertise, credibility, ability to innovate safer architectures and red-team unsafe systems.
     - **Motivations**:
