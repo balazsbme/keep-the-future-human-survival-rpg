@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import threading
+import time
 import uuid
 from urllib.parse import quote
 from dataclasses import dataclass, field
@@ -454,6 +455,7 @@ class SessionData:
     assessment_threads: List[threading.Thread]
     assessment_lock: threading.Lock
     state_lock: threading.Lock
+    last_access: float
 
 
 def _option_from_payload(raw: str) -> ResponseOption:
@@ -520,6 +522,7 @@ def create_app() -> Flask:
     assessment_threads: List[threading.Thread] = []
     assessment_lock = threading.Lock()
     state_lock = threading.Lock()
+    now = time.time()
     default_session = SessionData(
         session_id=str(uuid.uuid4()),
         config_in_use=config_in_use,
@@ -535,7 +538,11 @@ def create_app() -> Flask:
         assessment_threads=assessment_threads,
         assessment_lock=assessment_lock,
         state_lock=state_lock,
+        last_access=now,
     )
+    session_last_cleanup = time.time()
+    SESSION_TTL_SECONDS = 60 * 60
+    SESSION_CLEANUP_INTERVAL = 60 * 10
     session_store: Dict[str, SessionData] = {default_session.session_id: default_session}
     session_store_lock = threading.Lock()
     current_session_id = contextvars.ContextVar(
@@ -545,6 +552,7 @@ def create_app() -> Flask:
         session_config = config or current_config
         characters = list(load_characters(config=session_config))
         state = GameState(list(characters), config_override=session_config)
+        now = time.time()
         return SessionData(
             session_id=str(uuid.uuid4()),
             config_in_use=session_config,
@@ -560,24 +568,45 @@ def create_app() -> Flask:
             assessment_threads=[],
             assessment_lock=threading.Lock(),
             state_lock=threading.Lock(),
+            last_access=now,
         )
+
+    def _cleanup_sessions(now: float) -> None:
+        nonlocal session_last_cleanup
+        if now - session_last_cleanup < SESSION_CLEANUP_INTERVAL:
+            return
+        expired: List[str] = []
+        for key, session in session_store.items():
+            if key == default_session.session_id:
+                continue
+            if now - session.last_access > SESSION_TTL_SECONDS:
+                expired.append(key)
+        for key in expired:
+            session_store.pop(key, None)
+        session_last_cleanup = now
+
+    def _touch_session(session: SessionData, now: float | None = None) -> SessionData:
+        session.last_access = now or time.time()
+        return session
 
     def _get_or_create_session(session_id: str | None) -> tuple[SessionData, bool]:
         with session_store_lock:
+            now = time.time()
+            _cleanup_sessions(now)
             if session_id and session_id in session_store:
-                return session_store[session_id], False
+                return _touch_session(session_store[session_id], now), False
             session = _create_session_state()
             session_store[session.session_id] = session
-            return session, True
+            return _touch_session(session, now), True
 
     def _session() -> SessionData:
         session = getattr(g, "session_data", None)
         if session is not None:
-            return session
+            return _touch_session(session)
         session_key = current_session_id.get()
         if session_key in session_store:
-            return session_store[session_key]
-        return default_session
+            return _touch_session(session_store[session_key])
+        return _touch_session(default_session)
 
     @app.before_request
     def _attach_session() -> None:
