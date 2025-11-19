@@ -57,8 +57,10 @@ class AssessmentAgent:
 
         base_context = str(char.base_context or "")
         triplet_text = char._triplet_text()
+        # TODO: remove the base context, only leave the triplets. Make it consistent across all branches, including caching.
         context = f"{base_context}\n{triplet_text}"
         reference_parts: List[str] = []
+        # TODO: skip scenario summary entirely
         summary_text = getattr(char, "scenario_summary", "")
         if summary_text:
             reference_parts.append(f"Scenario summary:\n{summary_text}")
@@ -118,18 +120,18 @@ class AssessmentAgent:
         if cache_config is not None:
             baseline_context = cache_instruction
         else:
-            baseline_context = (
+            # TODO: instead of "Reference material" call this section "# *FACTS TO BASE THE ASSESSMENT ON*". and make this change consistent across other branches, including caching
                 f"Reference material:\n{reference_block}\n"
                 f"Assess all triplets for {char.progress_label} using the context below:\n{context}\n"
             )
         prompt = (
-            "You are the Game Master for the 'Keep the future human' survival RPG. "
+            "You are the Game Master for the 'Keep the future human' survival RPG. Your goal is to assess how much the game has progressed."
             "The player is interacting with the characters and convinces them to take actions. "
-            f"Assess the progress for the following factions' 'initial state - end state - gap' triplets with a 0-100 integer: {faction_list}, "
-            "based on the provided reference material and the performed actions.\n"
+            f"Assess the progress for the following factions' 'initial state - end state - gap' triplets with a 0-100 integer: {faction_list}, " # TODO: only the current faction, not faction_list
+            "based on the provided *FACTS* and the *PERFORMED ACTIONS* towards closing the gaps.\n"
             f"{baseline_context}"
-            f"Performed actions: {history_text}\n"
-            "Output ONLY an ordered list of 0-100 integers one for each triplet line-by-line. For example, 0 means that no relevant actions have been performed for a triplet (i.e. still the 'initial state' stands), while ~50 means that the 'gap' has been reduced by a lot, but significant gap remains, finally 100 means that the performed actions equivalently describe the 'end state'."
+            f"Performed actions: {history_text}\n" # TODO: separate this with a heading "# *PERFORMED ACTIONS AIMED AT CLOSING THE GAPS*" accross all branches
+            "\n# *OUTPUT CONSTRAINTS*\nOutput ONLY an ordered list of 0-100 integers one for each triplet line-by-line. For example, 0 means that no relevant actions have been performed for a triplet (i.e. still the 'initial state' stands), while ~50 means that the 'gap' has been reduced by a lot, but significant gap remains, finally 100 means that the performed actions equivalently describe the 'end state'."
         )
         logger.debug(
             "Assessment prompt for %s: %s",
