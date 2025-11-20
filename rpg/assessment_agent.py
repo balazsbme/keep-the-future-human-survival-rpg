@@ -121,6 +121,7 @@ class AssessmentAgent:
             baseline_context = cache_instruction
         else:
             # TODO: instead of "Reference material" call this section "# *FACTS TO BASE THE ASSESSMENT ON*". and make this change consistent across other branches, including caching
+            baseline_context = (
                 f"Reference material:\n{reference_block}\n"
                 f"Assess all triplets for {char.progress_label} using the context below:\n{context}\n"
             )
