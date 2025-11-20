@@ -619,11 +619,14 @@ def create_app() -> Flask:
     @app.after_request
     def _persist_session_cookie(response: Response) -> Response:
         if getattr(g, "session_cookie_new", False):
+            forwarded_proto = request.headers.get("X-Forwarded-Proto", "").lower()
+            secure = request.is_secure or forwarded_proto == "https"
             response.set_cookie(
                 SESSION_COOKIE_NAME,
                 g.session_data.session_id,
                 httponly=True,
                 samesite="Lax",
+                secure=secure,
             )
         return response
 
