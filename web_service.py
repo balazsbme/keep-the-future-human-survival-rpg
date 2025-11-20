@@ -2319,7 +2319,17 @@ def create_app() -> Flask:
 
     @app.route("/actions", methods=["GET", "POST"])
     def character_actions() -> Response:
-        char_id = int(request.values["character"])
+        raw_char_id = request.values.get("character")
+        if raw_char_id is None:
+            return redirect("/start")
+        try:
+            char_id = int(raw_char_id)
+        except (TypeError, ValueError):
+            return redirect("/start")
+        with state_lock:
+            character_count = len(game_state.characters)
+        if char_id < 0 or char_id >= character_count:
+            return redirect("/start")
         if request.method == "POST" and "response" in request.form:
             option = _option_from_payload(request.form["response"])
             with state_lock:
