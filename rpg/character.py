@@ -35,13 +35,34 @@ _RESPONSE_SCHEMA_PATH = Path(__file__).resolve().with_name("response_schema.json
 
 
 @lru_cache(maxsize=1)
-def _response_schema_text() -> str:
-    """Return the cached response schema text for prompt injection."""
+def _base_response_schema() -> dict:
+    """Return the cached response schema definition."""
 
     try:
-        return _RESPONSE_SCHEMA_PATH.read_text(encoding="utf-8").strip()
+        with _RESPONSE_SCHEMA_PATH.open("r", encoding="utf-8") as fh:
+            return json.load(fh)
     except OSError:
         logger.error("Response schema definition missing at %s", _RESPONSE_SCHEMA_PATH)
+    except json.JSONDecodeError as exc:
+        logger.error("Failed to parse response schema %s: %s", _RESPONSE_SCHEMA_PATH, exc)
+    return {}
+
+
+def _response_schema_text(max_length: int | None = None) -> str:
+    """Return the response schema text for prompt injection."""
+
+    schema = _base_response_schema()
+    if not schema:
+        return ""
+    try:
+        payload = json.loads(json.dumps(schema))
+        if max_length:
+            text_field = payload.get("$defs", {}).get("TextField")
+            if isinstance(text_field, dict):
+                text_field["maxLength"] = max_length
+        return json.dumps(payload, indent=2)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error("Failed to render response schema: %s", exc)
         return ""
 
 
@@ -255,7 +276,7 @@ class Character(ABC):
     def _format_prompt_instructions(self) -> str:
         limit = getattr(self.config, "format_prompt_character_limit", 400)
         schema_variant = self._response_schema_variant()
-        schema_text = _response_schema_text()
+        schema_text = _response_schema_text(limit)
         instructions = (
             "Return the result as a JSON array. Each "
             "object must contain the keys 'text', 'type', 'related-triplet', and "
@@ -1007,7 +1028,7 @@ class PlayerCharacter(Character):
 
     def _format_prompt_instructions(self) -> str:
         limit = getattr(self.config, "format_prompt_character_limit", 400)
-        schema_text = _response_schema_text()
+        schema_text = _response_schema_text(limit)
         instructions = (
             "The JSON objects must contain the keys 'text', 'type', 'related-triplet', and 'related-attribute'. "
             "The 'text' field holds the natural language response, which should be short, "
