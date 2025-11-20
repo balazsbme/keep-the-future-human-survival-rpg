@@ -71,7 +71,17 @@ logger = logging.getLogger(__name__)
 
 
 PLAYER_PERSONA_PATH = Path(__file__).resolve().parent / "rpg" / "player_character.yaml"
-FACTION_IMAGE_MAP: dict[str, str] = {
+CHARACTER_IMAGE_MAP: dict[str, str] = {
+    # Character-specific portraits
+    "elena-markovic": "gov-1-neutral.jpg",
+    "victor-chen": "corp-1-neutral.jpg",
+    "akira-tanaka": "hwman-1-neutral.jpg",
+    "isabella-duarte": "reg-1-neutral.jpg",
+    "malik-okoro": "civ-1-neutral.jpg",
+    "dr-sofia-alvarez": "sci-1-neutral.jpg",
+    "jordan-ellis": "civ-2-neutral.jpg",
+    "dr-maya-ibarra": "sci-2-neutral.jpg",
+    # Faction fallbacks
     "governments": "gov-1-neutral.jpg",
     "corporations": "corp-1-neutral.jpg",
     "hardwaremanufacturers": "hwman-1-neutral.jpg",
@@ -159,7 +169,10 @@ def _profile_image_html(
     """Return HTML for a profile photo placeholder or image."""
 
     alt_text = alt_label or f"Portrait of {name or 'the player persona'}"
-    filename = FACTION_IMAGE_MAP.get(_normalize_key(faction or "")) if faction else None
+    normalized_name = _normalize_key(name)
+    filename = CHARACTER_IMAGE_MAP.get(normalized_name)
+    if not filename and faction:
+        filename = CHARACTER_IMAGE_MAP.get(_normalize_key(faction))
     if filename:
         src = f"/assets/character-pictures/{filename}"
         return (
@@ -2366,6 +2379,8 @@ def create_app() -> Flask:
                 pending_player_choices.pop(char_id, None)
                 _clear_pending_npc_entries(char_id)
 
+                time.sleep(2)
+
                 if attempt.success:
                     partner_view = partner_credibility
                     roll_threshold = roll_threshold_snapshot
@@ -2620,6 +2635,8 @@ def create_app() -> Flask:
             f"{target}: have {available}, need {needed}"
             for target, available, needed in next_shortages
         ]
+        if can_reroll:
+            time.sleep(2)
         if not can_reroll:
             failure_page = _render_failure_page(
                 char_id,
