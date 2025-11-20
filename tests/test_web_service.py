@@ -7,11 +7,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from flask import Flask
 import yaml
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from web_service import create_app
+with patch.dict("sys.modules", {"google.generativeai": MagicMock()}):
+    from web_service import SESSION_COOKIE_NAME, create_app
 from rpg.character import ResponseOption, YamlCharacter
 from rpg.config import GameConfig
 
@@ -206,6 +208,73 @@ class WebServiceTest(unittest.TestCase):
                 reset_page = reset_resp.data.decode()
                 self.assertEqual(reset_resp.request.path, "/")
                 self.assertIn("Free Play", reset_page)
+
+
+class SessionHandlingTest(unittest.TestCase):
+    def setUp(self):
+        self.character = _load_test_character()
+        self.test_config = GameConfig(
+            enabled_factions=(
+                "test_character",
+                "CivilSociety",
+                "ScientificCommunity",
+            )
+        )
+
+    def _app(self) -> Flask:
+        with patch("rpg.character.genai"), patch("rpg.assessment_agent.genai"), patch(
+            "web_service.genai"
+        ):
+            with patch("web_service.load_characters", return_value=[self.character]), patch(
+                "web_service.current_config", self.test_config
+            ):
+                return create_app()
+
+    def test_actions_redirects_when_character_invalid_and_no_session(self):
+        app = self._app()
+        client = app.test_client()
+
+        resp = client.get("/actions", query_string={"character": "999"})
+
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.location, "/start")
+        cookies = resp.headers.getlist("Set-Cookie")
+        self.assertTrue(
+            any(SESSION_COOKIE_NAME in cookie for cookie in cookies),
+            "Expected a new session cookie to be issued",
+        )
+
+    def test_session_cookie_reused_between_requests(self):
+        app = self._app()
+        client = app.test_client()
+
+        first = client.get("/")
+        first_cookies = first.headers.getlist("Set-Cookie")
+        self.assertTrue(any(SESSION_COOKIE_NAME in cookie for cookie in first_cookies))
+
+        second = client.get("/start")
+        self.assertFalse(
+            any(SESSION_COOKIE_NAME in cookie for cookie in second.headers.getlist("Set-Cookie")),
+            "Existing session should be reused without setting a new cookie",
+        )
+
+    def test_invalid_session_cookie_is_replaced(self):
+        app = self._app()
+        client = app.test_client()
+        client.set_cookie(SESSION_COOKIE_NAME, "invalid-session", domain="localhost")
+
+        resp = client.get("/")
+
+        replacement_cookies = [
+            cookie
+            for cookie in resp.headers.getlist("Set-Cookie")
+            if cookie.startswith(f"{SESSION_COOKIE_NAME}=")
+        ]
+        self.assertTrue(replacement_cookies)
+        self.assertTrue(
+            all("invalid-session" not in cookie for cookie in replacement_cookies),
+            "Invalid sessions should trigger a new session cookie",
+        )
 
 
 if __name__ == "__main__":
