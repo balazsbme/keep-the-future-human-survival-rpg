@@ -13,9 +13,17 @@ from contextlib import contextmanager
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, Mapping, MutableMapping
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - platform specific
+    fcntl = None
 
 _DDL_PATH = Path(__file__).with_name("sqlite3_db.ddl")
 _DEFAULT_DB_PATH = Path(os.environ.get("EVALUATION_SQLITE_PATH", "/var/lib/sqlite/main.db"))
+
+
+class DatabaseLockedError(RuntimeError):
+    """Raised when the SQLite file lock indicates another writer is active."""
 
 
 def _ensure_directory(path: Path) -> None:
@@ -36,17 +44,80 @@ def sanitize_identifier(name: str) -> str:
 class SQLiteConnector:
     """High level helper that owns the SQLite connection for evaluations."""
 
-    def __init__(self, db_path: Path | str | None = None, ddl_path: Path | str | None = None) -> None:
+    def __init__(
+        self,
+        db_path: Path | str | None = None,
+        ddl_path: Path | str | None = None,
+        lock_path: Path | str | None = None,
+        *,
+        require_lock: bool = True,
+    ) -> None:
         self.db_path = Path(db_path or _DEFAULT_DB_PATH)
         self.ddl_path = Path(ddl_path or _DDL_PATH)
+        self.lock_path = Path(lock_path or (self.db_path.with_suffix(self.db_path.suffix + ".lock")))
+        self.require_lock = require_lock
         _ensure_directory(self.db_path)
         self._connection: sqlite3.Connection | None = None
         self._initialised = False
         self._lock = threading.RLock()
+        self._lock_file = None
+        self._blocked_by_lock = False
+
+    def _acquire_interprocess_lock(self) -> None:
+        if not self.require_lock:
+            return
+        if self._blocked_by_lock:
+            raise DatabaseLockedError(
+                f"Database locked via {self.lock_path}; another container is writing"
+            )
+        if self._lock_file is not None:
+            return
+        _ensure_directory(self.lock_path)
+        fd = os.open(self.lock_path, os.O_RDWR | os.O_CREAT)
+        file_handle = os.fdopen(fd, "r+")
+        try:
+            if fcntl is not None:
+                try:
+                    fcntl.flock(file_handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError as exc:  # pragma: no cover - depends on runtime
+                    file_handle.close()
+                    self._blocked_by_lock = True
+                    raise DatabaseLockedError(
+                        f"Database locked via {self.lock_path}; another container is writing"
+                    ) from exc
+            file_handle.seek(0)
+            file_handle.truncate()
+            file_handle.write("1")
+            file_handle.flush()
+            os.fsync(file_handle.fileno())
+        except Exception:
+            file_handle.close()
+            raise
+        self._lock_file = file_handle
+
+    def _release_interprocess_lock(self) -> None:
+        if self._lock_file is None:
+            return
+        try:
+            self._lock_file.seek(0)
+            self._lock_file.truncate()
+            self._lock_file.write("0")
+            self._lock_file.flush()
+            os.fsync(self._lock_file.fileno())
+            if fcntl is not None:
+                try:
+                    fcntl.flock(self._lock_file, fcntl.LOCK_UN)
+                except OSError:  # pragma: no cover - depends on runtime
+                    pass
+        finally:
+            self._lock_file.close()
+            self._lock_file = None
+            self._blocked_by_lock = False
 
     @property
     def connection(self) -> sqlite3.Connection:
         with self._lock:
+            self._acquire_interprocess_lock()
             if self._connection is None:
                 self._connection = sqlite3.connect(
                     self.db_path, check_same_thread=False
@@ -60,6 +131,7 @@ class SQLiteConnector:
                 self._connection.close()
                 self._connection = None
                 self._initialised = False
+            self._release_interprocess_lock()
 
     @contextmanager
     def cursor(self) -> Iterator[sqlite3.Cursor]:
@@ -194,4 +266,4 @@ def sqlite_connector(db_path: Path | str | None = None) -> Iterator[SQLiteConnec
         connector.close()
 
 
-__all__ = ["SQLiteConnector", "sqlite_connector", "sanitize_identifier"]
+__all__ = ["DatabaseLockedError", "SQLiteConnector", "sqlite_connector", "sanitize_identifier"]

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import atexit
 import contextvars
 import json
 import logging
@@ -25,6 +26,8 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 import yaml
 
+from evaluations.game_database import GameDatabaseRecorder
+from evaluations.sqlite3_connector import DatabaseLockedError, SQLiteConnector
 from cli_game import load_characters
 from rpg.assessment_agent import AssessmentAgent
 from rpg.character import Character, ResponseOption
@@ -430,6 +433,8 @@ CAMPAIGN_SCENARIOS: tuple[str, ...] = (
     "03-keep-the-future-human",
 )
 FREE_PLAY_HIDDEN_SCENARIOS: set[str] = {"complete"}
+WEB_LOG_TO_DB = os.environ.get("LOG_WEB_RUNS_TO_DB") == "1"
+WEB_DB_NOTES = os.environ.get("WEB_DB_NOTES")
 
 
 @dataclass
@@ -469,6 +474,12 @@ class SessionData:
     assessment_lock: threading.Lock
     state_lock: threading.Lock
     last_access: float
+    db_connector: SQLiteConnector | None = None
+    db_recorder: GameDatabaseRecorder | None = None
+    db_round_index: int = 0
+    db_game_index: int = 1
+    db_result_recorded: bool = False
+    db_logging_disabled: bool = False
 
 
 def _option_from_payload(raw: str) -> ResponseOption:
@@ -558,6 +569,9 @@ def create_app() -> Flask:
     SESSION_CLEANUP_INTERVAL = 60 * 10
     session_store: Dict[str, SessionData] = {default_session.session_id: default_session}
     session_store_lock = threading.Lock()
+    db_connector_shared: SQLiteConnector | None = None
+    db_connector_lock = threading.Lock()
+    db_logging_available = WEB_LOG_TO_DB
     current_session_id = contextvars.ContextVar(
         "ktfhrpg_session_id", default=default_session.session_id
     )
@@ -584,6 +598,155 @@ def create_app() -> Flask:
             last_access=now,
         )
 
+    def _shared_db_connector() -> SQLiteConnector | None:
+        nonlocal db_connector_shared, db_logging_available
+        if not db_logging_available:
+            return None
+        if db_connector_shared is not None:
+            return db_connector_shared
+        with db_connector_lock:
+            if db_connector_shared is not None:
+                return db_connector_shared
+            try:
+                candidate = SQLiteConnector()
+            except DatabaseLockedError:
+                logger.warning(
+                    "SQLite database locked for web logging; disabling DB writes for this instance",
+                )
+                db_logging_available = False
+                return None
+            except Exception:
+                logger.exception(
+                    "Unable to open SQLite connector for web logging; disabling DB writes"
+                )
+                db_logging_available = False
+                return None
+            db_connector_shared = candidate
+            return db_connector_shared
+
+    def _reset_db_logging_state(session: SessionData, *, increment_game: bool = False) -> None:
+        session.db_recorder = None
+        session.db_round_index = 0
+        session.db_result_recorded = False
+        if increment_game:
+            session.db_game_index += 1
+
+    def _start_db_run_for_session(session: SessionData) -> None:
+        if session.db_logging_disabled or not WEB_LOG_TO_DB:
+            return
+        if session.db_recorder is not None:
+            return
+        connector = _shared_db_connector()
+        if connector is None:
+            session.db_logging_disabled = True
+            return
+        try:
+            notes = WEB_DB_NOTES or f"web-session-{session.session_id}-game-{session.db_game_index}"
+            recorder = GameDatabaseRecorder(connector, notes=notes)
+            log_filename = f"web_{session.session_id}_game_{session.db_game_index}.log"
+            recorder.on_game_start(
+                session.game_state,
+                player_key=session.session_id,
+                player_class=session.game_state.player_character.__class__.__name__,
+                automated_player_class="HumanWebPlayer",
+                game_index=session.db_game_index,
+                log_filename=log_filename,
+                session_id=session.session_id,
+            )
+        except DatabaseLockedError:
+            session.db_logging_disabled = True
+            logger.warning(
+                "SQLite database lock detected; disabling DB logging for session %s",
+                session.session_id,
+            )
+            return
+        except Exception:
+            session.db_logging_disabled = True
+            logger.exception(
+                "Failed to start DB logging for session %s", session.session_id
+            )
+            return
+        session.db_connector = connector
+        session.db_recorder = recorder
+        session.db_round_index = 0
+        session.db_result_recorded = False
+
+    def _db_before_turn(session: SessionData) -> int | None:
+        if session.db_recorder is None or session.db_logging_disabled:
+            return None
+        session.db_round_index += 1
+        round_index = session.db_round_index
+        try:
+            session.db_recorder.before_turn(session.game_state, round_index)
+        except Exception:
+            session.db_logging_disabled = True
+            logger.exception(
+                "Failed to log turn start for session %s; disabling DB logging",
+                session.session_id,
+            )
+            return None
+        return round_index
+
+    def _db_after_turn(session: SessionData, round_index: int | None) -> None:
+        if session.db_recorder is None or session.db_logging_disabled:
+            return
+        if round_index is None:
+            return
+        try:
+            session.db_recorder.after_turn(session.game_state, round_index)
+        except Exception:
+            session.db_logging_disabled = True
+            logger.exception(
+                "Failed to log turn completion for session %s; disabling DB logging",
+                session.session_id,
+            )
+
+    def _finalize_db_run(
+        session: SessionData,
+        *,
+        outcome: str,
+        successful: bool,
+        error: str | None = None,
+    ) -> None:
+        if session.db_recorder is None or session.db_logging_disabled:
+            return
+        if session.db_result_recorded:
+            return
+        try:
+            session.db_recorder.on_game_end(
+                session.game_state,
+                result=outcome,
+                successful=successful,
+                error=error,
+                log_warning_count=0,
+                log_error_count=0,
+            )
+            session.db_result_recorded = True
+        except Exception:
+            session.db_logging_disabled = True
+            logger.exception(
+                "Failed to finalize DB logging for session %s; disabling DB logging",
+                session.session_id,
+            )
+
+    def _abort_db_run(session: SessionData, reason: str) -> None:
+        if session.db_recorder is None or session.db_logging_disabled:
+            return
+        if session.db_result_recorded:
+            return
+        try:
+            session.db_recorder.on_game_error(session.game_state, reason)
+            session.db_result_recorded = True
+        except Exception:
+            session.db_logging_disabled = True
+            logger.exception(
+                "Failed to record DB error for session %s; disabling DB logging",
+                session.session_id,
+            )
+
+    if WEB_LOG_TO_DB:
+        _start_db_run_for_session(default_session)
+
     def _cleanup_sessions(now: float) -> None:
         nonlocal session_last_cleanup
         if now - session_last_cleanup < SESSION_CLEANUP_INTERVAL:
@@ -593,6 +756,7 @@ def create_app() -> Flask:
             if key == default_session.session_id:
                 continue
             if now - session.last_access > SESSION_TTL_SECONDS:
+                _abort_db_run(session, "Session expired")
                 expired.append(key)
         for key in expired:
             session_store.pop(key, None)
@@ -609,6 +773,7 @@ def create_app() -> Flask:
             if session_id and session_id in session_store:
                 return _touch_session(session_store[session_id], now), False
             session = _create_session_state()
+            _start_db_run_for_session(session)
             session_store[session.session_id] = session
             return _touch_session(session, now), True
 
@@ -789,6 +954,8 @@ def create_app() -> Flask:
     def _reload_state(config: GameConfig, *, preserve_time: bool = False) -> None:
         session = _session()
         logger.info("Reloading game state with config %s", config)
+        if session.db_recorder is not None and not session.db_result_recorded:
+            _abort_db_run(session, "Game reset")
         session.config_in_use = config
         previous_timeline_start = None
         previous_elapsed_years = 0.0
@@ -844,6 +1011,8 @@ def create_app() -> Flask:
         with session.assessment_lock:
             session.assessment_threads.clear()
         session.last_history_signature = None
+        _reset_db_logging_state(session, increment_game=True)
+        _start_db_run_for_session(session)
 
     def _format_summary_html(text: str) -> str:
         stripped = (text or "").strip()
@@ -2343,6 +2512,8 @@ def create_app() -> Flask:
             character_count = len(game_state.characters)
         if char_id < 0 or char_id >= character_count:
             return redirect("/start")
+        session = _session()
+        _start_db_run_for_session(session)
         if request.method == "POST" and "response" in request.form:
             option = _option_from_payload(request.form["response"])
             with state_lock:
@@ -2354,6 +2525,7 @@ def create_app() -> Flask:
                 character.name,
             )
             if option.is_action:
+                turn_index = _db_before_turn(session)
                 with state_lock:
                     game_state.log_player_response(character, option)
                     attempt = game_state.attempt_action(character, option)
@@ -2405,6 +2577,7 @@ def create_app() -> Flask:
                                 )
                                 with state_lock:
                                     game_state.update_progress(scores)
+                                    _db_after_turn(session, turn_index)
                             finally:
                                 with assessment_lock:
                                     try:
@@ -2436,6 +2609,7 @@ def create_app() -> Flask:
                                 getattr(character, "faction", None)
                             )
                             roll_threshold = game_state.config.roll_success_threshold
+                            _db_after_turn(session, turn_index)
                     success_page = _render_success_page(
                         char_id,
                         character,
@@ -2448,6 +2622,7 @@ def create_app() -> Flask:
                     )
                     return Response(success_page)
 
+                _db_after_turn(session, turn_index)
                 failure_page = _render_failure_page(
                     char_id,
                     character,
@@ -2601,8 +2776,11 @@ def create_app() -> Flask:
 
     @app.route("/reroll", methods=["POST"])
     def reroll_action_route() -> Response:
+        session = _session()
+        _start_db_run_for_session(session)
         char_id = int(request.form["character"])
         option = _option_from_payload(request.form["action"])
+        turn_index: int | None = None
         with state_lock:
             character = game_state.characters[char_id]
             can_reroll, reroll_shortages = game_state.reroll_affordability(
@@ -2615,6 +2793,7 @@ def create_app() -> Flask:
                 next_can_reroll = can_reroll
                 next_shortages = reroll_shortages
             else:
+                turn_index = _db_before_turn(session)
                 attempt = game_state.reroll_action(character, option)
                 next_can_reroll, next_shortages = game_state.reroll_affordability(
                     character, option
@@ -2672,14 +2851,15 @@ def create_app() -> Flask:
                             chars,
                             hist,
                             parallel=True,
-                        )
-                        with state_lock:
-                            game_state.update_progress(scores)
-                    finally:
-                        with assessment_lock:
-                            try:
-                                assessment_threads.remove(threading.current_thread())
-                            except ValueError:
+                            )
+                            with state_lock:
+                                game_state.update_progress(scores)
+                                _db_after_turn(session, turn_index)
+                        finally:
+                            with assessment_lock:
+                                try:
+                                    assessment_threads.remove(threading.current_thread())
+                                except ValueError:
                                 pass
 
                 ctx = contextvars.copy_context()
@@ -2697,13 +2877,14 @@ def create_app() -> Flask:
                 with state_lock:
                     game_state.start_assessment()
                 scores = assessor.assess(chars_snapshot, history_snapshot)
-                with state_lock:
-                    game_state.update_progress(scores)
-                    latest_state_html = game_state.render_state()
-                    partner_view = game_state.current_credibility(
-                        getattr(character, "faction", None)
-                    )
-                    roll_threshold = game_state.config.roll_success_threshold
+                    with state_lock:
+                        game_state.update_progress(scores)
+                        latest_state_html = game_state.render_state()
+                        partner_view = game_state.current_credibility(
+                            getattr(character, "faction", None)
+                        )
+                        roll_threshold = game_state.config.roll_success_threshold
+                        _db_after_turn(session, turn_index)
             success_page = _render_success_page(
                 char_id,
                 character,
@@ -2716,6 +2897,7 @@ def create_app() -> Flask:
             )
             return Response(success_page)
 
+        _db_after_turn(session, turn_index)
         failure_page = _render_failure_page(
             char_id,
             character,
@@ -2995,6 +3177,8 @@ def create_app() -> Flask:
 
     @app.route("/result", methods=["GET"])
     def result() -> str:
+        session = _session()
+        _start_db_run_for_session(session)
         with assessment_lock:
             running = any(t.is_alive() for t in assessment_threads)
         if running:
@@ -3035,11 +3219,12 @@ def create_app() -> Flask:
                 + f"<h1>{outcome}</h1>"
                 + f"{state_html}"
                 + "<form method='post' action='/reset'>"
-                + "<button type='submit'>Reset</button>"
-                + "</form>"
-                + "</main>"
-            )
-            return _render_page(body)
+            + "<button type='submit'>Reset</button>"
+            + "</form>"
+            + "</main>"
+        )
+        _finalize_db_run(session, outcome=outcome, successful=is_win)
+        return _render_page(body)
 
         level_index, scenario_key, sector_choice = campaign_context
         level_number = level_index + 1
@@ -3083,7 +3268,17 @@ def create_app() -> Flask:
             + "</div>"
             + "</section>"
         )
+        _finalize_db_run(session, outcome=result_title, successful=is_win)
         return _render_page(header)
+
+    def _close_shared_db_connector() -> None:
+        if db_connector_shared is not None:
+            try:
+                db_connector_shared.close()
+            except Exception:
+                logger.exception("Failed to close SQLite connector on shutdown")
+
+    atexit.register(_close_shared_db_connector)
 
     return app
 
