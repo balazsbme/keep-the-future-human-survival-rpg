@@ -273,7 +273,7 @@ class Character(ABC):
     def _response_schema_variant(self) -> str:
         return "YamlCharacterResponse"
 
-    def _format_prompt_instructions(self) -> str:
+    def _format_prompt_instructions(self, extra_notes: Sequence[str] | None = None) -> str:
         limit = getattr(self.config, "format_prompt_character_limit", 400)
         schema_variant = self._response_schema_variant()
         schema_text = _response_schema_text(limit)
@@ -288,6 +288,8 @@ class Character(ABC):
             "technology, policy, or network. Do not include any additional commentary "
             "beyond the JSON."
         )
+        if extra_notes:
+            instructions += " " + " ".join(note.strip() for note in extra_notes if note.strip())
         if schema_text:
             instructions += (
                 f" The JSON must validate against the '{schema_variant}' definition in the "
@@ -625,6 +627,100 @@ class YamlCharacter(Character):
             costs.append(cost)
         return min(costs) if costs else base_cost
 
+    def _build_context_sections(
+        self,
+        partner_name: str,
+        history: Sequence[Tuple[str, str]],
+        conversation: Sequence[ConversationEntry],
+    ) -> str:
+        """Return a formatted context block for the NPC prompt."""
+
+        faction_label = self.faction or "Faction"
+        history_text = self._history_text(history)
+        conversation_text = self._conversation_text(conversation)
+        triplet_text = self._triplet_text()
+        lines: List[str] = [
+            "# *CONTEXT*",
+            "## Character Profile",
+            self._profile_text(),
+            "",
+            f"## {faction_label} Faction Description",
+            self.base_context or "No additional faction context provided.",
+        ]
+        if self.scenario_summary:
+            lines.extend(
+                [
+                    "",
+                    "## Current Scenario summary to anchor the conversation with "
+                    f"{partner_name} ",
+                    self.scenario_summary,
+                ]
+            )
+        if triplet_text:
+            lines.extend(
+                [
+                    "",
+                    "## List of triplets",
+                    "This details the scenario for your faction that "
+                    f"{partner_name} is trying to convince you to address:",
+                    triplet_text,
+                ]
+            )
+        lines.extend(
+            [
+                "",
+                "## Previous actions taken by you or other faction representatives:",
+                history_text,
+                "",
+                f"## Full conversation history you are now having with the {partner_name}:",
+                conversation_text,
+                "FILL IN YOUR RESPONSE HERE with the 'text' field of a JSON response.",
+            ]
+        )
+        return "\n".join(lines)
+
+    def _build_thinking_process(
+        self, *, force_action: bool, restricted_triplets: bool, partner_label: str
+    ) -> str:
+        """Return the reasoning section that guides NPC responses."""
+
+        lines: List[str] = ["# *YOUR REQUIRED THOUGHT PROCESS TO ANSWER*"]
+        if restricted_triplets:
+            lines.append(
+                f"Because {partner_label} lacks sufficient credibility, do not collaborate on their triplets. Only advance your faction interests and set 'related-triplet' to 'None' for any action."
+            )
+        if force_action:
+            lines.append(
+                "The exchange limit has been reached; you MUST return one concrete 'action' and avoid 'chat' replies."
+            )
+        lines.extend(
+            [
+                "1. Talk or act in accordance with your character profile and faction description",
+                "2. Propose an action if you see the conversation requires one ('type'='action') otherwise continue chating ('type'='chat')",
+                "3.1 If your conversation partner has persuaded you to take an action related to the list of triplets, choose which one you want to address",
+                "3.2 Otherwise propose an action that furthers your personal or your faction's interests and set 'related-triplet' to 'None'",
+                "4. Choose a 'related-attribute' of leadership, technology, policy, or network that matches the most your 'action'. Or set it to 'None' if you are chatting.",
+            ]
+        )
+        return "\n".join(lines)
+
+    def _build_output_constraints(
+        self, *, force_action: bool, restricted_triplets: bool
+    ) -> str:
+        """Return the output constraints section for the NPC prompt."""
+
+        notes: List[str] = []
+        if force_action:
+            notes.append(
+                "You must output a single 'action' entry; 'chat' is forbidden for this turn."
+            )
+        if restricted_triplets:
+            notes.append(
+                "Only output actions that set 'related-triplet' to 'None' due to credibility limits."
+            )
+        instructions = self._format_prompt_instructions(extra_notes=notes)
+        return "# *OUTPUT CONSTRAINTS*\n" + instructions
+
     def generate_responses(
         self,
         history: Sequence[Tuple[str, str]],
@@ -637,6 +733,7 @@ class YamlCharacter(Character):
     ) -> List[ResponseOption]:
         logger.info("Generating responses for %s", self.name)
         partner_label = partner.display_name
+        partner_name = getattr(partner, "name", partner_label)
         faction_focus = self.faction or "your personal priorities"
         restricted_triplets = False
         triplet_cost = self._estimate_triplet_cost(partner)
@@ -654,43 +751,31 @@ class YamlCharacter(Character):
             "Respond in a way that prioritizes your own goals or those of your faction before entertaining new requests.\n"
             f"Keep your response aligned with your motivations and capabilities, grounded in {faction_focus}.\n"
         )
-        context_block = self._context_prompt()
-        history_block = (
-            "Previous actions taken by you or other faction representatives:\n"
-            f"{self._history_text(history)}\n"
+        context_block = self._build_context_sections(
+            partner_name, history, conversation
         )
-        conversation_block = (
-            "Full conversation history you are now having with the player:\n"
-            f"{self._conversation_text(conversation)}\n"
+        if self.cached_context_config is not None:
+            context_block = context_block.replace(
+                "# *CONTEXT*",
+                f"# *CONTEXT*\n{self._context_prompt()}\n",
+                1,
+            )
+
+        thinking_block = self._build_thinking_process(
+            force_action=force_action,
+            restricted_triplets=restricted_triplets,
+            partner_label=partner_label,
         )
-        action_requirement = ""
-        if force_action:
-            action_requirement = (
-                "The exchange limit has been reached. You MUST reply with one concrete "
-                "'action' commitment in your JSON response that demonstrates forward movement "
-                "without contradicting your core interests (i.e. and 'chat' option is FORBIDDEN)."
-            )
-        if restricted_triplets:
-            guidance = (
-                f"Do not collaborate with {partner_label} and do not listen to their arguments."
-                "Only propose actions that serve your immediate or faction-level interests. "
-                "Any actions you output must set 'related-triplet' to 'None'."
-            )
-        else:
-            if self.cached_context_config is not None:
-                guidance = (
-                    "Throughout the game you are acting related to the numbered triplets stored in the cached context. "
-                    "Provide exactly one JSON response. Default to a 'chat' and 'action' type replies reinforcing your own or faction priorities unless the player's case persuades you to propose an 'action' related to the numbered triplets."
-                )
-            else:
-                guidance = (
-                    "Throughout the game you are acting related to the following numbered list of triplets, describing the initial state at the start of the game, end state and the gap between them:\n"
-                    f"{self._triplet_text()}\n"
-                    "Provide exactly one JSON response. Default to a 'chat' and 'action' type replies reinforcing your own or faction priorities unless the player's case persuades you to propose an 'action' related to the numbered triplets."
-                )
+
+        output_constraints = self._build_output_constraints(
+            force_action=force_action, restricted_triplets=restricted_triplets
+        )
+
         prompt = (
-            f"{base_prompt}{context_block}{history_block}{conversation_block}{action_requirement}{guidance}\n"
-            f"{self._format_prompt_instructions()}"
+            f"{base_prompt}\n\n"
+            f"{context_block}\n\n"
+            f"{thinking_block}\n\n"
+            f"{output_constraints}"
         )
         logger.debug(
             "Prompt for %s: %s", self.name, collapse_prompt_sections(prompt)
