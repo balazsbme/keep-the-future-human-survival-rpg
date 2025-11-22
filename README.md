@@ -49,6 +49,7 @@ Then open `http://127.0.0.1:7860/` in a browser. The page presents
 character choices as radio buttons. Select a character and submit to see
 possible actions, then choose an action and press **Send** to view the
 character's response.
+Set the `PORT` environment variable to change the default port (`7860`).
 
 Set the environment variable `ENABLE_PARALLELISM=1` to run the web
 service with experimental threading support. When enabled the server
@@ -76,40 +77,7 @@ example `/tmp/ktfhrpg.sqlite`).
   checkbox. Start the service with `python evaluations/player_service.py` and
   enable the checkbox when launching runs.
 
-Manual lock check (with `/tmp/ktfhrpg.sqlite` as the DB):
-
-1. In terminal A hold the writer lock:
-
-   ```bash
-   ENABLE_SQLITE_LOGGING=1 python - <<'PY'
-   from evaluations.sqlite3_connector import SQLiteConnector
-
-   connector = SQLiteConnector('/tmp/ktfhrpg.sqlite')
-   connector.initialise()
-   print('Lock acquired; press Enter to release')
-   input()
-   connector.close()
-   PY
-   ```
-
-2. In terminal B verify a second writer is blocked:
-
-   ```bash
-   ENABLE_SQLITE_LOGGING=1 python - <<'PY'
-   from evaluations.sqlite3_connector import SQLiteConnector, DatabaseLockedError
-
-   try:
-       SQLiteConnector('/tmp/ktfhrpg.sqlite').connection
-   except DatabaseLockedError as exc:
-       print('Lock respected:', exc)
-   PY
-   ```
-
-3. Release the lock in terminal A and retry the second command to confirm the
-   connector succeeds once the lock file is cleared.
-
 ## License
 
 This project is licensed under the terms of the [GNU General Public License
 v3.0 or later](LICENSE).
-

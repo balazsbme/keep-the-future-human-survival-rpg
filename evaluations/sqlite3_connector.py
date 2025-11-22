@@ -22,7 +22,17 @@ except ImportError:  # pragma: no cover - platform specific
 logger = logging.getLogger(__name__)
 
 _DDL_PATH = Path(__file__).with_name("sqlite3_db.ddl")
-_DEFAULT_DB_PATH = Path(os.environ.get("EVALUATION_SQLITE_PATH", "/var/lib/sqlite/main.db"))
+_DB_PATH_ENV = "EVALUATION_SQLITE_PATH"
+_DEFAULT_DB_PATH = Path("/var/lib/sqlite/main.db")
+
+
+def _default_db_path_from_env() -> Path:
+    """Resolve the SQLite path from the environment at call time."""
+
+    env_value = os.environ.get(_DB_PATH_ENV)
+    if env_value:
+        return Path(env_value)
+    return _DEFAULT_DB_PATH
 
 
 class DatabaseLockedError(RuntimeError):
@@ -55,7 +65,7 @@ class SQLiteConnector:
         *,
         require_lock: bool = True,
     ) -> None:
-        self.db_path = Path(db_path or _DEFAULT_DB_PATH)
+        self.db_path = Path(db_path) if db_path else _default_db_path_from_env()
         self.ddl_path = Path(ddl_path or _DDL_PATH)
         self.lock_path = Path(lock_path or (self.db_path.with_suffix(self.db_path.suffix + ".lock")))
         self.require_lock = require_lock
