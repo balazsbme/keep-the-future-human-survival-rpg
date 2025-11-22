@@ -5,11 +5,13 @@ import sys
 import threading
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from evaluations.sqlite3_connector import SQLiteConnector
+from evaluations.sqlite3_connector import DatabaseLockedError, SQLiteConnector
 
 
 def _get_columns(connection: sqlite3.Connection, table: str) -> dict[str, str]:
@@ -163,3 +165,35 @@ def test_concurrent_inserts(tmp_path: Path) -> None:
     assert not errors
     row = connector.connection.execute("SELECT COUNT(*) FROM executions").fetchone()
     assert row[0] == 5
+
+
+def test_interprocess_lock_blocks_second_connector(tmp_path: Path) -> None:
+    lock_path = tmp_path / "shared.sqlite.lock"
+    db_path = tmp_path / "shared.sqlite"
+
+    if SQLiteConnector.__module__ == "evaluations.sqlite3_connector":
+        from evaluations import sqlite3_connector as sqlite3_module
+
+        if sqlite3_module.fcntl is None:
+            pytest.skip("fcntl is unavailable; interprocess lock semantics cannot be tested")
+
+    connector = SQLiteConnector(db_path=db_path, lock_path=lock_path)
+
+    # Acquire the lock by touching the connection once.
+    _ = connector.connection
+
+    assert lock_path.exists()
+    assert lock_path.read_text(encoding="utf-8").strip() == "1"
+
+    connector_blocked = SQLiteConnector(db_path=db_path, lock_path=lock_path)
+    with pytest.raises(DatabaseLockedError):
+        _ = connector_blocked.connection
+
+    connector.close()
+
+    # Lock file should be cleared when the connector closes.
+    assert lock_path.read_text(encoding="utf-8").strip() == "0"
+
+    connector_second = SQLiteConnector(db_path=db_path, lock_path=lock_path)
+    _ = connector_second.connection
+    connector_second.close()

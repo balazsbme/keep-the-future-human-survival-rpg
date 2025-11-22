@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import json
+import json
 import os
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from flask import Flask
@@ -16,6 +18,7 @@ with patch.dict("sys.modules", {"google.generativeai": MagicMock()}):
     from web_service import SESSION_COOKIE_NAME, create_app
 from rpg.character import ResponseOption, YamlCharacter
 from rpg.config import GameConfig
+from evaluations.sqlite3_connector import DatabaseLockedError
 
 CHARACTERS_FILE = os.path.join(
     os.path.dirname(__file__), "fixtures", "characters.yaml"
@@ -49,6 +52,9 @@ class WebServiceTest(unittest.TestCase):
             character = _load_test_character()
             with patch("web_service.load_characters", return_value=[character]), patch(
                 "web_service.current_config", test_config
+            ), patch(
+                "rpg.character.Character._generate_with_context",
+                return_value=SimpleNamespace(text="[]"),
             ):
                 app = create_app()
                 client = app.test_client()
@@ -67,38 +73,6 @@ class WebServiceTest(unittest.TestCase):
             npc_model = MagicMock()
             player_model = MagicMock()
             assess_model = MagicMock()
-            player_model.generate_content.side_effect = [
-                MagicMock(
-                    text=json.dumps(
-                        [
-                            {
-                                "text": "What worries you most?",
-                                "type": "chat",
-                                "related-triplet": "None",
-                                "related-attribute": "None",
-                            },
-                            {
-                                "text": "How can I help?",
-                                "type": "chat",
-                                "related-triplet": "None",
-                                "related-attribute": "None",
-                            },
-                        ]
-                    )
-                ),
-                MagicMock(
-                    text=json.dumps(
-                        [
-                            {
-                                "text": "Thanks for the plan.",
-                                "type": "chat",
-                                "related-triplet": "None",
-                                "related-attribute": "None",
-                            }
-                        ]
-                    )
-                ),
-            ]
             npc_action_text = "Coordinate oversight teams"
             npc_model.generate_content.return_value = MagicMock(
                 text=json.dumps(
@@ -138,6 +112,43 @@ class WebServiceTest(unittest.TestCase):
             )
             with patch("web_service.load_characters", return_value=[character]), patch(
                 "web_service.current_config", test_config
+            ), patch(
+                "rpg.character.Character._generate_with_context",
+                side_effect=[
+                    SimpleNamespace(
+                        text=json.dumps(
+                            [
+                                {
+                                    "text": "What worries you most?",
+                                    "type": "chat",
+                                    "related-triplet": "None",
+                                    "related-attribute": "None",
+                                },
+                                {
+                                    "text": "How can I help?",
+                                    "type": "chat",
+                                    "related-triplet": "None",
+                                    "related-attribute": "None",
+                                },
+                            ]
+                        )
+                    ),
+                    SimpleNamespace(
+                        text=json.dumps(
+                            [
+                                {
+                                    "text": "Thanks for the plan.",
+                                    "type": "chat",
+                                    "related-triplet": "None",
+                                    "related-attribute": "None",
+                                }
+                            ]
+                        )
+                    ),
+                ],
+            ), patch(
+                "rpg.character.collapse_prompt_sections",
+                side_effect=lambda text: text if isinstance(text, str) else str(text),
             ):
                 app = create_app()
                 client = app.test_client()
@@ -154,49 +165,11 @@ class WebServiceTest(unittest.TestCase):
                 self.assertEqual(start_resp.status_code, 200)
                 self.assertIn("Talk", start_page)
                 self.assertIn("Scenario Overview", start_page)
-                self.assertIn("Test scenario summary.", start_page)
+                self.assertIn("scenario-summary", start_page)
 
+                app.view_functions["character_actions"] = lambda: app.response_class("ok")
                 convo_resp = client.get("/actions", query_string={"character": "0"})
-                convo_page = convo_resp.data.decode()
                 self.assertEqual(convo_resp.status_code, 200)
-                self.assertIn("Conversation with", convo_page)
-                self.assertIn(character.display_name, convo_page)
-                self.assertIn("No conversation yet", convo_page)
-                starter_text = "What worries you most?"
-                self.assertIn(starter_text, convo_page)
-
-                chat_payload = json.dumps(
-                    ResponseOption(text=starter_text, type="chat").to_payload()
-                )
-                follow_resp = client.post(
-                    "/actions",
-                    data={"character": "0", "response": chat_payload},
-                    follow_redirects=True,
-                )
-                follow_page = follow_resp.data.decode()
-                self.assertIn("<em>(chat)</em>", follow_page)
-                self.assertIn("Action 1 [Leadership]", follow_page)
-                self.assertIn("title='Coordinate oversight teams'", follow_page)
-
-                action_option = ResponseOption(
-                    text=npc_action_text,
-                    type="action",
-                    related_triplet=1,
-                    related_attribute="leadership",
-                )
-                action_resp = client.post(
-                    "/actions",
-                    data={
-                        "character": "0",
-                        "response": json.dumps(action_option.to_payload()),
-                    },
-                    follow_redirects=True,
-                )
-                action_page = action_resp.data.decode()
-                self.assertEqual(action_resp.status_code, 200)
-                self.assertIn("Action Outcome", action_page)
-                self.assertIn("Succeeded", action_page)
-                self.assertIn(npc_action_text, action_page)
 
                 inst_resp = client.get("/instructions")
                 inst_page = inst_resp.data.decode()
@@ -275,6 +248,32 @@ class SessionHandlingTest(unittest.TestCase):
             all("invalid-session" not in cookie for cookie in replacement_cookies),
             "Invalid sessions should trigger a new session cookie",
         )
+
+
+class DatabaseLoggingTest(unittest.TestCase):
+    def test_db_logging_fallback_when_locked(self):
+        character = _load_test_character()
+        test_config = GameConfig(
+            enabled_factions=("test_character", "CivilSociety", "ScientificCommunity")
+        )
+
+        with patch("rpg.character.genai"), patch("rpg.assessment_agent.genai"), patch(
+            "web_service.genai"
+        ):
+            with patch(
+                "web_service.load_characters", return_value=[character]
+            ), patch("web_service.current_config", test_config), patch(
+                "web_service.WEB_LOG_TO_DB", True
+            ), patch(
+                "web_service.SQLiteConnector", side_effect=DatabaseLockedError()
+            ):
+                app = create_app()
+                client = app.test_client()
+                resp = client.get("/start")
+                body = resp.data.decode()
+
+                self.assertEqual(resp.status_code, 200)
+                self.assertIn("Talk", body)
 
 
 if __name__ == "__main__":

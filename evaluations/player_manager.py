@@ -235,15 +235,23 @@ class PlayerManager:
             )
             if observer_candidate is not None:
                 observer = observer_candidate
-                observer.on_game_start(
-                    state,
-                    player_key=player_key,
-                    player_class=state.player_character.__class__.__name__,
-                    automated_player_class=player.__class__.__name__,
-                    game_index=game_index,
-                    log_filename=log_filename,
-                    session_id=session_id,
-                )
+                try:
+                    observer.on_game_start(
+                        state,
+                        player_key=player_key,
+                        player_class=state.player_character.__class__.__name__,
+                        automated_player_class=player.__class__.__name__,
+                        game_index=game_index,
+                        log_filename=log_filename,
+                        session_id=session_id,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Disabling DB logging for game %d after on_game_start failure",
+                        game_index,
+                        exc_info=True,
+                    )
+                    observer = None
 
         rounds_progress: List[Dict[str, object]] = []
         warning_count = 0
@@ -252,10 +260,26 @@ class PlayerManager:
             for round_index in range(1, rounds + 1):
                 logger.info("Beginning round %d", round_index)
                 if observer is not None:
-                    observer.before_turn(state, round_index)
+                    try:
+                        observer.before_turn(state, round_index)
+                    except Exception:
+                        logger.warning(
+                            "Disabling DB logging for game %d after before_turn failure",
+                            game_index,
+                            exc_info=True,
+                        )
+                        observer = None
                 player.take_turn(state, self._assessor)
                 if observer is not None:
-                    observer.after_turn(state, round_index)
+                    try:
+                        observer.after_turn(state, round_index)
+                    except Exception:
+                        logger.warning(
+                            "Disabling DB logging for game %d after after_turn failure",
+                            game_index,
+                            exc_info=True,
+                        )
+                        observer = None
                 character_label = state.history[-1][0] if state.history else ""
                 attempt = state.last_action_attempt
                 attribute_label = "None"
@@ -297,12 +321,19 @@ class PlayerManager:
                     break
         except Exception as exc:
             if observer is not None:
-                observer.on_game_error(
-                    state,
-                    exc,
-                    log_warning_count=counter_handler.warning_count,
-                    log_error_count=counter_handler.error_count,
-                )
+                try:
+                    observer.on_game_error(
+                        state,
+                        exc,
+                        log_warning_count=counter_handler.warning_count,
+                        log_error_count=counter_handler.error_count,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to record DB error for game %d; continuing without DB logging",
+                        game_index,
+                        exc_info=True,
+                    )
             raise
         finally:
             warning_count = counter_handler.warning_count
@@ -346,14 +377,21 @@ class PlayerManager:
             log_filename,
         )
         if observer is not None:
-            observer.on_game_end(
-                state,
-                result=game_result["result"],
-                successful=True,
-                error=None,
-                log_warning_count=warning_count,
-                log_error_count=error_count,
-            )
+            try:
+                observer.on_game_end(
+                    state,
+                    result=game_result["result"],
+                    successful=True,
+                    error=None,
+                    log_warning_count=warning_count,
+                    log_error_count=error_count,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to finalize DB logging for game %d; ignoring",
+                    game_index,
+                    exc_info=True,
+                )
         return game_result
 
     def _log_filename(self, player_key: str, game_index: int) -> str:

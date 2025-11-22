@@ -48,6 +48,7 @@ from rpg.config import load_game_config
 
 
 logger = logging.getLogger(__name__)
+ENABLE_SQLITE_LOGGING = os.environ.get("ENABLE_SQLITE_LOGGING") == "1"
 
 
 class _ClosingGameDatabaseRecorder(GameDatabaseRecorder):
@@ -244,6 +245,7 @@ def create_app(log_dir: str | None = None) -> Flask:
     app.config["PLAYER_LOG_DIR"] = log_dir
     completed_sequences: List[Dict[str, Any]] = []
     known_logs: Set[str] = set()
+    sqlite_logging_enabled = ENABLE_SQLITE_LOGGING
     last_form: Dict[str, Any] = {
         "player": player_choices[0][0],
         "rounds": 10,
@@ -288,7 +290,7 @@ def create_app(log_dir: str | None = None) -> Flask:
                 ),
                 1,
             )
-            default_log_to_db = bool(request.form.get("log_to_db"))
+            default_log_to_db = bool(request.form.get("log_to_db")) and sqlite_logging_enabled
             (
                 default_config,
                 default_config_label,
@@ -338,6 +340,7 @@ def create_app(log_dir: str | None = None) -> Flask:
                         }
                     else:
                         entry_log_to_db = bool(raw_log_to_db)
+                    entry_log_to_db = entry_log_to_db and sqlite_logging_enabled
                     entry_config_value = entry.get("player_config", default_config)
                     (
                         entry_config,
@@ -400,6 +403,13 @@ def create_app(log_dir: str | None = None) -> Flask:
                             logger.warning(
                                 "SQLite DB locked; skipping DB logging for %s",
                                 notes,
+                            )
+                            return None
+                        except Exception:
+                            logger.warning(
+                                "Failed to set up SQLite logging for %s; disabling DB logging",
+                                notes,
+                                exc_info=True,
                             )
                             return None
                         return _ClosingGameDatabaseRecorder(connector, notes=notes)
@@ -542,23 +552,34 @@ def create_app(log_dir: str | None = None) -> Flask:
         rounds_value = html.escape(str(last_form.get("rounds", 10)))
         parallel_value = html.escape(str(last_form.get("parallel_runs", 1)))
         batch_value = html.escape(last_batch_config)
-        return (
-            "<h1>Automated Player Manager</h1>"
-            "<form method='post'>"
-            f"<label>Scenario: <select name='scenario'>{scenario_options}</select></label><br>"
-            f"<label>Player: <select name='player'>{player_options}</select></label><br>"
-            f"<label>Player configuration: <input type='text' name='player_config' value='{player_config_value}'></label><br>"
-            f"<label>Games: <input type='number' min='1' name='games' value='{games_value}'></label><br>"
-            f"<label>Rounds per game: <input type='number' min='1' name='rounds' value='{rounds_value}'></label><br>"
-            f"<label>Max parallel runs: <input type='number' min='1' name='parallel_runs' value='{parallel_value}'></label><br>"
-            f"<label><input type='checkbox' name='log_to_db' value='1'{log_to_db_checked}> Log games to SQLite</label><br>"
-            "<label>Batch runs (JSON list, optional):<br>"
-            f"<textarea name='batch_runs' rows='6' cols='60'>{batch_value}</textarea></label><br>"
-            "<button type='submit'>Run Sequence</button>"
-            "</form>"
-            "<h2>Evaluations</h2>"
-            "<form action='/evaluation/baseline' method='post'><button type='submit'>Baseline Assessment</button></form>"
-            "<form action='/evaluation/consistency' method='post'><button type='submit'>Consistency Assessment</button></form>"
+        if sqlite_logging_enabled:
+            log_to_db_field = (
+                f"<label><input type='checkbox' name='log_to_db' value='1'{log_to_db_checked}> Log games to SQLite</label><br>"
+            )
+        else:
+            log_to_db_field = (
+                "<label class='disabled'><input type='checkbox' disabled> Log games to SQLite "
+                "(set ENABLE_SQLITE_LOGGING=1)</label><br>"
+            )
+        return "".join(
+            [
+                "<h1>Automated Player Manager</h1>",
+                "<form method='post'>",
+                f"<label>Scenario: <select name='scenario'>{scenario_options}</select></label><br>",
+                f"<label>Player: <select name='player'>{player_options}</select></label><br>",
+                f"<label>Player configuration: <input type='text' name='player_config' value='{player_config_value}'></label><br>",
+                f"<label>Games: <input type='number' min='1' name='games' value='{games_value}'></label><br>",
+                f"<label>Rounds per game: <input type='number' min='1' name='rounds' value='{rounds_value}'></label><br>",
+                f"<label>Max parallel runs: <input type='number' min='1' name='parallel_runs' value='{parallel_value}'></label><br>",
+                log_to_db_field,
+                "<label>Batch runs (JSON list, optional):<br>",
+                f"<textarea name='batch_runs' rows='6' cols='60'>{batch_value}</textarea></label><br>",
+                "<button type='submit'>Run Sequence</button>",
+                "</form>",
+                "<h2>Evaluations</h2>",
+                "<form action='/evaluation/baseline' method='post'><button type='submit'>Baseline Assessment</button></form>",
+                "<form action='/evaluation/consistency' method='post'><button type='submit'>Consistency Assessment</button></form>",
+            ]
         )
 
     @app.route("/progress", methods=["GET"])

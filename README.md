@@ -61,6 +61,53 @@ Both entry points respect the `LOG_LEVEL` environment variable to control
 verbosity. Set `LOG_LEVEL=DEBUG` for more detailed output. The default
 level is `INFO`.
 
+### SQLite logging and manual verification
+
+Set `ENABLE_SQLITE_LOGGING=1` to allow either entry point to write gameplay
+data into SQLite. Point `EVALUATION_SQLITE_PATH` at a writable location (for
+example `/tmp/ktfhrpg.sqlite`).
+
+- **Web service (`web_service.py`)** – also set `LOG_WEB_RUNS_TO_DB=1` and
+  optionally `WEB_DB_NOTES` before starting the server. Each browser session
+  will write executions, actions, and results into the configured database
+  until a lock is encountered.
+- **Automated player manager (`evaluations/player_service.py`)** – once
+  `ENABLE_SQLITE_LOGGING=1` is set, the UI enables the **Log games to SQLite**
+  checkbox. Start the service with `python evaluations/player_service.py` and
+  enable the checkbox when launching runs.
+
+Manual lock check (with `/tmp/ktfhrpg.sqlite` as the DB):
+
+1. In terminal A hold the writer lock:
+
+   ```bash
+   ENABLE_SQLITE_LOGGING=1 python - <<'PY'
+   from evaluations.sqlite3_connector import SQLiteConnector
+
+   connector = SQLiteConnector('/tmp/ktfhrpg.sqlite')
+   connector.initialise()
+   print('Lock acquired; press Enter to release')
+   input()
+   connector.close()
+   PY
+   ```
+
+2. In terminal B verify a second writer is blocked:
+
+   ```bash
+   ENABLE_SQLITE_LOGGING=1 python - <<'PY'
+   from evaluations.sqlite3_connector import SQLiteConnector, DatabaseLockedError
+
+   try:
+       SQLiteConnector('/tmp/ktfhrpg.sqlite').connection
+   except DatabaseLockedError as exc:
+       print('Lock respected:', exc)
+   PY
+   ```
+
+3. Release the lock in terminal A and retry the second command to confirm the
+   connector succeeds once the lock file is cleared.
+
 ## License
 
 This project is licensed under the terms of the [GNU General Public License

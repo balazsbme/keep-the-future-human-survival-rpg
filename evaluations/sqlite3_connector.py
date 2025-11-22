@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import logging
 import json
 import os
 import re
@@ -17,6 +18,8 @@ try:
     import fcntl
 except ImportError:  # pragma: no cover - platform specific
     fcntl = None
+
+logger = logging.getLogger(__name__)
 
 _DDL_PATH = Path(__file__).with_name("sqlite3_db.ddl")
 _DEFAULT_DB_PATH = Path(os.environ.get("EVALUATION_SQLITE_PATH", "/var/lib/sqlite/main.db"))
@@ -73,6 +76,7 @@ class SQLiteConnector:
         if self._lock_file is not None:
             return
         _ensure_directory(self.lock_path)
+        logger.info("Attempting to acquire SQLite interprocess lock at %s", self.lock_path)
         fd = os.open(self.lock_path, os.O_RDWR | os.O_CREAT)
         file_handle = os.fdopen(fd, "r+")
         try:
@@ -82,6 +86,9 @@ class SQLiteConnector:
                 except OSError as exc:  # pragma: no cover - depends on runtime
                     file_handle.close()
                     self._blocked_by_lock = True
+                    logger.info(
+                        "SQLite lock at %s is held by another process", self.lock_path
+                    )
                     raise DatabaseLockedError(
                         f"Database locked via {self.lock_path}; another container is writing"
                     ) from exc
@@ -94,6 +101,7 @@ class SQLiteConnector:
             file_handle.close()
             raise
         self._lock_file = file_handle
+        logger.info("Acquired SQLite interprocess lock at %s", self.lock_path)
 
     def _release_interprocess_lock(self) -> None:
         if self._lock_file is None:
@@ -113,6 +121,7 @@ class SQLiteConnector:
             self._lock_file.close()
             self._lock_file = None
             self._blocked_by_lock = False
+            logger.info("Released SQLite interprocess lock at %s", self.lock_path)
 
     @property
     def connection(self) -> sqlite3.Connection:

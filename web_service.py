@@ -433,7 +433,8 @@ CAMPAIGN_SCENARIOS: tuple[str, ...] = (
     "03-keep-the-future-human",
 )
 FREE_PLAY_HIDDEN_SCENARIOS: set[str] = {"complete"}
-WEB_LOG_TO_DB = os.environ.get("LOG_WEB_RUNS_TO_DB") == "1"
+ENABLE_SQLITE_LOGGING = os.environ.get("ENABLE_SQLITE_LOGGING") == "1"
+WEB_LOG_TO_DB = ENABLE_SQLITE_LOGGING and os.environ.get("LOG_WEB_RUNS_TO_DB") == "1"
 WEB_DB_NOTES = os.environ.get("WEB_DB_NOTES")
 
 
@@ -662,8 +663,10 @@ def create_app() -> Flask:
             return
         except Exception:
             session.db_logging_disabled = True
-            logger.exception(
-                "Failed to start DB logging for session %s", session.session_id
+            logger.warning(
+                "Failed to start DB logging for session %s",
+                session.session_id,
+                exc_info=True,
             )
             return
         session.db_connector = connector
@@ -680,9 +683,10 @@ def create_app() -> Flask:
             session.db_recorder.before_turn(session.game_state, round_index)
         except Exception:
             session.db_logging_disabled = True
-            logger.exception(
+            logger.warning(
                 "Failed to log turn start for session %s; disabling DB logging",
                 session.session_id,
+                exc_info=True,
             )
             return None
         return round_index
@@ -696,9 +700,10 @@ def create_app() -> Flask:
             session.db_recorder.after_turn(session.game_state, round_index)
         except Exception:
             session.db_logging_disabled = True
-            logger.exception(
+            logger.warning(
                 "Failed to log turn completion for session %s; disabling DB logging",
                 session.session_id,
+                exc_info=True,
             )
 
     def _finalize_db_run(
@@ -724,9 +729,10 @@ def create_app() -> Flask:
             session.db_result_recorded = True
         except Exception:
             session.db_logging_disabled = True
-            logger.exception(
+            logger.warning(
                 "Failed to finalize DB logging for session %s; disabling DB logging",
                 session.session_id,
+                exc_info=True,
             )
 
     def _abort_db_run(session: SessionData, reason: str) -> None:
@@ -739,9 +745,10 @@ def create_app() -> Flask:
             session.db_result_recorded = True
         except Exception:
             session.db_logging_disabled = True
-            logger.exception(
+            logger.warning(
                 "Failed to record DB error for session %s; disabling DB logging",
                 session.session_id,
+                exc_info=True,
             )
 
     if WEB_LOG_TO_DB:
@@ -2851,15 +2858,15 @@ def create_app() -> Flask:
                             chars,
                             hist,
                             parallel=True,
-                            )
-                            with state_lock:
-                                game_state.update_progress(scores)
-                                _db_after_turn(session, turn_index)
-                        finally:
-                            with assessment_lock:
-                                try:
-                                    assessment_threads.remove(threading.current_thread())
-                                except ValueError:
+                        )
+                        with state_lock:
+                            game_state.update_progress(scores)
+                            _db_after_turn(session, turn_index)
+                    finally:
+                        with assessment_lock:
+                            try:
+                                assessment_threads.remove(threading.current_thread())
+                            except ValueError:
                                 pass
 
                 ctx = contextvars.copy_context()
@@ -2877,14 +2884,14 @@ def create_app() -> Flask:
                 with state_lock:
                     game_state.start_assessment()
                 scores = assessor.assess(chars_snapshot, history_snapshot)
-                    with state_lock:
-                        game_state.update_progress(scores)
-                        latest_state_html = game_state.render_state()
-                        partner_view = game_state.current_credibility(
-                            getattr(character, "faction", None)
-                        )
-                        roll_threshold = game_state.config.roll_success_threshold
-                        _db_after_turn(session, turn_index)
+                with state_lock:
+                    game_state.update_progress(scores)
+                    latest_state_html = game_state.render_state()
+                    partner_view = game_state.current_credibility(
+                        getattr(character, "faction", None)
+                    )
+                    roll_threshold = game_state.config.roll_success_threshold
+                    _db_after_turn(session, turn_index)
             success_page = _render_success_page(
                 char_id,
                 character,
