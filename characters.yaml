@@ -7,7 +7,7 @@ Characters:
     network: "6"
     perks: "Seasoned treaty-maker; can align rival ministries and build cross-bloc bargaining packages quickly"
     weaknesses: "Susceptible to security framing that favors racing; reforms stall under election pressure"
-    motivations: "Win enforceable compute caps and a verification treaty while keeping national prestige intact"
+    motivations: "Lock in her country’s military and economic advantage by shaping any AI talks into weak, non-binding frameworks that constrain rivals more than her own national AI buildup."
     background: "Career diplomat turned national security advisor who helped modernize export controls; now torn between domestic hawks demanding an AI surge and allies pushing for a moratorium-like gate on AGI."
 
   - name: "Victor Chen"
@@ -18,7 +18,7 @@ Characters:
     network: "6"
     perks: "Charismatic operator; can pivot large teams and capital toward new lines overnight; deep model/infra intuition"
     weaknesses: "Quarterly-profit gravity; instinctively frames safety as a PR or compliance track"
-    motivations: "Outcompete rivals in foundation models while hedging into profitable Tool AI lines that won’t trigger hard caps or liability"
+    motivations: "Exploit the AGI race to secure monopoly-level market share and record profits, resisting any caps or Tool-AI-only pivots unless they clearly protect his company’s dominance."
     background: "Founder-CEO who built a frontier models group and a cloud AI platform; publicly celebrates human-AI symbiosis, privately races for scale advantages and exclusive chip allocations."
 
   - name: "Akira Tanaka"
@@ -29,7 +29,7 @@ Characters:
     network: "6"
     perks: "World-class semiconductor architect; can implement on-chip metering and attestation schemes"
     weaknesses: "Margins-first mindset; reluctant to back features that could throttle demand without mandates"
-    motivations: "Ship next-gen accelerators on time while negotiating standard governance features acceptable to multiple jurisdictions"
+    motivations: "Maximize accelerator volume and lock in long-term contracts, pushing the most powerful chips possible while quietly watering down any governance features that might slow demand."
     background: "Fabless design veteran now COO at a top accelerator vendor; brokered multi-year wafer contracts and pilots for cryptographically attested training proofs."
 
   - name: "Isabella Duarte"
@@ -40,7 +40,7 @@ Characters:
     network: "6"
     perks: "Crafts tight licensing regimes; skilled at translating technical risk into enforceable rules"
     weaknesses: "Thin technical depth; vulnerable to industry narrative capture under time pressure"
-    motivations: "Stand up a fast, empowered oversight agency and harmonize risk tiers to close cross-border loopholes"
+    motivations: "Build a high-profile but business-friendly regulatory portfolio that pleases political patrons and industry donors, favoring light-touch rules over any strict gates or hard compute caps."
     background: "Administrative lawyer who steered high-risk tech bills; now assembling an AI oversight unit with audit powers and injunctive authority."
 
   - name: "Malik Okoro"
@@ -51,7 +51,7 @@ Characters:
     network: "8"
     perks: "Builds broad coalitions across labor, NGOs, and media; shifts the Overton window with credible storytelling"
     weaknesses: "Limited technical grounding; campaigns can overextend and burn volunteer capacity"
-    motivations: "Turn public opposition to AGI into concrete liability laws, compute caps, and funding for Tool AI that benefits workers"
+    motivations: "Leverage public fear of AGI to grow his coalition’s funding, reach, and political clout, prioritizing headline-grabbing confrontations over nuanced Tool-AI compromises or shared plans."
     background: "Organized successful data dignity campaigns; now leads a coalition demanding binding limits and public-interest AI infrastructure."
 
   - name: "Dr. Sofia Alvarez"
@@ -62,5 +62,5 @@ Characters:
     network: "6"
     perks: "Pioneer in formal verification and shutdown guarantees; respected across academia and labs"
     weaknesses: "Reluctant politico; messaging can be too technical for fast policy cycles"
-    motivations: "Prove Tool AI can deliver progress without AGI; publish verifiable safety cases that regulators can adopt"
+    motivations: "Protect her access to frontier systems and secure prestige-defining breakthroughs, soft-pedaling strict safety gates or Tool-AI-only agendas that might slow ambitious AGI-scale research."
     background: "Left a frontier lab to found an independent institute on controllability; mentors open consortia on evaluation methods and red-teaming."
