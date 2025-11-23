@@ -4,6 +4,10 @@ document.addEventListener('DOMContentLoaded', function () {
   if (!container) {
     return;
   }
+  const refreshMode = (container.getAttribute('data-refresh-mode') || 'active').toLowerCase();
+  if (refreshMode === 'passive') {
+    return;
+  }
   const timeTarget = document.getElementById('time-status');
   const findRoot = function () {
     return container.querySelector('#state');

@@ -892,6 +892,14 @@ def create_app() -> Flask:
         parts.append("</body>")
         return "".join(parts)
 
+    def _state_container(content: str, *, refresh_mode: str = "active") -> str:
+        mode = escape(refresh_mode.lower(), quote=True)
+        return (
+            f"<div class='state-container' data-refresh-mode='{mode}'>"
+            + content
+            + "</div>"
+        )
+
     def _tooltip_icon(description: str) -> str:
         content = escape(description, False)
         return (
@@ -1177,7 +1185,7 @@ def create_app() -> Flask:
             + f"<div class='panel conversation-panel'>{middle_panel_html}</div>"
             + f"<div class='panel partner-panel'>{partner_panel_html}</div>"
             + "</div>"
-            + f"<div class='state-container'>{state_html}</div>"
+            + _state_container(state_html)
             + "</main>"
         )
 
@@ -1898,7 +1906,7 @@ def create_app() -> Flask:
             + "<button type='submit' class='secondary'>Reset</button>"
             + "</form>"
             + "</div>"
-            + f"<div class='state-container'>{state_html}</div>"
+            + _state_container(state_html, refresh_mode="passive")
             + "</main>"
         )
         return _render_page(body, extra_scripts=[state_refresh_script])
@@ -2302,7 +2310,10 @@ def create_app() -> Flask:
                 and pending_choice[0] == conversation_length
                 and pending_choice[1] == signature
             ):
-                return None, True
+                logger.debug(
+                    "Preloaded NPC response missing for %s; generating synchronously",
+                    character.name,
+                )
         credibility = game_state.current_credibility(
             getattr(character, "faction", None)
         )
