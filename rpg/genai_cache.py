@@ -90,6 +90,7 @@ class GeminiCacheManager:
         self._ttl_seconds = ttl_seconds if ttl_seconds is not None else _ttl_from_env()
         self._lock = threading.Lock()
         self._cache_names: dict[str, str] = {}
+        self._failed_cache_names: set[str] = set()
 
     @staticmethod
     def _format_ttl(seconds: int) -> str:
@@ -136,6 +137,8 @@ class GeminiCacheManager:
             self._text_to_content(text, role=content_role) for text in filtered
         ]
         with self._lock:
+            if display_name in self._failed_cache_names:
+                return None
             cache_name = self._cache_names.get(display_name)
             if not cache_name:
                 existing = self._find_existing_cache(display_name)
@@ -149,11 +152,20 @@ class GeminiCacheManager:
                     )
                     if system_instruction:
                         kwargs["system_instruction"] = system_instruction
-                    cache = self._client.caches.create(
-                        model=model,
-                        config=google_genai_types.CreateCachedContentConfig(**kwargs),
-                    )
-                    cache_name = cache.name
+                    try:
+                        cache = self._client.caches.create(
+                            model=model,
+                            config=google_genai_types.CreateCachedContentConfig(
+                                **kwargs
+                            ),
+                        )
+                        cache_name = cache.name
+                    except Exception as exc:  # pragma: no cover - cache service failure
+                        logger.warning(
+                            "Failed to create Gemini cache %s: %s", display_name, exc
+                        )
+                        self._failed_cache_names.add(display_name)
+                        return None
                 self._cache_names[display_name] = cache_name
         return google_genai_types.GenerateContentConfig(cached_content=cache_name)
 
