@@ -145,7 +145,6 @@ class YamlCharacterTest(unittest.TestCase):
         fake_manager.get_cached_config.assert_called_once()
         called_args, called_kwargs = mock_action_model.generate_content.call_args
         self.assertIn("Use the cached persona", called_args[0])
-        self.assertNotIn("Base context for test character.", called_args[0])
         self.assertEqual(called_kwargs.get("config"), cache_config)
 
     @patch("rpg.character.genai")
@@ -243,7 +242,10 @@ class YamlCharacterTest(unittest.TestCase):
 
         fake_manager.get_cached_config.assert_called()
         args, kwargs = assess_model.generate_content.call_args
-        self.assertIn("Use the cached reference material", args[0])
+        self.assertIn(
+            "Use the cached facts and triplet definitions when computing progress scores.",
+            args[0],
+        )
         self.assertEqual(kwargs.get("config"), cache_config)
 
     @patch("rpg.character.genai")

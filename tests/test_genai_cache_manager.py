@@ -59,6 +59,82 @@ class GeminiCacheManagerTest(TestCase):
 
     @patch("rpg.genai_cache.google_genai")
     @patch("rpg.genai_cache.google_genai_types")
+    def test_manager_marks_failed_cache_and_does_not_retry(
+        self, mock_types, mock_google
+    ):
+        mock_client = MagicMock()
+        mock_google.Client.return_value = mock_client
+        mock_client.caches.list.return_value = []
+        mock_client.caches.create.side_effect = RuntimeError("too small")
+
+        mock_types.Part.from_text = MagicMock(side_effect=lambda text: {"text": text})
+        mock_types.Content = MagicMock(
+            side_effect=lambda **kwargs: {"content": kwargs}
+        )
+        mock_types.CreateCachedContentConfig = MagicMock(
+            side_effect=lambda **kwargs: {"create": kwargs}
+        )
+        mock_types.GenerateContentConfig = MagicMock(
+            side_effect=lambda **kwargs: {"generate": kwargs}
+        )
+
+        manager = GeminiCacheManager(api_key="token", ttl_seconds=120)
+
+        self.assertIsNone(
+            manager.get_cached_config(
+                display_name="demo",
+                model="models/gemini-2.0",
+                texts=["alpha"],
+            )
+        )
+        # Subsequent attempts should not invoke the API again once marked failed
+        self.assertIsNone(
+            manager.get_cached_config(
+                display_name="demo",
+                model="models/gemini-2.0",
+                texts=["alpha"],
+            )
+        )
+        mock_client.caches.create.assert_called_once()
+        mock_client.caches.list.assert_called_once()
+
+    @patch("rpg.genai_cache.google_genai")
+    @patch("rpg.genai_cache.google_genai_types")
+    def test_manager_does_not_retry_after_multiple_requests(
+        self, mock_types, mock_google
+    ):
+        mock_client = MagicMock()
+        mock_google.Client.return_value = mock_client
+        mock_client.caches.list.return_value = []
+        mock_client.caches.create.side_effect = RuntimeError("too small")
+
+        mock_types.Part.from_text = MagicMock(side_effect=lambda text: {"text": text})
+        mock_types.Content = MagicMock(
+            side_effect=lambda **kwargs: {"content": kwargs}
+        )
+        mock_types.CreateCachedContentConfig = MagicMock(
+            side_effect=lambda **kwargs: {"create": kwargs}
+        )
+        mock_types.GenerateContentConfig = MagicMock(
+            side_effect=lambda **kwargs: {"generate": kwargs}
+        )
+
+        manager = GeminiCacheManager(api_key="token", ttl_seconds=120)
+
+        for _ in range(3):
+            self.assertIsNone(
+                manager.get_cached_config(
+                    display_name="demo",
+                    model="models/gemini-2.0",
+                    texts=["alpha"],
+                )
+            )
+
+        mock_client.caches.create.assert_called_once()
+        mock_client.caches.list.assert_called_once()
+
+    @patch("rpg.genai_cache.google_genai")
+    @patch("rpg.genai_cache.google_genai_types")
     def test_get_cache_manager_without_api_key_returns_none(
         self, mock_types, mock_google
     ):
