@@ -858,6 +858,9 @@ def create_app() -> Flask:
 
     tooltip_asset_path = "/assets/tooltip.jpg"
     roll_asset_path = "/assets/rolling.gif"
+    logo_asset_path = "/assets/logo.jpg"
+    icon_asset_path = "/assets/icon.jpg"
+    result_banner_path = "/assets/result-banner.svg"
     footer_html = _load_snippet("global_footer.html").format(github_url=GITHUB_URL)
     roll_indicator_markup = _load_snippet("roll_indicator.html").format(
         roll_asset_path=roll_asset_path
@@ -865,6 +868,9 @@ def create_app() -> Flask:
     roll_indicator_script = _load_snippet("roll_indicator.js")
     state_refresh_script = _load_snippet("state_refresh.js")
     css_link_tag = "<link rel='stylesheet' href='/web/style.css'>"
+    favicon_link_tag = (
+        f"<link rel='icon' type='image/jpeg' href='{icon_asset_path}' sizes='32x32'>"
+    )
 
     def _render_page(
         content: str,
@@ -873,7 +879,12 @@ def create_app() -> Flask:
         include_footer: bool = True,
         extra_scripts: Sequence[str] | None = None,
     ) -> str:
-        parts: List[str] = [css_link_tag, f"<body class='{body_class}'>", content]
+        parts: List[str] = [
+            css_link_tag,
+            favicon_link_tag,
+            f"<body class='{body_class}'>",
+            content,
+        ]
         if include_footer:
             parts.append(footer_html)
         if extra_scripts:
@@ -909,6 +920,63 @@ def create_app() -> Flask:
     def _scenario_display_name(name: str) -> str:
         base = (name or "").replace("-", " ").replace("_", " ").strip()
         return base.title() if base else "Unknown Scenario"
+
+    def _brand_header(subtitle: str | None = None) -> str:
+        subtitle_html = (
+            f"<p class='brand-subtitle'>{escape(subtitle, False)}</p>" if subtitle else ""
+        )
+        return (
+            "<div class='brand-header'>"
+            + f"<img src='{logo_asset_path}' alt='Keep the Future Human logo' class='brand-logo'>"
+            + "<div class='brand-title'>"
+            + subtitle_html
+            + "<h1>Keep the Future Human Survival RPG</h1>"
+            + "</div></div>"
+        )
+
+    def _die_image_path(roll_value: float) -> str:
+        rounded = max(1, min(20, int(round(roll_value))))
+        return f"/assets/die/{rounded}.png"
+
+    def _roll_visualization(
+        attempt: ActionAttempt, roll_threshold: int
+    ) -> tuple[str, float]:
+        attribute_label = (attempt.attribute or "attribute").title()
+        roll_value = attempt.roll
+        total = attempt.effective_score + roll_value
+        die_image_path = _die_image_path(roll_value)
+        breakdown = (
+            "<div class='roll-visual'>"
+            + "<div class='roll-grid'>"
+            + (
+                "<figure class='roll-card die-card'>"
+                + f"<img src='{die_image_path}' alt='d20 roll showing {roll_value:.0f}'>"
+                + "<figcaption>Roll</figcaption>"
+                + f"<div class='roll-number'>{roll_value:.0f}</div>"
+                + "</figure>"
+            )
+            + (
+                "<div class='roll-card'>"
+                + f"<div class='roll-number'>{attempt.effective_score:.0f}</div>"
+                + f"<div class='roll-label'>{escape(attribute_label, False)} modifier</div>"
+                + "</div>"
+            )
+            + (
+                "<div class='roll-card'>"
+                + f"<div class='roll-number'>{total:.0f}</div>"
+                + "<div class='roll-label'>Final value</div>"
+                + "</div>"
+            )
+            + (
+                "<div class='roll-card'>"
+                + f"<div class='roll-number'>{roll_threshold:.0f}</div>"
+                + "<div class='roll-label'>Threshold</div>"
+                + "</div>"
+            )
+            + "</div>"
+            + "</div>"
+        )
+        return breakdown, total
 
     def _scenario_summary_text(name: str) -> str:
         for root in scenario_roots:
@@ -1214,7 +1282,7 @@ def create_app() -> Flask:
         free_play_description = "<p>Experiment freely with every system in the negotiation sandbox. Tune the active scenario, scoring thresholds, and pacing rules before diving straight into a single open-ended session.</p>"
         body = (
             "<main class='landing-page'>"
-            + "<h1>Keep the Future Human Survival RPG</h1>"
+            + _brand_header("Choose your next adventure")
             + "<div class='mode-container'>"
             + "<section class='mode-panel'><div class='mode-content'>"
             + "<span class='mode-tag'>Sandbox Mode</span>"
@@ -1817,7 +1885,7 @@ def create_app() -> Flask:
         time_block = f"<p class='character-timing' id='time-status'>{escape(time_status, False)}</p>"
         body = (
             "<main class='character-select-container'>"
-            + "<h1>Keep the Future Human Survival RPG</h1>"
+            + _brand_header("Select who to talk to")
             + summary_section
             + time_block
             + victory_block
@@ -2358,11 +2426,15 @@ def create_app() -> Flask:
         partner_credibility: int | None,
         roll_threshold: int,
     ) -> str:
-        total = attempt.effective_score + attempt.roll
-        attribute_label = attempt.attribute or "none"
+        roll_markup, total = _roll_visualization(attempt, roll_threshold)
+        attribute_label = escape(attempt.attribute or "none", False)
         success_text = (
-            f"Succeeded {attempt.label} (attribute {attribute_label}: {attempt.effective_score}, "
-            f"roll={attempt.roll:.2f}, total={total:.2f}, threshold={roll_threshold})"
+            "<strong class='roll-outcome success-text'>Success!</strong> "
+            + f"Succeeded {escape(attempt.label, False)} "
+            + (
+                f"(attribute {attribute_label}: {attempt.effective_score}, "
+                f"roll={attempt.roll:.0f}, total={total:.0f}, threshold={roll_threshold})"
+            )
         )
         credibility_delta = (
             -attempt.credibility_cost
@@ -2384,8 +2456,9 @@ def create_app() -> Flask:
         outcome_section = (
             "<section class='action-outcome'>"
             + "<h2>Action Outcome</h2>"
-            + f"<p>{escape(success_text, quote=False)}</p>"
-            + f"<p>{escape(credibility_text, quote=False)}</p>"
+            + f"<p>{success_text}</p>"
+            + roll_markup
+            + f"<p class='credibility-text'>{escape(credibility_text, quote=False)}</p>"
             + "<div class='action-outcome-actions'>"
             + keep_talking_form
             + back_form
@@ -2428,13 +2501,22 @@ def create_app() -> Flask:
         player: Character,
         next_cost: int,
         partner_credibility: int | None,
+        roll_threshold: int,
         *,
         can_reroll: bool,
         credibility_notes: Sequence[str],
     ) -> str:
-        failure_text = attempt.failure_text or (
-            f"Failed {attempt.label} (attribute {attempt.attribute or 'none'}: {attempt.effective_score}, roll={attempt.roll:.2f})"
-        )
+        roll_markup, total = _roll_visualization(attempt, roll_threshold)
+        attribute_label = escape(attempt.attribute or "none", False)
+        custom_failure = attempt.failure_text
+        if custom_failure:
+            failure_detail = escape(custom_failure, False)
+        else:
+            failure_detail = (
+                f"Failed {escape(attempt.label, False)} (attribute {attribute_label}: {attempt.effective_score}, "
+                f"roll={attempt.roll:.0f}, total={total:.0f}, threshold={roll_threshold})"
+            )
+        failure_text = f"<strong class='roll-outcome failure-text'>Failure.</strong> {failure_detail}"
         if next_cost > 0:
             reroll_note = f"Reroll will cost {next_cost} credibility."
             reroll_label = f"Reroll (-{next_cost} credibility)"
@@ -2472,7 +2554,8 @@ def create_app() -> Flask:
         outcome_section = (
             "<section class='action-outcome'>"
             + "<h2>Action Outcome</h2>"
-            + f"<p>{escape(failure_text, quote=False)}</p>"
+            + f"<p>{failure_text}</p>"
+            + roll_markup
             + f"<p>{escape(reroll_note, quote=False)}</p>"
             + shortage_text
             + reroll_forms
@@ -2639,6 +2722,7 @@ def create_app() -> Flask:
                     player_snapshot,
                     next_cost,
                     partner_credibility,
+                    roll_threshold_snapshot,
                     can_reroll=can_reroll,
                     credibility_notes=shortage_messages,
                 )
@@ -2833,6 +2917,7 @@ def create_app() -> Flask:
                 player_snapshot,
                 next_cost,
                 partner_credibility,
+                roll_threshold_snapshot,
                 can_reroll=next_can_reroll,
                 credibility_notes=shortage_messages,
             )
@@ -2914,6 +2999,7 @@ def create_app() -> Flask:
             player_snapshot,
             next_cost,
             partner_credibility,
+            roll_threshold_snapshot,
             can_reroll=next_can_reroll,
             credibility_notes=shortage_messages,
         )
@@ -3219,17 +3305,23 @@ def create_app() -> Flask:
                     "scenario": scenario_key,
                 }
         is_win = final >= threshold
+        result_banner_html = (
+            "<div class='result-banner'>"
+            + f"<img src='{result_banner_path}' alt='Game result banner placeholder'>"
+            + "</div>"
+        )
         if not campaign_context:
             outcome = "You won!" if is_win else "You lost!"
             body = (
                 "<main class='result-page'>"
+                + result_banner_html
                 + f"<h1>{outcome}</h1>"
                 + f"{state_html}"
                 + "<form method='post' action='/reset'>"
-            + "<button type='submit'>Reset</button>"
-            + "</form>"
-            + "</main>"
-        )
+                + "<button type='submit'>Reset</button>"
+                + "</form>"
+                + "</main>"
+            )
         _finalize_db_run(session, outcome=outcome, successful=is_win)
         return _render_page(body)
 
@@ -3269,6 +3361,7 @@ def create_app() -> Flask:
             + f"<h1>{result_title}</h1>"
             + f"<p>{level_intro}<br>{score_summary}</p>"
             + "</div>"
+            + result_banner_html
             + f"<div class='campaign-summary'>{state_html}</div>"
             + "<div class='campaign-actions'>"
             + "".join(actions)

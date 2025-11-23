@@ -11,6 +11,38 @@ body.page-landing{
 body.page-profile{
   background:#f3f4f8;
 }
+.brand-header{
+  display:flex;
+  align-items:center;
+  gap:1rem;
+  background:#ffffff;
+  border-radius:18px;
+  padding:1rem 1.25rem;
+  box-shadow:0 12px 28px rgba(15,23,42,0.08);
+  border:1px solid #e2e8f0;
+  margin-bottom:1.5rem;
+}
+.brand-logo{
+  width:140px;
+  max-width:30vw;
+  height:auto;
+  border-radius:14px;
+  box-shadow:0 14px 32px rgba(15,23,42,0.12);
+  object-fit:contain;
+  background:#ffffff;
+}
+.brand-title h1{
+  margin:0;
+  font-size:1.9rem;
+}
+.brand-subtitle{
+  margin:0 0 0.25rem 0;
+  color:#475569;
+  font-weight:700;
+  letter-spacing:0.05em;
+  text-transform:uppercase;
+  font-size:0.85rem;
+}
 .global-footer{
   max-width:960px;
   margin:3rem auto 2rem;
@@ -220,6 +252,61 @@ body.page-profile{
   color:#9c2f2f;
   font-weight:600;
 }
+.roll-visual{
+  background:#f8fafc;
+  border:1px solid #e2e8f0;
+  border-radius:16px;
+  padding:1rem;
+  box-shadow:0 10px 24px rgba(15,23,42,0.06);
+  margin:0.75rem 0 1rem 0;
+}
+.roll-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+  gap:1rem;
+}
+.roll-card{
+  background:#ffffff;
+  border-radius:14px;
+  border:1px solid #e2e8f0;
+  padding:0.75rem;
+  text-align:center;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  min-height:220px;
+  box-shadow:0 12px 28px rgba(15,23,42,0.08);
+}
+.roll-card .roll-number{
+  font-size:2.2rem;
+  font-weight:800;
+  color:#0f172a;
+}
+.roll-card .roll-label,.roll-card figcaption{
+  margin-top:0.45rem;
+  color:#475569;
+  font-weight:700;
+}
+.die-card img{
+  width:100%;
+  max-width:180px;
+  height:170px;
+  object-fit:contain;
+}
+.roll-outcome{
+  font-weight:800;
+}
+.roll-outcome.success-text{
+  color:#0f766e;
+}
+.roll-outcome.failure-text{
+  color:#b91c1c;
+}
+.credibility-text{
+  font-weight:600;
+  color:#0f172a;
+}
 .roll-indicator{
   display:none;
   align-items:center;
@@ -414,6 +501,20 @@ body.page-profile{
   width:32px;
   height:32px;
   object-fit:contain;
+}
+.result-banner{
+  margin:1.25rem 0;
+}
+.result-banner img{
+  width:100%;
+  max-width:1200px;
+  aspect-ratio:16/9;
+  border-radius:16px;
+  display:block;
+  margin:0 auto;
+  object-fit:cover;
+  box-shadow:0 14px 32px rgba(15,23,42,0.12);
+  border:1px solid #e2e8f0;
 }
 .loading-page{
   min-height:60vh;
