@@ -955,7 +955,7 @@ def create_app() -> Flask:
         die_image_path = _die_image_path(roll_value)
         breakdown = (
             "<div class='roll-visual'>"
-            + "<div class='roll-grid'>"
+            + "<div class='roll-sequence'>"
             + (
                 "<figure class='roll-card die-card'>"
                 + f"<img src='{die_image_path}' alt='d20 roll showing {roll_value:.0f}'>"
@@ -963,18 +963,21 @@ def create_app() -> Flask:
                 + f"<div class='roll-number'>{roll_value:.0f}</div>"
                 + "</figure>"
             )
+            + "<div class='roll-operator' aria-hidden='true'>+</div>"
             + (
                 "<div class='roll-card'>"
                 + f"<div class='roll-number'>{attempt.effective_score:.0f}</div>"
                 + f"<div class='roll-label'>{escape(attribute_label, False)} modifier</div>"
                 + "</div>"
             )
+            + "<div class='roll-operator' aria-hidden='true'>=</div>"
             + (
                 "<div class='roll-card'>"
                 + f"<div class='roll-number'>{total:.0f}</div>"
                 + "<div class='roll-label'>Final value</div>"
                 + "</div>"
             )
+            + "<div class='roll-operator' aria-hidden='true'>/</div>"
             + (
                 "<div class='roll-card'>"
                 + f"<div class='roll-number'>{roll_threshold:.0f}</div>"
@@ -1875,7 +1878,9 @@ def create_app() -> Flask:
                 "<a class='primary-button' href='/result'>View detailed summary</a>",
             ]
             if current_mode == "campaign":
-                actions.append("<a class='secondary' href='/campaign/level'>Plan next sector</a>")
+                actions.append(
+                    "<a class='primary-button secondary' href='/campaign/level'>Plan next sector</a>"
+                )
             else:
                 actions.append("<a class='secondary' href='/'>Return to landing</a>")
             actions.append("</div>")
@@ -2441,11 +2446,7 @@ def create_app() -> Flask:
         attribute_label = escape(attempt.attribute or "none", False)
         success_text = (
             "<strong class='roll-outcome success-text'>Success!</strong> "
-            + f"Succeeded {escape(attempt.label, False)} "
-            + (
-                f"(attribute {attribute_label}: {attempt.effective_score}, "
-                f"roll={attempt.roll:.0f}, total={total:.0f}, threshold={roll_threshold})"
-            )
+            + f"Succeeded {escape(attempt.label, False)}."
         )
         credibility_delta = (
             -attempt.credibility_cost
@@ -2523,10 +2524,7 @@ def create_app() -> Flask:
         if custom_failure:
             failure_detail = escape(custom_failure, False)
         else:
-            failure_detail = (
-                f"Failed {escape(attempt.label, False)} (attribute {attribute_label}: {attempt.effective_score}, "
-                f"roll={attempt.roll:.0f}, total={total:.0f}, threshold={roll_threshold})"
-            )
+            failure_detail = f"Failed {escape(attempt.label, False)}."
         failure_text = f"<strong class='roll-outcome failure-text'>Failure.</strong> {failure_detail}"
         if next_cost > 0:
             reroll_note = f"Reroll will cost {next_cost} credibility."
@@ -3333,8 +3331,8 @@ def create_app() -> Flask:
                 + "</form>"
                 + "</main>"
             )
-        _finalize_db_run(session, outcome=outcome, successful=is_win)
-        return _render_page(body)
+            _finalize_db_run(session, outcome=outcome, successful=is_win)
+            return _render_page(body)
 
         level_index, scenario_key, sector_choice = campaign_context
         level_number = level_index + 1

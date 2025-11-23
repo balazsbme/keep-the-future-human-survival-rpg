@@ -248,52 +248,63 @@ body.page-profile{
 .reroll-actions form,.action-outcome-actions form,.mode-actions form{
   margin:0;
 }
-.warning-text{
-  color:#9c2f2f;
-  font-weight:600;
-}
-.roll-visual{
-  background:#f8fafc;
-  border:1px solid #e2e8f0;
-  border-radius:16px;
-  padding:1rem;
-  box-shadow:0 10px 24px rgba(15,23,42,0.06);
-  margin:0.75rem 0 1rem 0;
-}
-.roll-grid{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
-  gap:1rem;
-}
-.roll-card{
-  background:#ffffff;
-  border-radius:14px;
-  border:1px solid #e2e8f0;
-  padding:0.75rem;
-  text-align:center;
-  display:flex;
-  flex-direction:column;
-  justify-content:center;
-  align-items:center;
-  min-height:220px;
-  box-shadow:0 12px 28px rgba(15,23,42,0.08);
-}
-.roll-card .roll-number{
-  font-size:2.2rem;
-  font-weight:800;
-  color:#0f172a;
-}
-.roll-card .roll-label,.roll-card figcaption{
-  margin-top:0.45rem;
-  color:#475569;
-  font-weight:700;
-}
-.die-card img{
-  width:100%;
-  max-width:180px;
-  height:170px;
-  object-fit:contain;
-}
+  .warning-text{
+    color:#9c2f2f;
+    font-weight:600;
+  }
+  .roll-visual{
+    background:#f8fafc;
+    border:1px solid #e2e8f0;
+    border-radius:16px;
+    padding:1rem;
+    box-shadow:0 10px 24px rgba(15,23,42,0.06);
+    margin:0.75rem 0 1rem 0;
+  }
+  .roll-sequence{
+    display:flex;
+    align-items:stretch;
+    justify-content:center;
+    gap:0.6rem;
+    flex-wrap:wrap;
+  }
+  .roll-card{
+    background:#ffffff;
+    border-radius:14px;
+    border:1px solid #e2e8f0;
+    padding:0.6rem;
+    text-align:center;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    align-items:center;
+    min-height:140px;
+    min-width:130px;
+    box-shadow:0 10px 22px rgba(15,23,42,0.07);
+  }
+  .roll-operator{
+    font-size:1.35rem;
+    font-weight:700;
+    color:#1f2937;
+    align-self:center;
+    padding:0 0.35rem;
+  }
+  .roll-card .roll-number{
+    font-size:2.2rem;
+    font-weight:800;
+    color:#0f172a;
+  }
+  .roll-card .roll-label,
+  .roll-card figcaption{
+    margin-top:0.45rem;
+    color:#475569;
+    font-weight:700;
+  }
+  .die-card img{
+    width:100%;
+    max-width:120px;
+    height:120px;
+    object-fit:contain;
+  }
 .roll-outcome{
   font-weight:800;
 }

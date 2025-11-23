@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', function () {
   if (!indicator) {
     return;
   }
+  const DISPLAY_DURATION = 2000;
   let hideTimer = null;
   let finalizeTimer = null;
   const scheduleHide = function () {
@@ -25,17 +26,31 @@ document.addEventListener('DOMContentLoaded', function () {
     if (finalizeTimer) {
       window.clearTimeout(finalizeTimer);
     }
-    hideTimer = window.setTimeout(scheduleHide, 3200);
+    hideTimer = window.setTimeout(scheduleHide, DISPLAY_DURATION);
+  };
+  const delaySubmitWithIndicator = function (form, predicate) {
+    form.addEventListener('submit', function (event) {
+      if (predicate && !predicate()) {
+        return;
+      }
+      if (form.dataset.rollSubmitting === 'true') {
+        return;
+      }
+      event.preventDefault();
+      form.dataset.rollSubmitting = 'true';
+      showIndicator();
+      window.setTimeout(function () {
+        form.submit();
+      }, DISPLAY_DURATION);
+    });
   };
   document.querySelectorAll('form.roll-trigger').forEach(function (form) {
-    form.addEventListener('submit', showIndicator);
+    delaySubmitWithIndicator(form, function () { return true; });
   });
   document.querySelectorAll('form.options-form').forEach(function (form) {
-    form.addEventListener('submit', function () {
+    delaySubmitWithIndicator(form, function () {
       const selected = form.querySelector("input[name='response']:checked");
-      if (selected && selected.dataset && selected.dataset.kind === 'action') {
-        showIndicator();
-      }
+      return Boolean(selected && selected.dataset && selected.dataset.kind === 'action');
     });
   });
 });
