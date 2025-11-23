@@ -1,9 +1,9 @@
 game:
   scenario: 01-race-to-contain-power
-  win_threshold: 71
-  max_rounds: 10
+  win_threshold: 67
+  max_rounds: 7
   roll_success_threshold: 14
-  action_time_cost_years: 0.5
+  action_time_cost_years: 0.4
   enabled_factions:
     - Governments
     - Corporations
