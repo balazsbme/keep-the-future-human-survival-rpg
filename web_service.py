@@ -860,6 +860,7 @@ def create_app() -> Flask:
     roll_asset_path = "/assets/rolling.gif"
     logo_asset_path = "/assets/logo.jpg"
     icon_asset_path = "/assets/icon.jpg"
+    # TODO: the banner is removed use banner-lose.jpg or banner-win.jpg depending on the game result.
     result_banner_path = "/assets/result-banner.svg"
     footer_html = _load_snippet("global_footer.html").format(github_url=GITHUB_URL)
     roll_indicator_markup = _load_snippet("roll_indicator.html").format(
