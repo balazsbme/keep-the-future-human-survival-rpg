@@ -860,8 +860,8 @@ def create_app() -> Flask:
     roll_asset_path = "/assets/rolling.gif"
     logo_asset_path = "/assets/logo.jpg"
     icon_asset_path = "/assets/icon.jpg"
-    # TODO: the banner is removed use banner-lose.jpg or banner-win.jpg depending on the game result.
-    result_banner_path = "/assets/result-banner.svg"
+    result_banner_path_win = "/assets/banner-win.jpg"
+    result_banner_path_lose = "/assets/banner-lose.jpg"
     footer_html = _load_snippet("global_footer.html").format(github_url=GITHUB_URL)
     roll_indicator_markup = _load_snippet("roll_indicator.html").format(
         roll_asset_path=roll_asset_path
@@ -892,6 +892,15 @@ def create_app() -> Flask:
             parts.extend(extra_scripts)
         parts.append("</body>")
         return "".join(parts)
+
+    def _result_banner(is_win: bool, *, alt_prefix: str | None = None) -> str:
+        path = result_banner_path_win if is_win else result_banner_path_lose
+        alt_text = f"{alt_prefix + ' ' if alt_prefix else ''}{'victory' if is_win else 'defeat'} banner"
+        return (
+            "<div class='result-banner'>"
+            + f"<img src='{path}' alt='{escape(alt_text, quote=True)}'>"
+            + "</div>"
+        )
 
     def _state_container(content: str, *, refresh_mode: str = "active") -> str:
         mode = escape(refresh_mode.lower(), quote=True)
@@ -1874,6 +1883,7 @@ def create_app() -> Flask:
                 )
             else:
                 detail_text = "You can review the run or reset to chase another outcome."
+            victory_banner = _result_banner(True, alt_prefix="Victory")
             actions: list[str] = [
                 "<div class='victory-actions'>",
                 "<a class='primary-button' href='/result'>View detailed summary</a>",
@@ -1887,6 +1897,7 @@ def create_app() -> Flask:
             actions.append("</div>")
             victory_block = (
                 "<div class='victory-banner'>"
+                + victory_banner
                 + "<h2>Victory secured</h2>"
                 + f"<p>{escape(score_text + ' ' + detail_text, False)}</p>"
                 + "".join(actions)
@@ -3315,11 +3326,7 @@ def create_app() -> Flask:
                     "scenario": scenario_key,
                 }
         is_win = final >= threshold
-        result_banner_html = (
-            "<div class='result-banner'>"
-            + f"<img src='{result_banner_path}' alt='Game result banner placeholder'>"
-            + "</div>"
-        )
+        result_banner_html = _result_banner(is_win, alt_prefix="Final")
         if not campaign_context:
             outcome = "You won!" if is_win else "You lost!"
             body = (
@@ -3327,9 +3334,12 @@ def create_app() -> Flask:
                 + result_banner_html
                 + f"<h1>{outcome}</h1>"
                 + f"{state_html}"
+                + "<div class='campaign-actions'>"
+                + "<a class='primary-button' href='/free-play'>Plan next</a>"
                 + "<form method='post' action='/reset'>"
-                + "<button type='submit'>Reset</button>"
+                + "<button type='submit' class='secondary'>Reset</button>"
                 + "</form>"
+                + "</div>"
                 + "</main>"
             )
             _finalize_db_run(session, outcome=outcome, successful=is_win)
