@@ -49,14 +49,23 @@
     a.play-link:hover {
       background-color: #1d4ed8;
     }
-    iframe {
+    .video-wrapper {
+      position: relative;
       display: block;
       margin: 2rem auto;
-      width: 100%;
       max-width: 720px;
-      height: 405px;
-      border: none;
       border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      padding-top: 56.25%;
+    }
+    .video-wrapper iframe {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
     }
     footer {
       text-align: center;
@@ -67,9 +76,8 @@
   </style>
 </head>
 <body>
-    # TODO: use the banner-general.jpg, which is next to this html file
   <header>
-    <img src="/mnt/data/banner.png" alt="Keep the Future Human RPG Banner">
+    <img src="banner-general.jpg" alt="Keep the Future Human RPG Banner">
   </header>
   <main>
     <h1>Keep the Future Human: Survival RPG</h1>
@@ -87,18 +95,45 @@
       Can you keep the future human?
     </p>
 
-    # TODO: Add here this link: https://keep-the-future-human-rpg-870734418475.europe-west1.run.app/ 
-    <a href="https://huggingface.co/spaces/B41425/keep-the-future-human-survival-rpg" class="play-link" target="_blank">
+    <a href="https://keep-the-future-human-rpg-870734418475.europe-west1.run.app/" class="play-link" target="_blank">
       ▶️ Play Here
     </a>
 
-    # TODO: fix this, currently the video cannot be played the goal is to embed the video, or at least show the cover picture and open in new tab if clicked
-    <iframe 
-      src="https://www.youtube.com/embed/27KDl2uPiL8" 
-      title="Keep the Future Human: Survival RPG Trailer"
-      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-      allowfullscreen>
-    </iframe>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/27KDl2uPiL8"
+        title="Keep the Future Human: Survival RPG Trailer"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        loading="lazy"
+        referrerpolicy="strict-origin-when-cross-origin"
+        srcdoc='
+          <style>
+            * {padding: 0; margin: 0; overflow: hidden;}
+            html, body {height: 100%;}
+            img, a {position: absolute; width: 100%; height: 100%; top: 0; left: 0;}
+            .play-button {
+              position: absolute;
+              width: 80px;
+              height: 80px;
+              border-radius: 50%;
+              background: rgba(0,0,0,0.55);
+              color: #fff;
+              display: grid;
+              place-items: center;
+              font-size: 2.5rem;
+              left: 50%;
+              top: 50%;
+              transform: translate(-50%, -50%);
+              box-shadow: 0 6px 14px rgba(0,0,0,0.25);
+            }
+            a:hover .play-button {transform: translate(-50%, -50%) scale(1.05);}
+          </style>
+          <a href="https://www.youtube.com/watch?v=27KDl2uPiL8" target="_blank" rel="noopener">
+            <img src="https://img.youtube.com/vi/27KDl2uPiL8/hqdefault.jpg" alt="Keep the Future Human Trailer thumbnail" loading="lazy">
+            <div class="play-button">▶</div>
+          </a>'>
+      </iframe>
+    </div>
   </main>
 
   <footer>
