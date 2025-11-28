@@ -39,6 +39,19 @@ def _load_test_character() -> YamlCharacter:
 
 
 class WebServiceTest(unittest.TestCase):
+    def test_state_refresh_sends_session_cookie(self):
+        """The state polling script must include credentials for session reuse."""
+
+        snippet_path = (
+            Path(__file__).resolve().parent.parent
+            / "web"
+            / "snippets"
+            / "state_refresh.js"
+        )
+        with open(snippet_path, "r", encoding="utf-8") as fh:
+            contents = fh.read()
+        self.assertIn("credentials: 'include'", contents)
+
     def test_scenario_dropdown_lists_all_yaml_files(self):
         scenario_dir = Path(__file__).resolve().parent.parent / "scenarios"
         expected_values = {p.stem.lower() for p in scenario_dir.glob("*.yaml")}

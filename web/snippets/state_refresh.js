@@ -54,7 +54,12 @@ document.addEventListener('DOMContentLoaded', function () {
     timer = window.setTimeout(poll, delay);
   };
   const poll = function () {
-    fetch('/state', { headers: { Accept: 'application/json' } })
+    fetch('/state', {
+      headers: { Accept: 'application/json' },
+      // Ensure the session cookie is always sent, even when the page is
+      // embedded or fetched from a different host (e.g., via a tunnel).
+      credentials: 'include',
+    })
       .then(function (response) {
         if (!response.ok) {
           throw new Error('Bad response');
