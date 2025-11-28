@@ -343,20 +343,30 @@ class Character(ABC):
     def _context_prompt(self) -> str:
         """Return the context block appropriate for the current cache state."""
 
-        return (
-            self._context_instruction
-            if self._cached_context_config is not None
-            else self._context_fallback
-        )
+        return self._context_prompt_for_cached(self._cached_context_config is not None)
+
+    def _context_prompt_for_cached(self, use_cached: bool) -> str:
+        """Return context text depending on whether cached content should be used."""
+
+        return self._context_instruction if use_cached else self._context_fallback
 
     def _generate_with_context(self, prompt: str):
         """Generate content while attaching cached context when available."""
 
-        try:
-            if self._cached_context_config is not None:
+        if self._cached_context_config is not None:
+            try:
                 return self._model.generate_content(
                     prompt, config=self._cached_context_config
                 )
+            except Exception as exc:  # pragma: no cover - cache service failure
+                logger.warning(
+                    "Gemini request for %s using cached context failed: %s; "
+                    "retrying without cache",
+                    self.name,
+                    exc,
+                )
+                self._cached_context_config = None
+        try:
             return self._model.generate_content(prompt)
         except Exception as exc:  # pragma: no cover - network/auth failures
             logger.warning(
@@ -751,43 +761,54 @@ class YamlCharacter(Character):
             "Respond in a way that prioritizes your own goals or those of your faction before entertaining new requests.\n"
             f"Keep your response aligned with your motivations and capabilities, grounded in {faction_focus}.\n"
         )
-        context_block = self._build_context_sections(
-            partner_name, history, conversation
-        )
-        if self.cached_context_config is not None:
-            context_block = context_block.replace(
-                "# *CONTEXT*",
-                f"# *CONTEXT*\n{self._context_prompt()}\n",
-                1,
+        attempts = 2 if self.cached_context_config is not None else 1
+        options: List[ResponseOption] = []
+        for attempt in range(attempts):
+            use_cached_context = attempt == 0 and self.cached_context_config is not None
+            context_block = self._build_context_sections(
+                partner_name, history, conversation
+            )
+            if use_cached_context:
+                context_block = context_block.replace(
+                    "# *CONTEXT*",
+                    f"# *CONTEXT*\n{self._context_prompt_for_cached(True)}\n",
+                    1,
+                )
+
+            thinking_block = self._build_thinking_process(
+                force_action=force_action,
+                restricted_triplets=restricted_triplets,
+                partner_label=partner_label,
             )
 
-        thinking_block = self._build_thinking_process(
-            force_action=force_action,
-            restricted_triplets=restricted_triplets,
-            partner_label=partner_label,
-        )
+            output_constraints = self._build_output_constraints(
+                force_action=force_action, restricted_triplets=restricted_triplets
+            )
 
-        output_constraints = self._build_output_constraints(
-            force_action=force_action, restricted_triplets=restricted_triplets
-        )
-
-        prompt = (
-            f"{base_prompt}\n\n"
-            f"{context_block}\n\n"
-            f"{thinking_block}\n\n"
-            f"{output_constraints}"
-        )
-        logger.debug(
-            "Prompt for %s: %s", self.name, collapse_prompt_sections(prompt)
-        )
-        response = self._generate_with_context(prompt)
-        response_text = getattr(response, "text", "").strip()
-        logger.debug(
-            "Raw response for %s: %s",
-            self.name,
-            collapse_prompt_sections(response_text),
-        )
-        options = self._parse_response_payload(response_text, len(self.triplets))
+            prompt = (
+                f"{base_prompt}\n\n"
+                f"{context_block}\n\n"
+                f"{thinking_block}\n\n"
+                f"{output_constraints}"
+            )
+            logger.debug(
+                "Prompt for %s: %s", self.name, collapse_prompt_sections(prompt)
+            )
+            response = self._generate_with_context(prompt)
+            response_text = getattr(response, "text", "").strip()
+            logger.debug(
+                "Raw response for %s: %s",
+                self.name,
+                collapse_prompt_sections(response_text),
+            )
+            options = self._parse_response_payload(response_text, len(self.triplets))
+            if options or not use_cached_context:
+                break
+            logger.warning(
+                "Cached context for %s returned no usable responses; retrying without cache",
+                self.name,
+            )
+            self._cached_context_config = None
         if restricted_triplets and any(
             option.is_action and option.related_triplet is not None for option in options
         ):
@@ -1162,39 +1183,51 @@ class PlayerCharacter(Character):
             "Offer exactly three imaginative and varied 'chat' responses that keep the conversation moving without proposing actions yourself. "
             "Each option should explore a distinct angle or tactic to keep the negotiation dynamic."
         )
-        context_block = self._context_prompt()
-        other_conversations = "Conversations with other factions so far:\n"
-        if conversation_cache:
-            segments: List[str] = []
-            for faction_name, entries in sorted(conversation_cache.items()):
-                if not entries:
-                    continue
-                label = faction_name or "Independent"
-                segments.append(
-                    f"## {label}\n{self._conversation_text(entries)}"
-                )
-            if segments:
-                other_conversations += "\n\n".join(segments) + "\n"
+        attempts = 2 if self.cached_context_config is not None else 1
+        options: List[ResponseOption] = []
+        for attempt in range(attempts):
+            use_cached_context = attempt == 0 and self.cached_context_config is not None
+            context_block = self._context_prompt_for_cached(use_cached_context)
+            other_conversations = "Conversations with other factions so far:\n"
+            if conversation_cache:
+                segments: List[str] = []
+                for faction_name, entries in sorted(conversation_cache.items()):
+                    if not entries:
+                        continue
+                    label = faction_name or "Independent"
+                    segments.append(
+                        f"## {label}\n{self._conversation_text(entries)}"
+                    )
+                if segments:
+                    other_conversations += "\n\n".join(segments) + "\n"
+                else:
+                    other_conversations += "None\n"
             else:
                 other_conversations += "None\n"
-        else:
-            other_conversations += "None\n"
-        prompt = (
-            f"{base_prompt}\n"
-            f"{context_block}"
-            f"Your capabilities: {attribute_summary}.\n"
-            f"Previous gameplay actions:\n{self._history_text(history)}\n"
-            f"Conversation so far:\n{self._conversation_text(conversation)}\n"
-            f"{other_conversations}"
-            f"{self._format_prompt_instructions()}"
-        )
-        logger.debug("Player prompt: %s", collapse_prompt_sections(prompt))
-        response = self._generate_with_context(prompt)
-        response_text = getattr(response, "text", "").strip()
-        logger.debug(
-            "Raw player response: %s", collapse_prompt_sections(response_text)
-        )
-        options = self._parse_response_payload(response_text, len(partner.triplets))
+            prompt = (
+                f"{base_prompt}\n"
+                f"{context_block}"
+                f"Your capabilities: {attribute_summary}.\n"
+                f"Previous gameplay actions:\n{self._history_text(history)}\n"
+                f"Conversation so far:\n{self._conversation_text(conversation)}\n"
+                f"{other_conversations}"
+                f"{self._format_prompt_instructions()}"
+            )
+            logger.debug("Player prompt: %s", collapse_prompt_sections(prompt))
+            response = self._generate_with_context(prompt)
+            response_text = getattr(response, "text", "").strip()
+            logger.debug(
+                "Raw player response: %s", collapse_prompt_sections(response_text)
+            )
+            options = self._parse_response_payload(
+                response_text, len(partner.triplets)
+            )
+            if options or not use_cached_context:
+                break
+            logger.warning(
+                "Cached context for player returned no usable responses; retrying without cache"
+            )
+            self._cached_context_config = None
         if any(option.is_action for option in options):
             logger.warning(
                 "Player model suggested action-oriented responses; using scripted prompts instead"
