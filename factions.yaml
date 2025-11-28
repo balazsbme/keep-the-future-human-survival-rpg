@@ -7,6 +7,13 @@ Governments:
       - Publicly: economic growth, technological leadership, scientific progress.
       - Privately: fear of rivals gaining a decisive strategic advantage; belief that AGI could revolutionize military affairs (comparable to nuclear weapons).
     - **Interactions**: Strongly influenced by corporate lobbying; in rivalry with other governments (e.g., US–China), affecting chipmakers and regulators.
+    - **Referenced quotes:**
+      - "Nations feel compelled to join this race, publicly citing economic and scientific leadership."
+      - "Privately, they view AGI as a potential revolution in military affairs comparable to nuclear weapons."
+      - "For reasons of national security, the US executive branch asks companies using US-made chips to cease new AI training runs above the compute limit."
+      - "The US should encourage other countries hosting AI development to take similar steps and discuss lifting the pause if they do not comply."
+      - "The agency, via discussion with signatories of the international agreement, agrees on computation limitations that then take legal force in the signatory countries."
+      - "National security establishments can leverage their expertise to make AI tool systems secure and trustworthy, a source of defense as well as national power."
 
 Corporations:
   MarkdownContext: |
@@ -18,6 +25,13 @@ Corporations:
       - Drive to dominate new digital markets across all sectors simultaneously.
       - Executive visions of technological transformation and prestige.
     - **Interactions**: Depend on hardware manufacturers for chips; heavily influence governments and regulators.
+    - **Referenced quotes:**
+      - "Major technology companies see AGI as the ultimate automation technology – not just augmenting human workers but replacing them largely or entirely."
+      - "For companies, the prize is enormous: the opportunity to capture a significant fraction of the world’s economic output by automating away human labor costs."
+      - "This is the stated goal of many major AI companies."
+      - "DeepMind, OpenAI, Anthropic, and X.ai were all founded with the specific goal of developing AGI."
+      - "Meta, Microsoft, and others are now pursuing substantially similar paths."
+      - "Meta has said that it plans to develop AGI and release it openly."
 
 HardwareManufacturers:
   MarkdownContext: |
@@ -28,6 +42,15 @@ HardwareManufacturers:
       - Profit from soaring chip demand, driven by AI race.
       - Competitive advantage in controlling scarce high-end chip supply.
     - **Interactions**: Depend on government mandates for governance; affected by geopolitical rivalries between governments.
+    - **Referenced quotes:**
+      - "A core tool in governing high-powered AI will be the hardware it requires."
+      - "The hardware required for AI is expensive and enormously difficult to manufacture."
+      - "The machines required to etch AI-relevant chips are made by only one firm, ASML."
+      - "The vast majority of relevant chips are manufactured by one firm, TSMC."
+      - "The design and construction of hardware from those chips is done by just a few, including NVIDIA, AMD, and Google."
+      - "What makes AI-specialized chips manageable as a scarce resource is that they can include hardware-based security mechanisms."
+      - "All AI-relevant hardware manufacturers operating in the US or doing business with the US government must adhere to requirements on their specialized hardware and software."
+      - "Signatory countries must require their domestic AI hardware manufacturers to comply with requirements at least as strong as those imposed in the US."
 
 Regulators:
   MarkdownContext: |
@@ -39,6 +62,12 @@ Regulators:
       - Balance innovation with oversight.
       - In practice, often pressured to prioritize economic competitiveness and industry lobbying.
     - **Interactions**: Vulnerable to corporate capture; depend on governments for legitimacy and on international cooperation for enforcement.
+    - **Referenced quotes:**
+      - "Those developing AI that combines high autonomy, broad generality, and superior intelligence should face strict liability for harms."
+      - "Safe harbors from this liability would encourage development of more limited and controllable systems."
+      - "We need tiered regulation based on risk levels, with the most capable and dangerous systems requiring extensive safety and controllability guarantees."
+      - "Less powerful or more specialized systems would face proportionate oversight."
+      - "This regulatory framework should eventually operate at both national and international levels."
 
 CivilSociety:
   MarkdownContext: |
@@ -50,6 +79,13 @@ CivilSociety:
       - Fear of power concentration in corporations or governments.
       - Aspirations for equitable distribution of AI benefits.
     - **Interactions**: Influence governments and regulators through democratic processes; need to build coalitions with scientists and media.
+    - **Referenced quotes:**
+      - "People want the good that comes from AI: useful tools that empower them and promise breakthroughs in science, technology, and education."
+      - "Overwhelming majorities of the general public want slower and more careful AI development."
+      - "They do not want smarter-than-human AI that will replace them in their jobs and elsewhere."
+      - "People do not want AI to fill their culture and information commons with non-human content."
+      - "They fear concentrating power in a tiny set of corporations and extreme large-scale global risks."
+      - "Such a momentous and irreversible decision should be made deliberately by humanity as a whole."
 
 ScientificCommunity:
   MarkdownContext: |
@@ -61,3 +97,10 @@ ScientificCommunity:
       - Desire to use AI for positive ends (medicine, science, sustainability).
       - Concern over existential risks and responsibility to warn society.
     - **Interactions**: Many researchers work in corporations, creating capture risks; align with NGOs and civil society to advocate for restraint.
+    - **Referenced quotes:**
+      - "Starting around 2015, researchers succeeded in developing narrow AI systems that can win at games, recognize images and speech better than any human."
+      - "Many careful thinkers, from Alan Turing to Stephen Hawking to Geoffrey Hinton and Yoshua Bengio, have issued a stark warning about building superintelligent AI."
+      - "The leaders of DeepMind, OpenAI, and Anthropic, among many other experts, have signed a statement that advanced AI poses an extinction risk to humanity."
+      - "There is a strong scientific consensus that AGI is possible."
+      - "Until a few years ago many researchers saw AGI as decades away, but evidence for short timelines to AGI is now strong."
+      - "AI tools themselves can help people govern powerful AI and manage its effects."
