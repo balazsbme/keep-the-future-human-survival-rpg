@@ -147,6 +147,110 @@ class YamlCharacterTest(unittest.TestCase):
         self.assertIn("Use the cached persona", called_args[0])
         self.assertEqual(called_kwargs.get("config"), cache_config)
 
+    @patch("rpg.character.get_cache_manager")
+    @patch("rpg.character.genai")
+    def test_generate_responses_fallback_after_cached_failure(
+        self, mock_char_genai, mock_cache_mgr
+    ):
+        cache_config = object()
+        fake_manager = MagicMock()
+        fake_manager.get_cached_config.return_value = cache_config
+        mock_cache_mgr.return_value = fake_manager
+
+        mock_action_model = MagicMock()
+        success_payload = [
+            {
+                "text": "Let's keep talking about your plans.",
+                "type": "chat",
+                "related-triplet": "None",
+                "related-attribute": "None",
+            }
+        ]
+        mock_action_model.generate_content.side_effect = [
+            RuntimeError("cached call failed"),
+            MagicMock(text=json.dumps(success_payload)),
+        ]
+        mock_char_genai.GenerativeModel.return_value = mock_action_model
+
+        with open(CHARACTERS_FILE, "r", encoding="utf-8") as fh:
+            character_payload = yaml.safe_load(fh)
+        with open(SCENARIO_FILE, "r", encoding="utf-8") as fh:
+            faction_payload = yaml.safe_load(fh) or {}
+        with open(FACTIONS_FILE, "r", encoding="utf-8") as fh:
+            faction_contexts = yaml.safe_load(fh) or {}
+        profile = character_payload["Characters"][0]
+        faction_spec = dict(faction_payload[profile["faction"]])
+        faction_context = faction_contexts.get(profile["faction"], {})
+        if isinstance(faction_context, dict) and faction_context.get("MarkdownContext"):
+            faction_spec["MarkdownContext"] = faction_context["MarkdownContext"]
+        char = YamlCharacter(profile["name"], faction_spec, profile)
+        partner = SimpleNamespace(
+            display_name="Player", faction="CivilSociety", triplets=char.triplets
+        )
+
+        options = char.generate_responses([], [], partner, partner_credibility=80)
+
+        self.assertEqual(len(options), 1)
+        self.assertEqual(options[0].text, success_payload[0]["text"])
+        self.assertEqual(mock_action_model.generate_content.call_count, 2)
+        first_call = mock_action_model.generate_content.call_args_list[0]
+        self.assertEqual(first_call.kwargs.get("config"), cache_config)
+        second_call = mock_action_model.generate_content.call_args_list[1]
+        self.assertNotIn("config", second_call.kwargs)
+        self.assertIsNone(char.cached_context_config)
+
+    @patch("rpg.character.get_cache_manager")
+    @patch("rpg.character.genai")
+    def test_generate_responses_fallback_after_cached_blank_response(
+        self, mock_char_genai, mock_cache_mgr
+    ):
+        cache_config = object()
+        fake_manager = MagicMock()
+        fake_manager.get_cached_config.return_value = cache_config
+        mock_cache_mgr.return_value = fake_manager
+
+        mock_action_model = MagicMock()
+        success_payload = [
+            {
+                "text": "Here's how we can move forward.",
+                "type": "chat",
+                "related-triplet": "None",
+                "related-attribute": "None",
+            }
+        ]
+        mock_action_model.generate_content.side_effect = [
+            MagicMock(text="  \n\n  "),
+            MagicMock(text=json.dumps(success_payload)),
+        ]
+        mock_char_genai.GenerativeModel.return_value = mock_action_model
+
+        with open(CHARACTERS_FILE, "r", encoding="utf-8") as fh:
+            character_payload = yaml.safe_load(fh)
+        with open(SCENARIO_FILE, "r", encoding="utf-8") as fh:
+            faction_payload = yaml.safe_load(fh) or {}
+        with open(FACTIONS_FILE, "r", encoding="utf-8") as fh:
+            faction_contexts = yaml.safe_load(fh) or {}
+        profile = character_payload["Characters"][0]
+        faction_spec = dict(faction_payload[profile["faction"]])
+        faction_context = faction_contexts.get(profile["faction"], {})
+        if isinstance(faction_context, dict) and faction_context.get("MarkdownContext"):
+            faction_spec["MarkdownContext"] = faction_context["MarkdownContext"]
+        char = YamlCharacter(profile["name"], faction_spec, profile)
+        partner = SimpleNamespace(
+            display_name="Player", faction="CivilSociety", triplets=char.triplets
+        )
+
+        options = char.generate_responses([], [], partner, partner_credibility=80)
+
+        self.assertEqual(len(options), 1)
+        self.assertEqual(options[0].text, success_payload[0]["text"])
+        self.assertEqual(mock_action_model.generate_content.call_count, 2)
+        first_call = mock_action_model.generate_content.call_args_list[0]
+        self.assertEqual(first_call.kwargs.get("config"), cache_config)
+        second_call = mock_action_model.generate_content.call_args_list[1]
+        self.assertNotIn("config", second_call.kwargs)
+        self.assertIsNone(char.cached_context_config)
+
     @patch("rpg.character.genai")
     def test_generate_responses_warning_for_related_triplets(self, mock_char_genai):
         mock_action_model = MagicMock()
@@ -247,6 +351,94 @@ class YamlCharacterTest(unittest.TestCase):
             args[0],
         )
         self.assertEqual(kwargs.get("config"), cache_config)
+
+    @patch("rpg.character.get_cache_manager")
+    @patch("rpg.character.genai")
+    def test_generate_responses_returns_cached_content_without_retry(
+        self, mock_char_genai, mock_cache_mgr
+    ):
+        cache_config = object()
+        fake_manager = MagicMock()
+        fake_manager.get_cached_config.return_value = cache_config
+        mock_cache_mgr.return_value = fake_manager
+
+        mock_action_model = MagicMock()
+        mock_action_model.generate_content.return_value = MagicMock(
+            text=json.dumps(
+                [
+                    {
+                        "text": "Continue coordinating the response.",
+                        "type": "chat",
+                        "related-triplet": "None",
+                        "related-attribute": "None",
+                    }
+                ]
+            )
+        )
+        mock_char_genai.GenerativeModel.return_value = mock_action_model
+
+        with open(CHARACTERS_FILE, "r", encoding="utf-8") as fh:
+            character_payload = yaml.safe_load(fh)
+        with open(SCENARIO_FILE, "r", encoding="utf-8") as fh:
+            faction_payload = yaml.safe_load(fh) or {}
+        with open(FACTIONS_FILE, "r", encoding="utf-8") as fh:
+            faction_contexts = yaml.safe_load(fh) or {}
+        profile = character_payload["Characters"][0]
+        faction_spec = dict(faction_payload[profile["faction"]])
+        faction_context = faction_contexts.get(profile["faction"], {})
+        if isinstance(faction_context, dict) and faction_context.get("MarkdownContext"):
+            faction_spec["MarkdownContext"] = faction_context["MarkdownContext"]
+        char = YamlCharacter(profile["name"], faction_spec, profile)
+        partner = SimpleNamespace(
+            display_name="Player", faction="CivilSociety", triplets=char.triplets
+        )
+
+        options = char.generate_responses([], [], partner, partner_credibility=80)
+
+        self.assertEqual(len(options), 1)
+        self.assertEqual(options[0].text, "Continue coordinating the response.")
+        mock_action_model.generate_content.assert_called_once()
+        called_args, called_kwargs = mock_action_model.generate_content.call_args
+        self.assertIn("Use the cached persona", called_args[0])
+        self.assertEqual(called_kwargs.get("config"), cache_config)
+        self.assertIs(char.cached_context_config, cache_config)
+
+    @patch("rpg.character.get_cache_manager")
+    @patch("rpg.character.genai")
+    def test_player_uses_cached_context_without_retry(
+        self, mock_char_genai, mock_cache_mgr
+    ):
+        cache_config = object()
+        fake_manager = MagicMock()
+        fake_manager.get_cached_config.return_value = cache_config
+        mock_cache_mgr.return_value = fake_manager
+
+        mock_player_model = MagicMock()
+        mock_player_model.generate_content.return_value = MagicMock(
+            text=json.dumps(
+                [
+                    {"text": "What outcome do you want to secure?", "type": "chat"},
+                    {"text": "How can we build trust together?", "type": "chat"},
+                    {"text": "What allies do you need to move forward?", "type": "chat"},
+                ]
+            )
+        )
+        mock_char_genai.GenerativeModel.return_value = mock_player_model
+
+        player = PlayerCharacter()
+        partner = SimpleNamespace(
+            display_name="NPC", faction="Alliance", triplets=[(1, 2, 3)]
+        )
+
+        options = player.generate_responses([], [], partner, partner_credibility=80)
+
+        self.assertEqual(len(options), 3)
+        self.assertTrue(all(option.type == "chat" for option in options))
+        mock_player_model.generate_content.assert_called_once()
+        called_args, called_kwargs = mock_player_model.generate_content.call_args
+        self.assertIn("Use the cached player persona", called_args[0])
+        self.assertEqual(called_kwargs.get("config"), cache_config)
+        self.assertIs(player.cached_context_config, cache_config)
 
     @patch("rpg.character.genai")
     def test_player_character_generates_responses(self, mock_char_genai):
