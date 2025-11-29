@@ -1,10 +1,28 @@
-# Keep the Future Human Survival RPG
+# Keep the Future Human RPG
 
-This project is an experimental role‑playing game inspired by the themes of the
-[Keep the Future Human essay contest](https://keepthefuturehuman.ai/contest/).
-It began as a minimal example of how to call Google's Gemini API with the
-`google-generativeai` library and has grown into a playable RPG. The repository
-now includes:
+## Background
+
+Text-based RPG developed for the Keep the Future Human Creative Contest 2025 with AI-backed NPCs.
+
+The game features six non-player controlled fictional characters that represent six factions. In the game the player negotiates with the AI-backed characters and convinces them to take actions that close the gates to replacement AI and redirects the development towards humanity-empowering tool AI.
+
+The six factions the player interacts with are Governments, Corporations, Hardware Manufacturers, Regulators, Civil Society and Scientific Community. These are groups of actors that ultimately influence how the AI development in the real world unfolds based on the KTFH essay. Each faction is represented by a fictional non-player controlled character (NPC), that has its own motivations that are aligned with their faction's goal. These NPC personas and their motivations are selected to be representative of and aligned with the essay's key takeaways. For example, Corportations are racing to develop highly autonomous, intelligent and general AI systems, so the NPC's motivation is "Exploit the AGI race to secure monopoly-level market share and record profits". Based on NPCs' essay-aligned context, the game's code generates responses (using Google Gemini) reacting to the choices made by the player.
+The game invites the player to use the in-game conversations to understand the motivations of each NPC/faction and choose the right actions that will guide the world towards closing the gates to AGI and redirect efforts to developing and ensuring Tool AI.
+
+The in-game actions are proposed by the NPCs if the player's question and argument choices convinces them. The player has to choose which actions are taken in exchange for an in-game cost.
+The sequence of actions is graded by an assessment agent based on collected quotes of the essay that describe each faction's gap regarding the essay's outlined plan to Tool AI.
+
+Throughout the game the player needs to think critically, assess each proposed action. 
+The assessment agent grades between 0-100 the gaps of each faction based on the performed actions, and a final score is calculated as the average of the faction scores.
+The game is won if enough essay-aligned actions are selected during a limited number of rounds and a score threshold is exceeded. 
+
+## Try it out! Play!
+
+The game's current `main` branch is playable for free at https://balazsbme.itch.io/keep-the-future-human-rpg 
+
+## Structure
+
+The repository includes:
 
 - **CLI game (`cli_game.py`)** – play through the terminal.
 - **Flask web service (`web_service.py`)** – interact with the same mechanics via a browser.
