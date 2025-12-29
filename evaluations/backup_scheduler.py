@@ -76,17 +76,56 @@ def build_trigger(config: BackupSchedulerConfig) -> BackupTriggerCondition:
     raise ValueError(f"Unknown trigger type {config.trigger_type!r}")
 
 
+def _resolve_backup_path(db_path: Path, backup_path: Path) -> Path:
+    """Return the file path to use for the backup output."""
+
+    if backup_path.exists() and backup_path.is_dir():
+        backup_dir = backup_path
+        stem = db_path.stem
+        suffix = ".sqlite"
+        logger.info(
+            "Backup path %s is a directory; writing backup into it",
+            backup_path,
+        )
+    elif not backup_path.exists() and backup_path.suffix == "":
+        backup_dir = backup_path
+        stem = db_path.stem
+        suffix = ".sqlite"
+        logger.info(
+            "Backup path %s has no suffix; treating as directory target",
+            backup_path,
+        )
+    else:
+        backup_dir = backup_path.parent
+        stem = backup_path.stem
+        suffix = backup_path.suffix or ".sqlite"
+
+    timestamp = time.strftime("%Y%m%d%H%M%S", time.gmtime())
+    for attempt in range(100):
+        suffix_suffix = f"-{attempt}" if attempt else ""
+        candidate = backup_dir / f"{stem}-{timestamp}{suffix_suffix}{suffix}"
+        if candidate.exists():
+            if candidate.is_dir():
+                raise IsADirectoryError(
+                    f"Backup path {candidate} is a directory; expected a file path"
+                )
+            continue
+        return candidate
+    raise FileExistsError(
+        f"Could not find an available backup file name in {backup_dir}"
+    )
+
+
 def perform_sqlite_backup(db_path: Path, backup_path: Path) -> None:
     """Run a VACUUM INTO backup for the SQLite database."""
 
     if not db_path.exists():
         raise FileNotFoundError(f"SQLite database not found at {db_path}")
-    backup_path.parent.mkdir(parents=True, exist_ok=True)
-    if backup_path.exists():
-        backup_path.unlink()
+    backup_file = _resolve_backup_path(db_path, backup_path)
+    backup_file.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(db_path, timeout=30)
     try:
-        connection.execute("VACUUM INTO ?", (str(backup_path),))
+        connection.execute("VACUUM INTO ?", (str(backup_file),))
     finally:
         connection.close()
 
