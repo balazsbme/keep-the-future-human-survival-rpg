@@ -10,6 +10,7 @@ import os
 import re
 import sqlite3
 import threading
+import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
@@ -208,7 +209,13 @@ class SQLiteConnector:
                 cleaned[key] = value
         return cleaned
 
-    def _execute_insert(self, table: str, values: Mapping[str, object]) -> int:
+    def _execute_insert(
+        self,
+        table: str,
+        values: Mapping[str, object],
+        *,
+        return_value: object | None = None,
+    ) -> object:
         if not values:
             raise ValueError("insert payload cannot be empty")
         columns = list(values.keys())
@@ -216,40 +223,53 @@ class SQLiteConnector:
         sql = f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders})"
         with self.cursor() as cur:
             cur.execute(sql, [values[column] for column in columns])
-            return int(cur.lastrowid)
+            return return_value if return_value is not None else cur.lastrowid
+
+    @staticmethod
+    def _ensure_uuid(values: MutableMapping[str, object], key: str) -> str:
+        if key not in values or values[key] is None:
+            values[key] = str(uuid.uuid4())
+        return str(values[key])
 
     # Public API ---------------------------------------------------------
-    def insert_execution(self, values: Mapping[str, object]) -> int:
+    def insert_execution(self, values: Mapping[str, object]) -> str:
         payload = dict(self._prepare_payload(dict(values)))
+        execution_id = self._ensure_uuid(payload, "execution_id")
         if "config_json" in payload and not isinstance(payload["config_json"], str):
             payload["config_json"] = self._serialise_json(payload["config_json"])
-        return self._execute_insert("executions", payload)
+        return str(self._execute_insert("executions", payload, return_value=execution_id))
 
-    def insert_action(self, values: Mapping[str, object]) -> int:
+    def insert_action(self, values: Mapping[str, object]) -> str:
         payload = dict(values)
+        action_id = self._ensure_uuid(payload, "action_id")
         if "option_json" in payload and not isinstance(payload["option_json"], str):
             payload["option_json"] = self._serialise_json(payload["option_json"])
         if "targets_json" in payload and not isinstance(payload["targets_json"], str):
             payload["targets_json"] = self._serialise_json(payload["targets_json"])
-        return self._execute_insert("actions", payload)
+        return str(self._execute_insert("actions", payload, return_value=action_id))
 
-    def insert_assessment(self, values: Mapping[str, object]) -> int:
+    def insert_assessment(self, values: Mapping[str, object]) -> str:
         payload = dict(values)
+        assessment_id = self._ensure_uuid(payload, "assessment_id")
         if "assessment_json" in payload and not isinstance(payload["assessment_json"], str):
             payload["assessment_json"] = self._serialise_json(payload["assessment_json"])
-        return self._execute_insert("assessments", payload)
+        return str(self._execute_insert("assessments", payload, return_value=assessment_id))
 
-    def insert_credibility(self, values: Mapping[str, object]) -> int:
+    def insert_credibility(self, values: Mapping[str, object]) -> str:
         payload = dict(values)
+        credibility_id = self._ensure_uuid(payload, "credibility_vector_id")
         if "credibility_json" in payload and not isinstance(payload["credibility_json"], str):
             payload["credibility_json"] = self._serialise_json(payload["credibility_json"])
-        return self._execute_insert("credibility", payload)
+        return str(self._execute_insert("credibility", payload, return_value=credibility_id))
 
-    def insert_result(self, values: Mapping[str, object]) -> int:
+    def insert_result(self, values: Mapping[str, object]) -> str:
         payload = dict(values)
         if "successful_execution" in payload:
             payload["successful_execution"] = int(bool(payload["successful_execution"]))
-        return self._execute_insert("results", payload)
+        execution_id = payload.get("execution_id")
+        if execution_id is None:
+            raise ValueError("execution_id is required for results")
+        return str(self._execute_insert("results", payload, return_value=str(execution_id)))
 
     # Dynamic schema helpers --------------------------------------------
     def ensure_assessment_columns(self, faction_triplets: Mapping[str, int]) -> None:

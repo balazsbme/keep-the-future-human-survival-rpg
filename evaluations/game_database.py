@@ -72,7 +72,7 @@ class GameDatabaseRecorder(GameRunObserver):
     ) -> None:
         self._connector = connector
         self._notes = notes
-        self._execution_id: int | None = None
+        self._execution_id: str | None = None
         self._session_id: str | None = None
         self._pre_turn_snapshot: Dict[str, list[int]] | None = None
         self._cached_credibility_targets: Iterable[str] | None = None
@@ -228,7 +228,7 @@ class GameDatabaseRecorder(GameRunObserver):
     def _snapshot_progress(self, state: GameState) -> Dict[str, list[int]]:
         return {key: list(values) for key, values in state.progress.items()}
 
-    def _record_action(self, state: GameState, attempt: ActionAttempt, round_index: int) -> int:
+    def _record_action(self, state: GameState, attempt: ActionAttempt, round_index: int) -> str:
         option_payload = attempt.option.to_payload()
         data: MutableMapping[str, object] = {
             "execution_id": self._execution_id,
@@ -253,7 +253,7 @@ class GameDatabaseRecorder(GameRunObserver):
         }
         return self._connector.insert_action(data)
 
-    def _record_assessment(self, state: GameState, action_id: int) -> None:
+    def _record_assessment(self, state: GameState, action_id: str) -> None:
         if self._faction_triplet_counts is None:
             self._faction_triplet_counts = {
                 faction: len(scores)
@@ -281,7 +281,7 @@ class GameDatabaseRecorder(GameRunObserver):
         }
         self._connector.insert_assessment(assessment_data)
 
-    def _record_credibility(self, state: GameState, attempt: ActionAttempt, action_id: int) -> None:
+    def _record_credibility(self, state: GameState, attempt: ActionAttempt, action_id: str) -> None:
         snapshot = state.credibility.snapshot()
         player_row = snapshot.get(state.player_faction, {})
         if self._cached_credibility_targets is None:
