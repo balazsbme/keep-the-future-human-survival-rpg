@@ -54,7 +54,7 @@ def _post_action(client) -> None:
 
 def test_backup_scheduler_e2e(tmp_path, monkeypatch):
     db_path = tmp_path / "game.sqlite"
-    backup_path = tmp_path / "backup.sqlite"
+    backup_path = tmp_path / "backups"
     monkeypatch.setenv("ENABLE_SQLITE_LOGGING", "1")
     monkeypatch.setenv("LOG_WEB_RUNS_TO_DB", "1")
     monkeypatch.setenv("EVALUATION_SQLITE_PATH", str(db_path))
@@ -112,4 +112,5 @@ def test_backup_scheduler_e2e(tmp_path, monkeypatch):
         )
         assert scheduler.run_once() is True
 
-    assert backup_path.exists()
+    backup_files = list(backup_path.glob("game-*.sqlite"))
+    assert len(backup_files) == 1
