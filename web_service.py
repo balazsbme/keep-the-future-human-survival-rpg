@@ -26,6 +26,11 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 import yaml
 
+from evaluations.backup_scheduler import (
+    BackupScheduler,
+    build_trigger,
+    load_backup_scheduler_config,
+)
 from evaluations.game_database import GameDatabaseRecorder
 from evaluations.sqlite3_connector import DatabaseLockedError, SQLiteConnector
 from cli_game import load_characters
@@ -34,6 +39,7 @@ from rpg.character import Character, ResponseOption
 from rpg.config import GameConfig, load_game_config
 from rpg.conversation import ConversationEntry
 from rpg.game_state import ActionAttempt, GameState
+from rpg.session_monitor import SessionActivityMonitor
 
 
 GITHUB_URL = "https://github.com/balazsbme/keep-the-future-human-survival-rpg"
@@ -570,6 +576,14 @@ def create_app() -> Flask:
     SESSION_CLEANUP_INTERVAL = 60 * 10
     session_store: Dict[str, SessionData] = {default_session.session_id: default_session}
     session_store_lock = threading.Lock()
+    session_activity_monitor = SessionActivityMonitor()
+    session_activity_monitor.register_session(default_session.session_id, now=now)
+    backup_config_path = (
+        Path(__file__).resolve().parent / "evaluations" / "backup-scheduler-config.yaml"
+    )
+    backup_config = load_backup_scheduler_config(backup_config_path)
+    backup_session_inactive_seconds = backup_config.session_inactive_seconds
+    backup_scheduler: BackupScheduler | None = None
     db_connector_shared: SQLiteConnector | None = None
     db_connector_lock = threading.Lock()
     db_logging_available = WEB_LOG_TO_DB
@@ -754,6 +768,36 @@ def create_app() -> Flask:
     if WEB_LOG_TO_DB:
         _start_db_run_for_session(default_session)
 
+    if backup_config.enabled:
+        db_path_env = os.environ.get("EVALUATION_SQLITE_PATH")
+        backup_path_env = os.environ.get("EVALUATION_SQLITE_BACKUP_PATH")
+        if not db_path_env:
+            logger.info(
+                "Backup scheduler disabled; EVALUATION_SQLITE_PATH not set"
+            )
+        elif not backup_path_env:
+            logger.info(
+                "Backup scheduler disabled; EVALUATION_SQLITE_BACKUP_PATH not set"
+            )
+        else:
+            try:
+                trigger = build_trigger(backup_config)
+            except ValueError:
+                logger.info("Backup scheduler disabled; invalid trigger config")
+            else:
+                backup_scheduler = BackupScheduler(
+                    db_path=Path(db_path_env),
+                    backup_path=Path(backup_path_env),
+                    trigger=trigger,
+                    session_monitor=session_activity_monitor,
+                    session_inactive_seconds=backup_config.session_inactive_seconds,
+                    poll_interval_seconds=backup_config.poll_interval_seconds,
+                )
+                backup_scheduler.start()
+
+    app.config["session_activity_monitor"] = session_activity_monitor
+    app.config["backup_scheduler"] = backup_scheduler
+
     def _cleanup_sessions(now: float) -> None:
         nonlocal session_last_cleanup
         if now - session_last_cleanup < SESSION_CLEANUP_INTERVAL:
@@ -764,13 +808,20 @@ def create_app() -> Flask:
                 continue
             if now - session.last_access > SESSION_TTL_SECONDS:
                 _abort_db_run(session, "Session expired")
+                session_activity_monitor.mark_closed(session.session_id)
                 expired.append(key)
         for key in expired:
             session_store.pop(key, None)
+        session_activity_monitor.close_inactive_sessions(
+            backup_session_inactive_seconds,
+            now=now,
+        )
         session_last_cleanup = now
 
     def _touch_session(session: SessionData, now: float | None = None) -> SessionData:
-        session.last_access = now or time.time()
+        timestamp = now or time.time()
+        session.last_access = timestamp
+        session_activity_monitor.touch_session(session.session_id, now=timestamp)
         return session
 
     def _get_or_create_session(session_id: str | None) -> tuple[SessionData, bool]:
@@ -782,6 +833,7 @@ def create_app() -> Flask:
             session = _create_session_state()
             _start_db_run_for_session(session)
             session_store[session.session_id] = session
+            session_activity_monitor.register_session(session.session_id, now=now)
             return _touch_session(session, now), True
 
     def _session() -> SessionData:
@@ -3392,6 +3444,8 @@ def create_app() -> Flask:
         return _render_page(header)
 
     def _close_shared_db_connector() -> None:
+        if backup_scheduler is not None:
+            backup_scheduler.stop()
         if db_connector_shared is not None:
             try:
                 db_connector_shared.close()

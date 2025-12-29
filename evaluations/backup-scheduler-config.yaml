@@ -1,0 +1,6 @@
+enabled: true
+poll_interval_seconds: 15
+session_inactive_seconds: 60
+trigger:
+  type: closed_sessions_threshold
+  closed_sessions_threshold: 1
