@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import sys
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -48,8 +50,10 @@ def _build_state() -> SimpleNamespace:
 
 def test_recorder_writes_expected_payloads() -> None:
     connector = MagicMock(spec=SQLiteConnector)
-    connector.insert_execution.return_value = 3
-    connector.insert_action.return_value = 10
+    execution_uuid = str(uuid.uuid4())
+    action_uuid = str(uuid.uuid4())
+    connector.insert_execution.return_value = execution_uuid
+    connector.insert_action.return_value = action_uuid
 
     recorder = GameDatabaseRecorder(connector, notes="test-run")
     state = _build_state()
@@ -146,7 +150,7 @@ def test_recorder_writes_expected_payloads() -> None:
     )
     connector.insert_result.assert_called_once()
     result_payload = connector.insert_result.call_args.args[0]
-    assert result_payload["execution_id"] == 3
+    assert result_payload["execution_id"] == execution_uuid
     assert result_payload["successful_execution"] is True
     assert result_payload["result"] == "Win"
     assert result_payload["log_warning_count"] == 3
@@ -157,7 +161,8 @@ def test_recorder_writes_expected_payloads() -> None:
 
 def test_recorder_records_error_outcome() -> None:
     connector = MagicMock(spec=SQLiteConnector)
-    connector.insert_execution.return_value = 7
+    execution_uuid = str(uuid.uuid4())
+    connector.insert_execution.return_value = execution_uuid
 
     recorder = GameDatabaseRecorder(connector)
     state = _build_state()
@@ -181,7 +186,7 @@ def test_recorder_records_error_outcome() -> None:
 
     connector.insert_result.assert_called_once()
     result_payload = connector.insert_result.call_args.args[0]
-    assert result_payload["execution_id"] == 7
+    assert result_payload["execution_id"] == execution_uuid
     assert result_payload["successful_execution"] is False
     assert result_payload["result"] == "N/A"
     assert "boom" in result_payload["error_info"]

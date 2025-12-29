@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import uuid
 import sys
 import threading
 from pathlib import Path
@@ -63,7 +64,7 @@ def test_dynamic_schema_and_inserts(tmp_path: Path) -> None:
             "conversation_force_action_after": 8,
         }
     )
-    assert execution_id > 0
+    uuid.UUID(execution_id)
 
     action_id = connector.insert_action(
         {
@@ -78,7 +79,7 @@ def test_dynamic_schema_and_inserts(tmp_path: Path) -> None:
             "option_json": {"text": "Do something"},
         }
     )
-    assert action_id > 0
+    uuid.UUID(action_id)
 
     assessment_id = connector.insert_assessment(
         {
@@ -93,7 +94,7 @@ def test_dynamic_schema_and_inserts(tmp_path: Path) -> None:
             "civilsociety_triplet_1": 30,
         }
     )
-    assert assessment_id > 0
+    uuid.UUID(assessment_id)
 
     credibility_id = connector.insert_credibility(
         {
@@ -106,7 +107,7 @@ def test_dynamic_schema_and_inserts(tmp_path: Path) -> None:
             "credibility_civilsociety": 100,
         }
     )
-    assert credibility_id > 0
+    uuid.UUID(credibility_id)
 
     connector.insert_result(
         {
@@ -127,6 +128,26 @@ def test_dynamic_schema_and_inserts(tmp_path: Path) -> None:
     assert row["log_warning_count"] == 2
     assert row["log_error_count"] == 1
     assert row["session_id"] == "abc"
+
+    action_row = connector.connection.execute(
+        "SELECT execution_id FROM actions WHERE action_id = ?",
+        (action_id,),
+    ).fetchone()
+    assert action_row["execution_id"] == execution_id
+
+    assessment_row = connector.connection.execute(
+        "SELECT execution_id, action_id FROM assessments WHERE assessment_id = ?",
+        (assessment_id,),
+    ).fetchone()
+    assert assessment_row["execution_id"] == execution_id
+    assert assessment_row["action_id"] == action_id
+
+    credibility_row = connector.connection.execute(
+        "SELECT execution_id, action_id FROM credibility WHERE credibility_vector_id = ?",
+        (credibility_id,),
+    ).fetchone()
+    assert credibility_row["execution_id"] == execution_id
+    assert credibility_row["action_id"] == action_id
 
     connector.commit()
     connector.close()
@@ -165,6 +186,76 @@ def test_concurrent_inserts(tmp_path: Path) -> None:
     assert not errors
     row = connector.connection.execute("SELECT COUNT(*) FROM executions").fetchone()
     assert row[0] == 5
+
+
+def test_foreign_key_enforcement_with_uuid_ids(tmp_path: Path) -> None:
+    db_path = tmp_path / "fk.sqlite"
+    connector = SQLiteConnector(db_path=db_path)
+    connector.initialise()
+
+    execution_id = connector.insert_execution(
+        {
+            "session_id": "abc",
+            "player_class": "TestPlayer",
+            "automated_player_class": "Auto",
+            "scenario": "complete",
+            "win_threshold": 10,
+            "max_rounds": 5,
+            "roll_success_threshold": 10,
+        }
+    )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        connector.insert_action(
+            {
+                "execution_id": str(uuid.uuid4()),
+                "session_id": "abc",
+                "actor": "NPC",
+                "title": "Action",
+                "option_text": "Do something",
+                "option_type": "action",
+                "success": 1,
+                "round_number": 1,
+                "option_json": {"text": "Do something"},
+            }
+        )
+
+    action_id = connector.insert_action(
+        {
+            "execution_id": execution_id,
+            "session_id": "abc",
+            "actor": "NPC",
+            "title": "Action",
+            "option_text": "Do something",
+            "option_type": "action",
+            "success": 1,
+            "round_number": 1,
+            "option_json": {"text": "Do something"},
+        }
+    )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        connector.insert_assessment(
+            {
+                "execution_id": execution_id,
+                "action_id": str(uuid.uuid4()),
+                "session_id": "abc",
+                "scenario": "complete",
+                "final_weighted_score": 42,
+                "assessment_json": {"after": {"Governments": {"1": 50}}},
+            }
+        )
+
+    connector.insert_assessment(
+        {
+            "execution_id": execution_id,
+            "action_id": action_id,
+            "session_id": "abc",
+            "scenario": "complete",
+            "final_weighted_score": 42,
+            "assessment_json": {"after": {"Governments": {"1": 50}}},
+        }
+    )
 
 
 def test_interprocess_lock_blocks_second_connector(tmp_path: Path) -> None:
