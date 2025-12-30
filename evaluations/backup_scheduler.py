@@ -33,6 +33,7 @@ class BackupSchedulerConfig:
     session_inactive_seconds: float = 600.0
     trigger_type: str = "closed_sessions_threshold"
     closed_sessions_threshold: int = 5
+    cleanup_after_backup: bool = True
 
 
 class ClosedSessionsThresholdCondition:
@@ -65,6 +66,7 @@ def load_backup_scheduler_config(path: Path) -> BackupSchedulerConfig:
         session_inactive_seconds=float(payload.get("session_inactive_seconds", 600.0)),
         trigger_type=str(trigger.get("type", "closed_sessions_threshold")),
         closed_sessions_threshold=int(trigger.get("closed_sessions_threshold", 5)),
+        cleanup_after_backup=bool(payload.get("cleanup_after_backup", True)),
     )
 
 
@@ -116,7 +118,30 @@ def _resolve_backup_path(db_path: Path, backup_path: Path) -> Path:
     )
 
 
-def perform_sqlite_backup(db_path: Path, backup_path: Path) -> None:
+def _quote_identifier(identifier: str) -> str:
+    return f'"{identifier.replace("\"", "\"\"")}"'
+
+
+def _cleanup_sqlite_database(connection: sqlite3.Connection) -> None:
+    foreign_keys_enabled = connection.execute("PRAGMA foreign_keys").fetchone()[0]
+    connection.execute("PRAGMA foreign_keys = OFF")
+    try:
+        rows = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+        for (table_name,) in rows:
+            connection.execute(f"DROP TABLE IF EXISTS {_quote_identifier(table_name)}")
+    finally:
+        if foreign_keys_enabled:
+            connection.execute("PRAGMA foreign_keys = ON")
+
+
+def perform_sqlite_backup(
+    db_path: Path,
+    backup_path: Path,
+    *,
+    cleanup_after_backup: bool = True,
+) -> None:
     """Run a VACUUM INTO backup for the SQLite database."""
 
     if not db_path.exists():
@@ -126,6 +151,9 @@ def perform_sqlite_backup(db_path: Path, backup_path: Path) -> None:
     connection = sqlite3.connect(db_path, timeout=30)
     try:
         connection.execute("VACUUM INTO ?", (str(backup_file),))
+        if cleanup_after_backup:
+            _cleanup_sqlite_database(connection)
+            connection.commit()
     finally:
         connection.close()
 
@@ -142,6 +170,7 @@ class BackupScheduler:
         session_monitor: SessionActivityMonitor,
         session_inactive_seconds: float,
         poll_interval_seconds: float,
+        cleanup_after_backup: bool,
     ) -> None:
         self.db_path = db_path
         self.backup_path = backup_path
@@ -149,6 +178,7 @@ class BackupScheduler:
         self.session_monitor = session_monitor
         self.session_inactive_seconds = session_inactive_seconds
         self.poll_interval_seconds = poll_interval_seconds
+        self.cleanup_after_backup = cleanup_after_backup
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -178,7 +208,11 @@ class BackupScheduler:
             snapshot.closed_since_last_backup,
             snapshot.active_session_count,
         )
-        perform_sqlite_backup(self.db_path, self.backup_path)
+        perform_sqlite_backup(
+            self.db_path,
+            self.backup_path,
+            cleanup_after_backup=self.cleanup_after_backup,
+        )
         self.session_monitor.reset_for_backup()
         return True
 
