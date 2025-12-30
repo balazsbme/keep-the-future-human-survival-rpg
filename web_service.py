@@ -577,7 +577,6 @@ def create_app() -> Flask:
     session_store: Dict[str, SessionData] = {default_session.session_id: default_session}
     session_store_lock = threading.Lock()
     session_activity_monitor = SessionActivityMonitor()
-    session_activity_monitor.register_session(default_session.session_id, now=now)
     backup_config_path = (
         Path(__file__).resolve().parent / "evaluations" / "backup-scheduler-config.yaml"
     )
@@ -822,7 +821,8 @@ def create_app() -> Flask:
     def _touch_session(session: SessionData, now: float | None = None) -> SessionData:
         timestamp = now or time.time()
         session.last_access = timestamp
-        session_activity_monitor.touch_session(session.session_id, now=timestamp)
+        if session.session_id != default_session.session_id:
+            session_activity_monitor.touch_session(session.session_id, now=timestamp)
         return session
 
     def _get_or_create_session(session_id: str | None) -> tuple[SessionData, bool]:
