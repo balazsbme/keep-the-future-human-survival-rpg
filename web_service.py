@@ -792,6 +792,7 @@ def create_app() -> Flask:
                     session_monitor=session_activity_monitor,
                     session_inactive_seconds=backup_config.session_inactive_seconds,
                     poll_interval_seconds=backup_config.poll_interval_seconds,
+                    cleanup_after_backup=backup_config.cleanup_after_backup,
                 )
                 backup_scheduler.start()
 

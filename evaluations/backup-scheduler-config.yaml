@@ -1,6 +1,7 @@
 enabled: true
 poll_interval_seconds: 15
 session_inactive_seconds: 60
+cleanup_after_backup: true
 trigger:
   type: closed_sessions_threshold
   closed_sessions_threshold: 1
