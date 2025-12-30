@@ -119,7 +119,7 @@ def _resolve_backup_path(db_path: Path, backup_path: Path) -> Path:
 
 
 def _quote_identifier(identifier: str) -> str:
-    return f'"{identifier.replace("\"", "\"\"")}"'
+    return '"' + identifier.replace('"', '""') + '"'
 
 
 def _cleanup_sqlite_database(connection: sqlite3.Connection) -> None:
