@@ -206,6 +206,14 @@ class BackupScheduler:
 
         self.session_monitor.close_inactive_sessions(self.session_inactive_seconds)
         snapshot = self.session_monitor.snapshot()
+        if snapshot.closed_since_last_backup < 1:
+            return False
+        if snapshot.active_session_count > 0:
+            logger.info(
+                "Backup skipped; %d active session(s) remain",
+                snapshot.active_session_count,
+            )
+            return False
         if not self.trigger.should_trigger(snapshot):
             return False
         logger.info(

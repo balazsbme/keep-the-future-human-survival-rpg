@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import sqlite3
 import sys
 import uuid
 from pathlib import Path
@@ -194,3 +196,53 @@ def test_recorder_records_error_outcome() -> None:
     assert result_payload["log_error_count"] == 2
     assert result_payload["session_id"] == "session-beta"
     connector.commit.assert_called()
+
+
+def test_recorder_skips_action_on_integrity_error(caplog) -> None:
+    connector = MagicMock(spec=SQLiteConnector)
+    execution_uuid = str(uuid.uuid4())
+    connector.insert_execution.return_value = execution_uuid
+    connector.insert_action.side_effect = sqlite3.IntegrityError(
+        "FOREIGN KEY constraint failed"
+    )
+
+    recorder = GameDatabaseRecorder(connector)
+    state = _build_state()
+
+    recorder.on_game_start(
+        state,
+        player_key="gamma",
+        player_class="PlayerChar",
+        automated_player_class="AutoPlayer",
+        game_index=3,
+        log_filename="gamma_game_3.log",
+        session_id="session-gamma",
+    )
+    start_commit_calls = connector.commit.call_count
+    recorder.before_turn(state, 1)
+
+    option = ResponseOption(text="Coordinate", type="action", related_triplet=1, related_attribute="influence")
+    attempt = ActionAttempt(
+        success=True,
+        option=option,
+        label="Action 2",
+        attribute="influence",
+        actor_score=6,
+        player_score=9,
+        effective_score=9,
+        roll=8,
+        targets=("Governments",),
+        credibility_cost=2,
+        credibility_gain=4,
+        failure_text=None,
+    )
+    state.last_action_attempt = attempt
+    state.last_action_actor = "NPC"
+
+    with caplog.at_level(logging.ERROR):
+        recorder.after_turn(state, 1)
+
+    assert "Failed to record action for execution" in caplog.text
+    connector.insert_assessment.assert_not_called()
+    connector.insert_credibility.assert_not_called()
+    assert connector.commit.call_count == start_commit_calls
