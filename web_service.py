@@ -1495,7 +1495,7 @@ def create_app() -> Flask:
                     _reload_state(
                         form_config,
                         completion_outcome="Free play restarted",
-                        completion_successful=False,
+                        completion_successful=True,
                     )
                 return redirect("/start")
 
@@ -1609,7 +1609,7 @@ def create_app() -> Flask:
             _reload_state(
                 load_game_config(),
                 completion_outcome="Campaign restarted",
-                completion_successful=False,
+                completion_successful=True,
             )
             config_snapshot = _session().config_in_use
         logger.info("Campaign started with baseline config %s", config_snapshot)
@@ -1644,7 +1644,7 @@ def create_app() -> Flask:
                     completion_outcome=(
                         "Campaign level restarted" if prior_sector is not None else None
                     ),
-                    completion_successful=False,
+                    completion_successful=True,
                 )
             return redirect("/start")
 
