@@ -35,6 +35,8 @@ def test_perform_sqlite_backup_cleans_up_db(tmp_path):
     tables = connection.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
     ).fetchall()
+    rows = connection.execute("SELECT * FROM test_table").fetchall()
     connection.close()
 
-    assert tables == []
+    assert tables == [("test_table",)]
+    assert rows == []
