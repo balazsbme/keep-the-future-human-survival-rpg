@@ -764,9 +764,6 @@ def create_app() -> Flask:
                 exc_info=True,
             )
 
-    if WEB_LOG_TO_DB:
-        _start_db_run_for_session(default_session)
-
     if backup_config.enabled:
         db_path_env = os.environ.get("EVALUATION_SQLITE_PATH")
         backup_path_env = os.environ.get("EVALUATION_SQLITE_BACKUP_PATH")
@@ -832,7 +829,6 @@ def create_app() -> Flask:
             if session_id and session_id in session_store:
                 return _touch_session(session_store[session_id], now), False
             session = _create_session_state()
-            _start_db_run_for_session(session)
             session_store[session.session_id] = session
             session_activity_monitor.register_session(session.session_id, now=now)
             return _touch_session(session, now), True
@@ -1100,11 +1096,22 @@ def create_app() -> Flask:
             player_faction=player_faction,
         )
 
-    def _reload_state(config: GameConfig, *, preserve_time: bool = False) -> None:
+    def _reload_state(
+        config: GameConfig,
+        *,
+        preserve_time: bool = False,
+        completion_outcome: str | None = None,
+        completion_successful: bool = False,
+    ) -> None:
         session = _session()
         logger.info("Reloading game state with config %s", config)
         if session.db_recorder is not None and not session.db_result_recorded:
-            _abort_db_run(session, "Game reset")
+            if completion_outcome is not None:
+                _finalize_db_run(
+                    session,
+                    outcome=completion_outcome,
+                    successful=completion_successful,
+                )
         session.config_in_use = config
         previous_timeline_start = None
         previous_elapsed_years = 0.0
@@ -1485,7 +1492,11 @@ def create_app() -> Flask:
             )
             if not validation_errors:
                 with state_lock:
-                    _reload_state(form_config)
+                    _reload_state(
+                        form_config,
+                        completion_outcome="Free play restarted",
+                        completion_successful=False,
+                    )
                 return redirect("/start")
 
         scenario_options = []
@@ -1595,7 +1606,11 @@ def create_app() -> Flask:
         _session().current_mode = "campaign"
         campaign_state.reset()
         with state_lock:
-            _reload_state(load_game_config())
+            _reload_state(
+                load_game_config(),
+                completion_outcome="Campaign restarted",
+                completion_successful=False,
+            )
             config_snapshot = _session().config_in_use
         logger.info("Campaign started with baseline config %s", config_snapshot)
         return redirect("/campaign/level")
@@ -1622,7 +1637,12 @@ def create_app() -> Flask:
                 selected_sector,
             )
             with state_lock:
-                _reload_state(new_config, preserve_time=True)
+                _reload_state(
+                    new_config,
+                    preserve_time=True,
+                    completion_outcome="Campaign level restarted",
+                    completion_successful=False,
+                )
             return redirect("/start")
 
         sector_cards = []
@@ -2677,7 +2697,6 @@ def create_app() -> Flask:
         if char_id < 0 or char_id >= character_count:
             return redirect("/start")
         session = _session()
-        _start_db_run_for_session(session)
         if request.method == "POST" and "response" in request.form:
             option = _option_from_payload(request.form["response"])
             with state_lock:
@@ -2942,7 +2961,6 @@ def create_app() -> Flask:
     @app.route("/reroll", methods=["POST"])
     def reroll_action_route() -> Response:
         session = _session()
-        _start_db_run_for_session(session)
         char_id = int(request.form["character"])
         option = _option_from_payload(request.form["action"])
         turn_index: int | None = None
@@ -3131,7 +3149,11 @@ def create_app() -> Flask:
         logger.info("Resetting game state")
         session = _session()
         with state_lock:
-            _reload_state(session.config_in_use)
+            _reload_state(
+                session.config_in_use,
+                completion_outcome="Reset by player",
+                completion_successful=True,
+            )
         return redirect("/")
 
 
@@ -3345,7 +3367,6 @@ def create_app() -> Flask:
     @app.route("/result", methods=["GET"])
     def result() -> str:
         session = _session()
-        _start_db_run_for_session(session)
         with assessment_lock:
             running = any(t.is_alive() for t in assessment_threads)
         if running:

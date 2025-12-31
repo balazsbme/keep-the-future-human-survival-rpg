@@ -84,7 +84,7 @@ def _resolve_backup_path(db_path: Path, backup_path: Path) -> Path:
     if backup_path.exists() and backup_path.is_dir():
         backup_dir = backup_path
         stem = db_path.stem
-        suffix = ".sqlite"
+        suffix = ".db"
         logger.info(
             "Backup path %s is a directory; writing backup into it",
             backup_path,
@@ -92,7 +92,7 @@ def _resolve_backup_path(db_path: Path, backup_path: Path) -> Path:
     elif not backup_path.exists() and backup_path.suffix == "":
         backup_dir = backup_path
         stem = db_path.stem
-        suffix = ".sqlite"
+        suffix = ".db"
         logger.info(
             "Backup path %s has no suffix; treating as directory target",
             backup_path,
@@ -100,7 +100,7 @@ def _resolve_backup_path(db_path: Path, backup_path: Path) -> Path:
     else:
         backup_dir = backup_path.parent
         stem = backup_path.stem
-        suffix = backup_path.suffix or ".sqlite"
+        suffix = backup_path.suffix or ".db"
 
     timestamp = time.strftime("%Y%m%d%H%M%S", time.gmtime())
     for attempt in range(100):
@@ -130,7 +130,7 @@ def _cleanup_sqlite_database(connection: sqlite3.Connection) -> None:
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
         ).fetchall()
         for (table_name,) in rows:
-            connection.execute(f"DELETE FROM {_quote_identifier(table_name)}")
+            connection.execute(f"DROP TABLE IF EXISTS {_quote_identifier(table_name)}")
         sequence_present = connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sqlite_sequence'"
         ).fetchone()

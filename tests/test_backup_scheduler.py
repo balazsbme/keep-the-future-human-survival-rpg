@@ -16,7 +16,7 @@ def test_perform_sqlite_backup_accepts_directory(tmp_path):
 
     perform_sqlite_backup(db_path, backup_dir)
 
-    backup_files = list(backup_dir.glob("game-*.sqlite"))
+    backup_files = list(backup_dir.glob("game-*.db"))
     assert len(backup_files) == 1
 
 

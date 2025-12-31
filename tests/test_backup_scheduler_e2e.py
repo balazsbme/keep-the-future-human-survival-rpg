@@ -112,5 +112,5 @@ def test_backup_scheduler_e2e(tmp_path, monkeypatch):
         )
         assert scheduler.run_once() is True
 
-    backup_files = list(backup_path.glob("game-*.sqlite"))
+    backup_files = list(backup_path.glob("game-*.db"))
     assert len(backup_files) == 1
