@@ -1629,6 +1629,7 @@ def create_app() -> Flask:
             selected_sector = request.form.get("sector", "").strip().lower()
             if selected_sector not in {"public", "private"}:
                 return redirect("/campaign/level")
+            prior_sector = campaign_state.sector_choice
             campaign_state.sector_choice = selected_sector
             new_config = _campaign_config(level_index, selected_sector)
             logger.info(
@@ -1640,7 +1641,9 @@ def create_app() -> Flask:
                 _reload_state(
                     new_config,
                     preserve_time=True,
-                    completion_outcome="Campaign level restarted",
+                    completion_outcome=(
+                        "Campaign level restarted" if prior_sector is not None else None
+                    ),
                     completion_successful=False,
                 )
             return redirect("/start")
