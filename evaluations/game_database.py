@@ -5,7 +5,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import sqlite3
 from dataclasses import asdict
 from datetime import datetime, timezone
 import uuid
@@ -14,6 +16,8 @@ from typing import Dict, Iterable, MutableMapping
 from rpg.game_state import ActionAttempt, GameState
 
 from .sqlite3_connector import SQLiteConnector, sanitize_identifier
+
+logger = logging.getLogger(__name__)
 
 
 class GameRunObserver:
@@ -176,10 +180,32 @@ class GameDatabaseRecorder(GameRunObserver):
         attempt = state.last_action_attempt
         if attempt is None:
             return
-        action_id = self._record_action(state, attempt, round_index)
-        self._record_assessment(state, action_id)
-        self._record_credibility(state, attempt, action_id)
-        self._connector.commit()
+        try:
+            action_id = self._record_action(state, attempt, round_index)
+        except sqlite3.IntegrityError:
+            logger.exception(
+                "Failed to record action for execution %s; skipping turn persistence",
+                self._execution_id,
+            )
+            self._pre_turn_snapshot = self._snapshot_progress(state)
+            return
+        try:
+            self._record_assessment(state, action_id)
+            self._record_credibility(state, attempt, action_id)
+        except sqlite3.Error:
+            logger.exception(
+                "Failed to record assessment/credibility for execution %s action %s",
+                self._execution_id,
+                action_id,
+            )
+        try:
+            self._connector.commit()
+        except sqlite3.Error:
+            logger.exception(
+                "Failed to commit turn persistence for execution %s action %s",
+                self._execution_id,
+                action_id,
+            )
         self._pre_turn_snapshot = self._snapshot_progress(state)
 
     def on_game_end(
