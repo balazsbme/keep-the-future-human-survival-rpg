@@ -130,7 +130,7 @@ def _cleanup_sqlite_database(connection: sqlite3.Connection) -> None:
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
         ).fetchall()
         for (table_name,) in rows:
-            connection.execute(f"DROP TABLE IF EXISTS {_quote_identifier(table_name)}")
+            connection.execute(f"DELETE FROM {_quote_identifier(table_name)}")
         sequence_present = connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sqlite_sequence'"
         ).fetchone()
