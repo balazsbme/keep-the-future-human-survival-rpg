@@ -487,6 +487,7 @@ class SessionData:
     db_game_index: int = 1
     db_result_recorded: bool = False
     db_logging_disabled: bool = False
+    db_run_pending: bool = False
 
 
 def _option_from_payload(raw: str) -> ResponseOption:
@@ -644,6 +645,7 @@ def create_app() -> Flask:
         session.db_result_recorded = False
         if increment_game:
             session.db_game_index += 1
+        session.db_run_pending = True
 
     def _start_db_run_for_session(session: SessionData) -> None:
         if session.db_logging_disabled or not WEB_LOG_TO_DB:
@@ -686,6 +688,13 @@ def create_app() -> Flask:
         session.db_recorder = recorder
         session.db_round_index = 0
         session.db_result_recorded = False
+        session.db_run_pending = False
+
+    def _maybe_start_db_run_for_session(session: SessionData) -> None:
+        if not session.db_run_pending:
+            return
+        _start_db_run_for_session(session)
+        session.db_run_pending = False
 
     def _db_before_turn(session: SessionData) -> int | None:
         if session.db_recorder is None or session.db_logging_disabled:
@@ -1168,7 +1177,6 @@ def create_app() -> Flask:
             session.assessment_threads.clear()
         session.last_history_signature = None
         _reset_db_logging_state(session, increment_game=True)
-        _start_db_run_for_session(session)
 
     def _format_summary_html(text: str) -> str:
         stripped = (text or "").strip()
@@ -1813,6 +1821,7 @@ def create_app() -> Flask:
             and campaign_state.sector_choice is None
         ):
             return redirect("/campaign/level")
+        _maybe_start_db_run_for_session(session)
         with state_lock:
             score = game_state.final_weighted_score()
             hist_len = len(game_state.history)
