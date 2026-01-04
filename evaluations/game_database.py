@@ -85,6 +85,14 @@ class GameDatabaseRecorder(GameRunObserver):
         self._log_filename: str | None = None
         self._log_warning_count: int = 0
         self._log_error_count: int = 0
+        self._current_conversation_id: str | None = None
+
+    @property
+    def execution_id(self) -> str | None:
+        return self._execution_id
+
+    def set_current_conversation_id(self, conversation_id: str | None) -> None:
+        self._current_conversation_id = conversation_id
 
     # Interface implementation -----------------------------------------
     def on_game_start(
@@ -118,6 +126,10 @@ class GameDatabaseRecorder(GameRunObserver):
         )
         for table in ("actions", "assessments", "credibility", "results"):
             self._connector.ensure_columns(table, {"session_id": "TEXT"})
+        self._connector.ensure_columns(
+            "actions",
+            {"conversation_id": "TEXT"},
+        )
         self._connector.ensure_columns(
             "results",
             {
@@ -277,6 +289,8 @@ class GameDatabaseRecorder(GameRunObserver):
             "round_number": round_index,
             "option_json": option_payload,
         }
+        if self._current_conversation_id is not None:
+            data["conversation_id"] = self._current_conversation_id
         return self._connector.insert_action(data)
 
     def _record_assessment(self, state: GameState, action_id: str) -> None:
@@ -357,6 +371,7 @@ class GameDatabaseRecorder(GameRunObserver):
         self._log_filename = None
         self._log_warning_count = 0
         self._log_error_count = 0
+        self._current_conversation_id = None
 
 
 __all__ = ["GameRunObserver", "GameDatabaseRecorder"]

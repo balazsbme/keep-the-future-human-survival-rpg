@@ -22,10 +22,24 @@ CREATE TABLE IF NOT EXISTS executions (
   created_at                      TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2) Actions recorded for an execution
+-- 2) Conversations recorded per execution/NPC pairing
+CREATE TABLE IF NOT EXISTS conversations (
+  conversation_id       TEXT PRIMARY KEY,
+  execution_id          TEXT NOT NULL,
+  session_id            TEXT,
+  player_character      TEXT,
+  npc_character         TEXT,
+  metadata_json         TEXT,
+  created_at            TEXT DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (execution_id) REFERENCES executions(execution_id) ON DELETE CASCADE,
+  UNIQUE (execution_id, npc_character)
+);
+
+-- 3) Actions recorded for an execution
 CREATE TABLE IF NOT EXISTS actions (
   action_id             TEXT PRIMARY KEY,
   execution_id          TEXT NOT NULL,
+  conversation_id       TEXT,
   session_id            TEXT,
   actor                 TEXT,
   title                 TEXT,
@@ -45,10 +59,11 @@ CREATE TABLE IF NOT EXISTS actions (
   round_number          INTEGER,
   option_json           TEXT,
   created_at            TEXT DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (execution_id) REFERENCES executions(execution_id) ON DELETE CASCADE
+  FOREIGN KEY (execution_id) REFERENCES executions(execution_id) ON DELETE CASCADE,
+  FOREIGN KEY (conversation_id) REFERENCES conversations(conversation_id) ON DELETE SET NULL
 );
 
--- 3) Assessments recorded after each action
+-- 4) Assessments recorded after each action
 CREATE TABLE IF NOT EXISTS assessments (
   assessment_id         TEXT PRIMARY KEY,
   execution_id          TEXT NOT NULL,
@@ -64,7 +79,7 @@ CREATE TABLE IF NOT EXISTS assessments (
 CREATE INDEX IF NOT EXISTS idx_assessments_exec_action
   ON assessments(execution_id, action_id);
 
--- 4) Credibility snapshots per action
+-- 5) Credibility snapshots per action
 CREATE TABLE IF NOT EXISTS credibility (
   credibility_vector_id TEXT PRIMARY KEY,
   execution_id          TEXT NOT NULL,
@@ -77,7 +92,7 @@ CREATE TABLE IF NOT EXISTS credibility (
   FOREIGN KEY (action_id)    REFERENCES actions(action_id)       ON DELETE CASCADE
 );
 
--- 5) Results recorded per execution
+-- 6) Results recorded per execution
 CREATE TABLE IF NOT EXISTS results (
   execution_id          TEXT PRIMARY KEY,
   session_id            TEXT,
@@ -88,4 +103,49 @@ CREATE TABLE IF NOT EXISTS results (
   log_error_count       INTEGER DEFAULT 0,
   created_at            TEXT DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (execution_id) REFERENCES executions(execution_id) ON DELETE CASCADE
+);
+
+-- 7) Player conversation choices per conversation
+CREATE TABLE IF NOT EXISTS player_conversation_choices (
+  choice_id             TEXT PRIMARY KEY,
+  conversation_id       TEXT NOT NULL,
+  order_index           INTEGER NOT NULL,
+  generated_options_json TEXT NOT NULL,
+  selected_option_json  TEXT,
+  created_at            TEXT DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_player_choices_conversation
+  ON player_conversation_choices(conversation_id, order_index);
+
+-- 8) NPC responses per conversation
+CREATE TABLE IF NOT EXISTS npc_responses (
+  npc_response_id       TEXT PRIMARY KEY,
+  conversation_id       TEXT NOT NULL,
+  execution_id          TEXT NOT NULL,
+  session_id            TEXT,
+  npc_character         TEXT,
+  response_json         TEXT NOT NULL,
+  response_payload_json TEXT,
+  response_text         TEXT,
+  response_type         TEXT,
+  related_triplet       INTEGER,
+  related_attribute     TEXT,
+  order_index           INTEGER NOT NULL,
+  created_at            TEXT DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE,
+  FOREIGN KEY (execution_id) REFERENCES executions(execution_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_npc_responses_conversation
+  ON npc_responses(conversation_id, order_index);
+
+-- 9) Web interaction logs
+CREATE TABLE IF NOT EXISTS web_interactions (
+  web_interaction_id    TEXT PRIMARY KEY,
+  session_id            TEXT,
+  uri                   TEXT NOT NULL,
+  status_code           INTEGER,
+  created_at            TEXT DEFAULT CURRENT_TIMESTAMP
 );

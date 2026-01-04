@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterable, List, Mapping, Sequence, Tuple
+from typing import Callable, Iterable, List, Mapping, Sequence, Tuple
 
 from .conversation import ConversationEntry, ConversationType
 from .logging_utils import collapse_prompt_sections
@@ -238,6 +238,7 @@ class Character(ABC):
         partner_credibility: int | None = None,
         force_action: bool = False,
         conversation_cache: Mapping[str, Sequence[ConversationEntry]] | None = None,
+        raw_response_callback: Callable[[str], None] | None = None,
     ) -> List[ResponseOption]:
         """Return responses the character might give next."""
 
@@ -740,6 +741,7 @@ class YamlCharacter(Character):
         partner_credibility: int | None = None,
         force_action: bool = False,
         conversation_cache: Mapping[str, Sequence[ConversationEntry]] | None = None,
+        raw_response_callback: Callable[[str], None] | None = None,
     ) -> List[ResponseOption]:
         logger.info("Generating responses for %s", self.name)
         partner_label = partner.display_name
@@ -763,6 +765,7 @@ class YamlCharacter(Character):
         )
         attempts = 2 if self.cached_context_config is not None else 1
         options: List[ResponseOption] = []
+        last_response_text = ""
         for attempt in range(attempts):
             use_cached_context = attempt == 0 and self.cached_context_config is not None
             context_block = self._build_context_sections(
@@ -796,6 +799,7 @@ class YamlCharacter(Character):
             )
             response = self._generate_with_context(prompt)
             response_text = getattr(response, "text", "").strip()
+            last_response_text = response_text
             logger.debug(
                 "Raw response for %s: %s",
                 self.name,
@@ -809,6 +813,8 @@ class YamlCharacter(Character):
                 self.name,
             )
             self._cached_context_config = None
+        if raw_response_callback is not None:
+            raw_response_callback(last_response_text)
         if restricted_triplets and any(
             option.is_action and option.related_triplet is not None for option in options
         ):
@@ -1170,6 +1176,7 @@ class PlayerCharacter(Character):
         partner_credibility: int | None = None,
         force_action: bool = False,
         conversation_cache: Mapping[str, Sequence[ConversationEntry]] | None = None,
+        raw_response_callback: Callable[[str], None] | None = None,
     ) -> List[ResponseOption]:
         logger.info("Generating player responses against %s", partner.display_name)
         partner_label = partner.display_name
@@ -1185,6 +1192,7 @@ class PlayerCharacter(Character):
         )
         attempts = 2 if self.cached_context_config is not None else 1
         options: List[ResponseOption] = []
+        last_response_text = ""
         for attempt in range(attempts):
             use_cached_context = attempt == 0 and self.cached_context_config is not None
             context_block = self._context_prompt_for_cached(use_cached_context)
@@ -1216,6 +1224,7 @@ class PlayerCharacter(Character):
             logger.debug("Player prompt: %s", collapse_prompt_sections(prompt))
             response = self._generate_with_context(prompt)
             response_text = getattr(response, "text", "").strip()
+            last_response_text = response_text
             logger.debug(
                 "Raw player response: %s", collapse_prompt_sections(response_text)
             )
@@ -1228,6 +1237,8 @@ class PlayerCharacter(Character):
                 "Cached context for player returned no usable responses; retrying without cache"
             )
             self._cached_context_config = None
+        if raw_response_callback is not None:
+            raw_response_callback(last_response_text)
         if any(option.is_action for option in options):
             logger.warning(
                 "Player model suggested action-oriented responses; using scripted prompts instead"

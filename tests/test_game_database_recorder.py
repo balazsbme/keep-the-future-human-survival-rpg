@@ -84,6 +84,10 @@ def test_recorder_writes_expected_payloads() -> None:
         {"session_id": "TEXT"},
     )
     connector.ensure_columns.assert_any_call(
+        "actions",
+        {"conversation_id": "TEXT"},
+    )
+    connector.ensure_columns.assert_any_call(
         "results",
         {
             "log_warning_count": "INTEGER",
@@ -117,6 +121,7 @@ def test_recorder_writes_expected_payloads() -> None:
     state.last_action_actor = "NPC"
     state.last_reroll_count = 1
 
+    recorder.set_current_conversation_id("conversation-123")
     recorder.after_turn(state, 1)
 
     connector.insert_action.assert_called_once()
@@ -126,6 +131,7 @@ def test_recorder_writes_expected_payloads() -> None:
     assert action_payload["credibility_cost"] == 3
     assert action_payload["option_type"] == "action"
     assert action_payload["session_id"] == "session-alpha"
+    assert action_payload["conversation_id"] == "conversation-123"
 
     connector.insert_assessment.assert_called_once()
     assessment_payload = connector.insert_assessment.call_args.args[0]

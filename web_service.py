@@ -469,10 +469,11 @@ class SessionData:
     initial_characters: List[Character]
     game_state: GameState
     pending_player_options: Dict[
-        Tuple[int, int], Tuple[threading.Event, List[ResponseOption] | None]
+        Tuple[int, int], Tuple[threading.Event, List[ResponseOption] | None, str | None]
     ]
     pending_npc_responses: Dict[
-        Tuple[int, int, str], Tuple[threading.Event, List[ResponseOption] | None]
+        Tuple[int, int, str],
+        Tuple[threading.Event, List[ResponseOption] | None, str | None],
     ]
     pending_player_choices: Dict[int, Tuple[int, str, ResponseOption]]
     player_option_signatures: Dict[Tuple[int, int], tuple]
@@ -488,6 +489,8 @@ class SessionData:
     db_result_recorded: bool = False
     db_logging_disabled: bool = False
     db_run_pending: bool = False
+    conversation_ids: Dict[int, str] = field(default_factory=dict)
+    conversation_order_index: Dict[int, int] = field(default_factory=dict)
 
 
 def _option_from_payload(raw: str) -> ResponseOption:
@@ -543,10 +546,11 @@ def create_app() -> Flask:
     assessor = AssessmentAgent()
     enable_parallel = os.environ.get("ENABLE_PARALLELISM") == "1"
     pending_player_options: Dict[
-        Tuple[int, int], Tuple[threading.Event, List[ResponseOption] | None]
+        Tuple[int, int], Tuple[threading.Event, List[ResponseOption] | None, str | None]
     ] = {}
     pending_npc_responses: Dict[
-        Tuple[int, int, str], Tuple[threading.Event, List[ResponseOption] | None]
+        Tuple[int, int, str],
+        Tuple[threading.Event, List[ResponseOption] | None, str | None],
     ] = {}
     pending_player_choices: Dict[int, Tuple[int, str, ResponseOption]] = {}
     player_option_signatures: Dict[Tuple[int, int], tuple] = {}
@@ -646,6 +650,8 @@ def create_app() -> Flask:
         if increment_game:
             session.db_game_index += 1
         session.db_run_pending = True
+        session.conversation_ids.clear()
+        session.conversation_order_index.clear()
 
     def _start_db_run_for_session(session: SessionData) -> None:
         if session.db_logging_disabled or not WEB_LOG_TO_DB:
@@ -696,12 +702,15 @@ def create_app() -> Flask:
         _start_db_run_for_session(session)
         session.db_run_pending = False
 
-    def _db_before_turn(session: SessionData) -> int | None:
+    def _db_before_turn(
+        session: SessionData, conversation_id: str | None = None
+    ) -> int | None:
         if session.db_recorder is None or session.db_logging_disabled:
             return None
         session.db_round_index += 1
         round_index = session.db_round_index
         try:
+            session.db_recorder.set_current_conversation_id(conversation_id)
             session.db_recorder.before_turn(session.game_state, round_index)
         except Exception:
             session.db_logging_disabled = True
@@ -720,6 +729,7 @@ def create_app() -> Flask:
             return
         try:
             session.db_recorder.after_turn(session.game_state, round_index)
+            session.db_recorder.set_current_conversation_id(None)
         except Exception:
             session.db_logging_disabled = True
             logger.warning(
@@ -727,6 +737,99 @@ def create_app() -> Flask:
                 session.session_id,
                 exc_info=True,
             )
+
+    def _ensure_conversation_id(
+        session: SessionData,
+        *,
+        char_id: int,
+        character: Character,
+    ) -> str | None:
+        if session.db_logging_disabled or not WEB_LOG_TO_DB:
+            return None
+        _maybe_start_db_run_for_session(session)
+        if session.db_recorder is None or session.db_connector is None:
+            return None
+        if char_id in session.conversation_ids:
+            return session.conversation_ids[char_id]
+        execution_id = session.db_recorder.execution_id
+        if execution_id is None:
+            return None
+        player = session.game_state.player_character
+        metadata = {
+            "player_faction": getattr(player, "faction", None),
+            "npc_faction": getattr(character, "faction", None),
+            "scenario": session.game_state.config.scenario,
+        }
+        payload = {
+            "execution_id": execution_id,
+            "session_id": session.session_id,
+            "player_character": player.display_name,
+            "npc_character": character.name,
+            "metadata_json": metadata,
+        }
+        conversation_id = session.db_connector.insert_conversation(payload)
+        session.conversation_ids[char_id] = conversation_id
+        return conversation_id
+
+    def _next_conversation_index(session: SessionData, char_id: int) -> int:
+        current = session.conversation_order_index.get(char_id, 0)
+        session.conversation_order_index[char_id] = current + 1
+        return current
+
+    def _log_player_choice(
+        session: SessionData,
+        *,
+        conversation_id: str | None,
+        char_id: int,
+        generated_options_raw: str | None,
+        selected_option: ResponseOption,
+    ) -> None:
+        if conversation_id is None:
+            return
+        if session.db_connector is None or session.db_logging_disabled:
+            return
+        order_index = _next_conversation_index(session, char_id)
+        payload = {
+            "conversation_id": conversation_id,
+            "order_index": order_index,
+            "generated_options_json": generated_options_raw or "",
+            "selected_option_json": selected_option.to_payload(),
+        }
+        session.db_connector.insert_player_conversation_choice(payload)
+
+    def _log_npc_responses(
+        session: SessionData,
+        *,
+        conversation_id: str | None,
+        execution_id: str | None,
+        char_id: int,
+        character: Character,
+        responses: Sequence[ResponseOption],
+        raw_response: str | None,
+    ) -> None:
+        if conversation_id is None or execution_id is None:
+            return
+        if session.db_connector is None or session.db_logging_disabled:
+            return
+        raw_payload = raw_response or json.dumps(
+            [response.to_payload() for response in responses],
+            sort_keys=True,
+        )
+        for response in responses:
+            payload = {
+                "conversation_id": conversation_id,
+                "execution_id": execution_id,
+                "session_id": session.session_id,
+                "npc_character": character.name,
+                "response_json": raw_payload,
+                "response_payload_json": response.to_payload(),
+                "response_text": response.text,
+                "response_type": response.type,
+                "related_triplet": response.related_triplet,
+                "related_attribute": response.related_attribute,
+                "order_index": _next_conversation_index(session, char_id),
+            }
+            session.db_connector.insert_npc_response(payload)
 
     def _finalize_db_run(
         session: SessionData,
@@ -870,6 +973,43 @@ def create_app() -> Flask:
                 httponly=True,
                 samesite="Lax",
                 secure=secure,
+            )
+        return response
+
+    @app.after_request
+    def _log_web_interaction(response: Response) -> Response:
+        session = getattr(g, "session_data", None)
+        if session is None:
+            return response
+        if session.db_logging_disabled or not WEB_LOG_TO_DB:
+            return response
+        if request.method != "GET":
+            return response
+        if request.args.get("auto_refresh") == "1":
+            return response
+        if response.mimetype != "text/html":
+            return response
+        connector = session.db_connector or _shared_db_connector()
+        if connector is None:
+            return response
+        try:
+            connector.initialise()
+            uri = request.full_path
+            if uri.endswith("?"):
+                uri = request.path
+            connector.insert_web_interaction(
+                {
+                    "session_id": session.session_id,
+                    "uri": uri,
+                    "status_code": response.status_code,
+                }
+            )
+        except Exception:
+            session.db_logging_disabled = True
+            logger.warning(
+                "Failed to log web interaction for session %s; disabling DB logging",
+                session.session_id,
+                exc_info=True,
             )
         return response
 
@@ -1869,13 +2009,13 @@ def create_app() -> Flask:
                 existing_signature = player_option_signatures.get(key)
                 entry = pending_player_options.get(key)
                 if existing_signature == signature and entry is not None:
-                    current_event, value = entry
+                    current_event, value, _ = entry
                     if value is not None or not current_event.is_set():
                         return
                 pending_player_options.pop(key, None)
                 player_option_signatures.pop(key, None)
                 event = threading.Event()
-                pending_player_options[key] = (event, None)
+                pending_player_options[key] = (event, None, None)
                 player_option_signatures[key] = signature
 
                 def worker(
@@ -1891,23 +2031,31 @@ def create_app() -> Flask:
                         credibility = game_state.current_credibility(
                             getattr(partner, "faction", None)
                         )
+                        raw_response_text: str | None = None
+
+                        def _capture_raw_response(text: str) -> None:
+                            nonlocal raw_response_text
+                            raw_response_text = text
+
                         options = player.generate_responses(
                             hist,
                             snapshots,
                             partner,
                             partner_credibility=credibility,
                             conversation_cache=cache_snapshot,
+                            raw_response_callback=_capture_raw_response,
                         )
                     except Exception:  # pragma: no cover - defensive logging
                         logger.exception(
                             "Failed to generate player responses in background"
                         )
                         options = []
+                        raw_response_text = None
                     current = pending_player_options.get(pending_key)
                     if current is None:
                         pending_event.set()
                         return
-                    current_event, _ = current
+                    current_event, _, _ = current
                     if current_event is not pending_event:
                         pending_event.set()
                         return
@@ -1917,6 +2065,7 @@ def create_app() -> Flask:
                     pending_player_options[pending_key] = (
                         pending_event,
                         list(options),
+                        raw_response_text,
                     )
                     pending_event.set()
 
@@ -2166,7 +2315,7 @@ def create_app() -> Flask:
             player_option_signatures.pop(key, None)
             entry = None
         if entry is not None:
-            event, value = entry
+            event, value, _ = entry
             if value is not None:
                 _clear_player_option_entries(char_id, keep_length=conversation_length)
                 return list(value), False
@@ -2180,22 +2329,29 @@ def create_app() -> Flask:
                 getattr(character, "faction", None)
             )
             cache_snapshot = game_state.conversation_cache_for_player(character)
+            raw_response_text: str | None = None
+
+            def _capture_raw_response(text: str) -> None:
+                nonlocal raw_response_text
+                raw_response_text = text
+
             options = player.generate_responses(
                 history,
                 conversation,
                 character,
                 partner_credibility=credibility,
                 conversation_cache=cache_snapshot,
+                raw_response_callback=_capture_raw_response,
             )
             event = threading.Event()
             event.set()
-            pending_player_options[key] = (event, list(options))
+            pending_player_options[key] = (event, list(options), raw_response_text)
             player_option_signatures[key] = signature
             _clear_player_option_entries(char_id, keep_length=conversation_length)
             return list(options), False
 
         event = threading.Event()
-        pending_player_options[key] = (event, None)
+        pending_player_options[key] = (event, None, None)
         player_option_signatures[key] = signature
 
         def worker(
@@ -2210,28 +2366,36 @@ def create_app() -> Flask:
                 credibility = game_state.current_credibility(
                     getattr(partner, "faction", None)
                 )
+                raw_response_text: str | None = None
+
+                def _capture_raw_response(text: str) -> None:
+                    nonlocal raw_response_text
+                    raw_response_text = text
+
                 options = player.generate_responses(
                     hist,
                     convo,
                     partner,
                     partner_credibility=credibility,
                     conversation_cache=cache_snapshot,
+                    raw_response_callback=_capture_raw_response,
                 )
             except Exception:  # pragma: no cover - defensive logging
                 logger.exception("Failed to generate player responses in background")
                 options = []
+                raw_response_text = None
             current = pending_player_options.get(pending_key)
             if current is None:
                 event.set()
                 return
-            current_event, _ = current
+            current_event, _, _ = current
             if current_event is not event:
                 event.set()
                 return
             if player_option_signatures.get(pending_key) != expected_signature:
                 event.set()
                 return
-            pending_player_options[pending_key] = (event, list(options))
+            pending_player_options[pending_key] = (event, list(options), raw_response_text)
             event.set()
 
         cache_snapshot = {
@@ -2327,7 +2491,7 @@ def create_app() -> Flask:
             if key in pending_npc_responses:
                 continue
             done_event = threading.Event()
-            pending_npc_responses[key] = (done_event, None)
+            pending_npc_responses[key] = (done_event, None, None)
 
             def worker(
                 hist: Sequence[Tuple[str, str]],
@@ -2352,21 +2516,33 @@ def create_app() -> Flask:
                         game_state.config, "conversation_force_action_after", 0
                     )
                     force_action_required = limit > 0 and len(simulated) >= limit
+                    raw_response_text: str | None = None
+
+                    def _capture_raw_response(text: str) -> None:
+                        nonlocal raw_response_text
+                        raw_response_text = text
+
                     replies = character.generate_responses(
                         hist,
                         simulated,
                         partner,
                         partner_credibility=credibility,
                         force_action=force_action_required,
+                        raw_response_callback=_capture_raw_response,
                     )
                 except Exception:  # pragma: no cover - defensive logging
                     logger.exception("Failed to generate NPC responses in background")
                     replies = []
+                    raw_response_text = None
                 if len(simulated) != expected_length:
                     # Conversation changed while computing; drop result.
                     pending_npc_responses.pop(pending_key, None)
                     return
-                pending_npc_responses[pending_key] = (done_event, list(replies))
+                pending_npc_responses[pending_key] = (
+                    done_event,
+                    list(replies),
+                    raw_response_text,
+                )
                 done_event.set()
 
             _spawn_thread(
@@ -2387,24 +2563,24 @@ def create_app() -> Flask:
         conversation: Sequence[ConversationEntry],
         character: Character,
         player: Character,
-    ) -> Tuple[List[ResponseOption] | None, bool]:
+    ) -> Tuple[List[ResponseOption] | None, bool, str | None]:
         signature = _option_signature(option)
         key = _npc_pending_key(char_id, conversation_length, signature)
         entry = pending_npc_responses.get(key)
         if enable_parallel and entry is not None:
-            event, value = entry
+            event, value, raw_response = entry
             if value is not None:
-                return list(value), False
+                return list(value), False, raw_response
             if not event.is_set():
-                return None, True
+                return None, True, None
             refreshed = pending_npc_responses.get(key)
             if refreshed is not None and refreshed is not entry:
-                refreshed_event, refreshed_value = refreshed
+                refreshed_event, refreshed_value, refreshed_raw = refreshed
                 if refreshed_value is not None:
-                    return list(refreshed_value), False
+                    return list(refreshed_value), False, refreshed_raw
                 if not refreshed_event.is_set():
-                    return None, True
-            return None, True
+                    return None, True, None
+            return None, True, None
         if enable_parallel and entry is None:
             pending_choice = pending_player_choices.get(char_id)
             if (
@@ -2420,18 +2596,25 @@ def create_app() -> Flask:
             getattr(character, "faction", None)
         )
         force_action_required = game_state.should_force_action(character)
+        raw_response_text: str | None = None
+
+        def _capture_raw_response(text: str) -> None:
+            nonlocal raw_response_text
+            raw_response_text = text
+
         replies = character.generate_responses(
             history,
             conversation,
             player,
             partner_credibility=credibility,
             force_action=force_action_required,
+            raw_response_callback=_capture_raw_response,
         )
         if enable_parallel:
             event = threading.Event()
             event.set()
-            pending_npc_responses[key] = (event, list(replies))
-        return list(replies), False
+            pending_npc_responses[key] = (event, list(replies), raw_response_text)
+        return list(replies), False, raw_response_text
 
     def _render_conversation(
         char_id: int,
@@ -2720,8 +2903,14 @@ def create_app() -> Flask:
                 character.name,
             )
             if option.is_action:
-                turn_index = _db_before_turn(session)
+                conversation_id = _ensure_conversation_id(
+                    session, char_id=char_id, character=character
+                )
+                turn_index = _db_before_turn(session, conversation_id)
                 with state_lock:
+                    conversation_length_before = len(
+                        game_state.conversation_history(character)
+                    )
                     game_state.log_player_response(character, option)
                     attempt = game_state.attempt_action(character, option)
                     chars_snapshot = list(game_state.characters)
@@ -2738,6 +2927,19 @@ def create_app() -> Flask:
                     )
                     roll_threshold_snapshot = game_state.config.roll_success_threshold
                     game_state.clear_available_actions(character)
+                generated_options_raw = None
+                pending_entry = pending_player_options.get(
+                    _player_pending_key(char_id, conversation_length_before)
+                )
+                if pending_entry is not None:
+                    _, _, generated_options_raw = pending_entry
+                _log_player_choice(
+                    session,
+                    conversation_id=conversation_id,
+                    char_id=char_id,
+                    generated_options_raw=generated_options_raw,
+                    selected_option=option,
+                )
                 shortage_messages = [
                     f"{target}: have {available}, need {needed}"
                     for target, available, needed in reroll_shortages
@@ -2835,9 +3037,28 @@ def create_app() -> Flask:
 
             with state_lock:
                 history_snapshot = list(game_state.history)
+                conversation_length_before = len(
+                    game_state.conversation_history(character)
+                )
                 game_state.log_player_response(character, option)
                 conversation = game_state.conversation_history(character)
                 player = game_state.player_character
+            conversation_id = _ensure_conversation_id(
+                session, char_id=char_id, character=character
+            )
+            generated_options_raw = None
+            pending_entry = pending_player_options.get(
+                _player_pending_key(char_id, conversation_length_before)
+            )
+            if pending_entry is not None:
+                _, _, generated_options_raw = pending_entry
+            _log_player_choice(
+                session,
+                conversation_id=conversation_id,
+                char_id=char_id,
+                generated_options_raw=generated_options_raw,
+                selected_option=option,
+            )
             conversation_length = len(conversation)
             signature = _option_signature(option)
             pending_player_choices[char_id] = (
@@ -2845,7 +3066,7 @@ def create_app() -> Flask:
                 signature,
                 option,
             )
-            replies, waiting = _resolve_npc_responses(
+            replies, waiting, raw_response = _resolve_npc_responses(
                 char_id,
                 conversation_length,
                 option,
@@ -2859,12 +3080,21 @@ def create_app() -> Flask:
                     "<main class='loading-page'>"
                     + _loading_markup("Loading...")
                     + "</main>"
-                    + f"<meta http-equiv='refresh' content='1;url=/actions?character={char_id}'>"
+                    + f"<meta http-equiv='refresh' content='1;url=/actions?character={char_id}&auto_refresh=1'>"
                 )
                 return _render_page(body)
             replies = replies or []
             with state_lock:
                 game_state.log_npc_responses(character, replies)
+            _log_npc_responses(
+                session,
+                conversation_id=conversation_id,
+                execution_id=getattr(session.db_recorder, "execution_id", None),
+                char_id=char_id,
+                character=character,
+                responses=replies,
+                raw_response=raw_response,
+            )
             pending_player_choices.pop(char_id, None)
             _clear_pending_npc_entries(char_id, signature)
             _clear_player_option_entries(char_id)
@@ -2888,7 +3118,7 @@ def create_app() -> Flask:
                 and conversation
                 and conversation[-1].speaker == player.display_name
             ):
-                replies, waiting = _resolve_npc_responses(
+                replies, waiting, raw_response = _resolve_npc_responses(
                     char_id,
                     expected_length,
                     chosen_option,
@@ -2902,7 +3132,7 @@ def create_app() -> Flask:
                         "<main class='loading-page'>"
                         + _loading_markup("Loading...")
                         + "</main>"
-                        + f"<meta http-equiv='refresh' content='1;url=/actions?character={char_id}'>"
+                        + f"<meta http-equiv='refresh' content='1;url=/actions?character={char_id}&auto_refresh=1'>"
                     )
                     return _render_page(body)
                 replies = replies or []
@@ -2916,6 +3146,18 @@ def create_app() -> Flask:
                     partner_credibility = game_state.current_credibility(
                         getattr(character, "faction", None)
                     )
+                conversation_id = _ensure_conversation_id(
+                    session, char_id=char_id, character=character
+                )
+                _log_npc_responses(
+                    session,
+                    conversation_id=conversation_id,
+                    execution_id=getattr(session.db_recorder, "execution_id", None),
+                    char_id=char_id,
+                    character=character,
+                    responses=replies,
+                    raw_response=raw_response,
+                )
                 pending_player_choices.pop(char_id, None)
                 _clear_pending_npc_entries(char_id, signature)
                 _clear_player_option_entries(char_id)
@@ -2967,7 +3209,7 @@ def create_app() -> Flask:
             loading_chat=loading,
         )
         if loading:
-            page += f"<meta http-equiv='refresh' content='1;url=/actions?character={char_id}'>"
+            page += f"<meta http-equiv='refresh' content='1;url=/actions?character={char_id}&auto_refresh=1'>"
         return Response(page)
 
     @app.route("/reroll", methods=["POST"])
@@ -2988,7 +3230,10 @@ def create_app() -> Flask:
                 next_can_reroll = can_reroll
                 next_shortages = reroll_shortages
             else:
-                turn_index = _db_before_turn(session)
+                conversation_id = _ensure_conversation_id(
+                    session, char_id=char_id, character=character
+                )
+                turn_index = _db_before_turn(session, conversation_id)
                 attempt = game_state.reroll_action(character, option)
                 next_can_reroll, next_shortages = game_state.reroll_affordability(
                     character, option
@@ -3386,7 +3631,7 @@ def create_app() -> Flask:
                 "<main class='loading-page'>"
                 + _loading_markup("Waiting for assessments...")
                 + "</main>"
-                + "<meta http-equiv='refresh' content='1'>"
+                + "<meta http-equiv='refresh' content='1;url=/result?auto_refresh=1'>"
             )
             return _render_page(body)
         campaign_context: Tuple[int, str, str | None] | None = None

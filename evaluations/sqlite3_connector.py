@@ -248,6 +248,42 @@ class SQLiteConnector:
             payload["targets_json"] = self._serialise_json(payload["targets_json"])
         return str(self._execute_insert("actions", payload, return_value=action_id))
 
+    def insert_conversation(self, values: Mapping[str, object]) -> str:
+        payload = dict(self._prepare_payload(dict(values)))
+        conversation_id = self._ensure_uuid(payload, "conversation_id")
+        if "metadata_json" in payload and not isinstance(payload["metadata_json"], str):
+            payload["metadata_json"] = self._serialise_json(payload["metadata_json"])
+        return str(self._execute_insert("conversations", payload, return_value=conversation_id))
+
+    def insert_player_conversation_choice(self, values: Mapping[str, object]) -> str:
+        payload = dict(self._prepare_payload(dict(values)))
+        choice_id = self._ensure_uuid(payload, "choice_id")
+        if "generated_options_json" in payload and not isinstance(payload["generated_options_json"], str):
+            payload["generated_options_json"] = self._serialise_json(payload["generated_options_json"])
+        if "selected_option_json" in payload and not isinstance(payload["selected_option_json"], str):
+            payload["selected_option_json"] = self._serialise_json(payload["selected_option_json"])
+        return str(
+            self._execute_insert(
+                "player_conversation_choices",
+                payload,
+                return_value=choice_id,
+            )
+        )
+
+    def insert_npc_response(self, values: Mapping[str, object]) -> str:
+        payload = dict(self._prepare_payload(dict(values)))
+        response_id = self._ensure_uuid(payload, "npc_response_id")
+        if "response_json" in payload and not isinstance(payload["response_json"], str):
+            payload["response_json"] = self._serialise_json(payload["response_json"])
+        if "response_payload_json" in payload and not isinstance(payload["response_payload_json"], str):
+            payload["response_payload_json"] = self._serialise_json(payload["response_payload_json"])
+        return str(self._execute_insert("npc_responses", payload, return_value=response_id))
+
+    def insert_web_interaction(self, values: Mapping[str, object]) -> str:
+        payload = dict(self._prepare_payload(dict(values)))
+        interaction_id = self._ensure_uuid(payload, "web_interaction_id")
+        return str(self._execute_insert("web_interactions", payload, return_value=interaction_id))
+
     def insert_assessment(self, values: Mapping[str, object]) -> str:
         payload = dict(values)
         assessment_id = self._ensure_uuid(payload, "assessment_id")
