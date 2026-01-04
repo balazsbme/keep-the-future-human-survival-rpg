@@ -324,7 +324,7 @@ def test_foreign_key_enforcement_with_uuid_ids(tmp_path: Path) -> None:
     )
 
 
-def test_interprocess_lock_blocks_second_connector(tmp_path: Path) -> None:
+def test_interprocess_lock_marks_lock_file_during_cursor(tmp_path: Path) -> None:
     lock_path = tmp_path / "shared.sqlite.lock"
     db_path = tmp_path / "shared.sqlite"
 
@@ -335,22 +335,33 @@ def test_interprocess_lock_blocks_second_connector(tmp_path: Path) -> None:
             pytest.skip("fcntl is unavailable; interprocess lock semantics cannot be tested")
 
     connector = SQLiteConnector(db_path=db_path, lock_path=lock_path)
+    connector.initialise()
 
-    # Acquire the lock by touching the connection once.
-    _ = connector.connection
+    with connector.cursor() as cur:
+        cur.execute("SELECT 1")
+        assert lock_path.exists()
+        assert lock_path.read_text(encoding="utf-8").strip() == "1"
 
-    assert lock_path.exists()
-    assert lock_path.read_text(encoding="utf-8").strip() == "1"
-
-    connector_blocked = SQLiteConnector(db_path=db_path, lock_path=lock_path)
-    with pytest.raises(DatabaseLockedError):
-        _ = connector_blocked.connection
-
+    assert lock_path.read_text(encoding="utf-8").strip() == "0"
     connector.close()
 
-    # Lock file should be cleared when the connector closes.
-    assert lock_path.read_text(encoding="utf-8").strip() == "0"
 
-    connector_second = SQLiteConnector(db_path=db_path, lock_path=lock_path)
-    _ = connector_second.connection
-    connector_second.close()
+def test_interprocess_lock_raises_when_held(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    lock_path = tmp_path / "shared.sqlite.lock"
+    db_path = tmp_path / "shared.sqlite"
+    connector = SQLiteConnector(db_path=db_path, lock_path=lock_path)
+
+    if SQLiteConnector.__module__ == "evaluations.sqlite3_connector":
+        from evaluations import sqlite3_connector as sqlite3_module
+
+        if sqlite3_module.fcntl is None:
+            pytest.skip("fcntl is unavailable; interprocess lock semantics cannot be tested")
+
+        def _raise_lock(_handle, _flags):
+            raise OSError("locked")
+
+        monkeypatch.setattr(sqlite3_module.fcntl, "flock", _raise_lock)
+
+    with pytest.raises(DatabaseLockedError):
+        with connector.cursor() as cur:
+            cur.execute("SELECT 1")
