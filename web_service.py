@@ -32,7 +32,11 @@ from evaluations.backup_scheduler import (
     load_backup_scheduler_config,
 )
 from evaluations.game_database import GameDatabaseRecorder
-from evaluations.sqlite3_connector import DatabaseLockedError, SQLiteConnector
+from evaluations.sqlite3_connector import (
+    DatabaseLockedError,
+    SQLiteConnector,
+    is_sqlite_write_locked,
+)
 from cli_game import load_characters
 from rpg.assessment_agent import AssessmentAgent
 from rpg.character import Character, ResponseOption
@@ -621,11 +625,21 @@ def create_app() -> Flask:
         nonlocal db_connector_shared, db_logging_available
         if not db_logging_available:
             return None
+        if is_sqlite_write_locked():
+            logger.warning(
+                "SQLite backup lock active; skipping web session DB logging setup",
+            )
+            return None
         if db_connector_shared is not None:
             return db_connector_shared
         with db_connector_lock:
             if db_connector_shared is not None:
                 return db_connector_shared
+            if is_sqlite_write_locked():
+                logger.warning(
+                    "SQLite backup lock active; skipping web session DB logging setup",
+                )
+                return None
             try:
                 candidate = SQLiteConnector()
             except DatabaseLockedError:

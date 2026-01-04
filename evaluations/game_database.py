@@ -15,7 +15,7 @@ from typing import Dict, Iterable, MutableMapping
 
 from rpg.game_state import ActionAttempt, GameState
 
-from .sqlite3_connector import SQLiteConnector, sanitize_identifier
+from .sqlite3_connector import DatabaseLockedError, SQLiteConnector, sanitize_identifier
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +86,11 @@ class GameDatabaseRecorder(GameRunObserver):
         self._log_warning_count: int = 0
         self._log_error_count: int = 0
         self._current_conversation_id: str | None = None
+        self._skip_writes = False
+
+    def _handle_db_lock(self, message: str, *args: object) -> None:
+        self._skip_writes = True
+        logger.warning(message, *args)
 
     @property
     def execution_id(self) -> str | None:
@@ -106,6 +111,8 @@ class GameDatabaseRecorder(GameRunObserver):
         log_filename: str,
         session_id: str | None = None,
     ) -> None:
+        if self._skip_writes:
+            return
         self._faction_triplet_counts = {
             faction: len(scores)
             for faction, scores in state.progress.items()
@@ -113,7 +120,13 @@ class GameDatabaseRecorder(GameRunObserver):
         credibility_snapshot = state.credibility.snapshot()
         player_row = credibility_snapshot.get(state.player_faction, {})
         self._cached_credibility_targets = list(player_row.keys())
-        self._connector.initialise()
+        try:
+            self._connector.initialise()
+        except DatabaseLockedError:
+            self._handle_db_lock(
+                "SQLite database write skipped during backup lock for game start"
+            )
+            return
         self._connector.ensure_columns(
             "executions",
             {
@@ -176,17 +189,27 @@ class GameDatabaseRecorder(GameRunObserver):
             or f"{player_key}-game-{game_index}-{datetime.now(timezone.utc).isoformat()}",
         }
         metadata = {key: value for key, value in metadata.items() if value is not None}
-        self._execution_id = self._connector.insert_execution(metadata)
-        self._connector.commit()
+        try:
+            self._execution_id = self._connector.insert_execution(metadata)
+            self._connector.commit()
+        except DatabaseLockedError:
+            self._handle_db_lock(
+                "SQLite database write skipped during backup lock for game start"
+            )
+            return
         self._result_recorded = False
         self._log_filename = log_filename
         self._log_warning_count = 0
         self._log_error_count = 0
 
     def before_turn(self, state: GameState, round_index: int) -> None:
+        if self._skip_writes:
+            return
         self._pre_turn_snapshot = self._snapshot_progress(state)
 
     def after_turn(self, state: GameState, round_index: int) -> None:
+        if self._skip_writes:
+            return
         if self._execution_id is None:
             return
         attempt = state.last_action_attempt
@@ -194,6 +217,12 @@ class GameDatabaseRecorder(GameRunObserver):
             return
         try:
             action_id = self._record_action(state, attempt, round_index)
+        except DatabaseLockedError:
+            self._handle_db_lock(
+                "SQLite database write skipped during backup lock for execution %s",
+                self._execution_id,
+            )
+            return
         except sqlite3.IntegrityError:
             logger.exception(
                 "Failed to record action for execution %s; skipping turn persistence",
@@ -204,6 +233,12 @@ class GameDatabaseRecorder(GameRunObserver):
         try:
             self._record_assessment(state, action_id)
             self._record_credibility(state, attempt, action_id)
+        except DatabaseLockedError:
+            self._handle_db_lock(
+                "SQLite database write skipped during backup lock for execution %s",
+                self._execution_id,
+            )
+            return
         except sqlite3.Error:
             logger.exception(
                 "Failed to record assessment/credibility for execution %s action %s",
@@ -212,6 +247,12 @@ class GameDatabaseRecorder(GameRunObserver):
             )
         try:
             self._connector.commit()
+        except DatabaseLockedError:
+            self._handle_db_lock(
+                "SQLite database write skipped during backup lock for execution %s",
+                self._execution_id,
+            )
+            return
         except sqlite3.Error:
             logger.exception(
                 "Failed to commit turn persistence for execution %s action %s",
@@ -230,15 +271,24 @@ class GameDatabaseRecorder(GameRunObserver):
         log_warning_count: int = 0,
         log_error_count: int = 0,
     ) -> None:
+        if self._skip_writes:
+            self._reset()
+            return
         if self._execution_id is not None:
             self._log_warning_count = log_warning_count
             self._log_error_count = log_error_count
-            self._record_result(
-                successful_execution=successful,
-                result=result,
-                error_info=error,
-            )
-            self._connector.commit()
+            try:
+                self._record_result(
+                    successful_execution=successful,
+                    result=result,
+                    error_info=error,
+                )
+                self._connector.commit()
+            except DatabaseLockedError:
+                self._handle_db_lock(
+                    "SQLite database write skipped during backup lock for execution %s",
+                    self._execution_id,
+                )
         self._reset()
 
     def on_game_error(
@@ -249,17 +299,26 @@ class GameDatabaseRecorder(GameRunObserver):
         log_warning_count: int = 0,
         log_error_count: int = 0,
     ) -> None:
+        if self._skip_writes:
+            self._reset()
+            return
         if self._execution_id is None:
             self._reset()
             return
         self._log_warning_count = log_warning_count
         self._log_error_count = log_error_count
-        self._record_result(
-            successful_execution=False,
-            result="N/A",
-            error_info=str(error),
-        )
-        self._connector.commit()
+        try:
+            self._record_result(
+                successful_execution=False,
+                result="N/A",
+                error_info=str(error),
+            )
+            self._connector.commit()
+        except DatabaseLockedError:
+            self._handle_db_lock(
+                "SQLite database write skipped during backup lock for execution %s",
+                self._execution_id,
+            )
         self._reset()
 
     # Internal helpers ---------------------------------------------------
@@ -372,6 +431,7 @@ class GameDatabaseRecorder(GameRunObserver):
         self._log_warning_count = 0
         self._log_error_count = 0
         self._current_conversation_id = None
+        self._skip_writes = False
 
 
 __all__ = ["GameRunObserver", "GameDatabaseRecorder"]

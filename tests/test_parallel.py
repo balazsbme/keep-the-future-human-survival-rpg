@@ -54,6 +54,7 @@ def test_async_response_generation(mock_char_genai, mock_assess_genai):
         *,
         partner_credibility=None,
         conversation_cache=None,
+        raw_response_callback=None,
     ):
         start_evt.set()
         finish_evt.wait()
@@ -101,6 +102,7 @@ def test_async_npc_responses(mock_char_genai, mock_assess_genai):
         *,
         partner_credibility=None,
         conversation_cache=None,
+        raw_response_callback=None,
     ):
         return [
             ResponseOption(text="Starter 1", type="chat"),
@@ -118,6 +120,7 @@ def test_async_npc_responses(mock_char_genai, mock_assess_genai):
         *,
         partner_credibility=None,
         conversation_cache=None,
+        raw_response_callback=None,
         force_action=False,
     ):
         start_evt.set()
@@ -188,6 +191,7 @@ def test_assessment_background_wait(mock_char_genai, mock_assess_genai):
         *,
         partner_credibility=None,
         conversation_cache=None,
+        raw_response_callback=None,
     ):
         return [action_option]
 
