@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 import threading
@@ -15,6 +16,7 @@ from typing import Protocol
 import yaml
 
 from rpg.session_monitor import SessionActivityMonitor, SessionActivitySnapshot
+from .sqlite3_connector import DatabaseLockedError, sqlite_write_lock
 
 logger = logging.getLogger(__name__)
 
@@ -78,9 +80,7 @@ def build_trigger(config: BackupSchedulerConfig) -> BackupTriggerCondition:
     raise ValueError(f"Unknown trigger type {config.trigger_type!r}")
 
 
-def _resolve_backup_path(db_path: Path, backup_path: Path) -> Path:
-    """Return the file path to use for the backup output."""
-
+def _resolve_backup_target_parts(db_path: Path, backup_path: Path) -> tuple[Path, str, str]:
     if backup_path.exists() and backup_path.is_dir():
         backup_dir = backup_path
         stem = db_path.stem
@@ -101,6 +101,13 @@ def _resolve_backup_path(db_path: Path, backup_path: Path) -> Path:
         backup_dir = backup_path.parent
         stem = backup_path.stem
         suffix = backup_path.suffix or ".db"
+    return backup_dir, stem, suffix
+
+
+def _resolve_backup_path(db_path: Path, backup_path: Path) -> Path:
+    """Return the file path to use for the backup output."""
+
+    backup_dir, stem, suffix = _resolve_backup_target_parts(db_path, backup_path)
 
     timestamp = time.strftime("%Y%m%d%H%M%S", time.gmtime())
     for attempt in range(100):
@@ -118,24 +125,75 @@ def _resolve_backup_path(db_path: Path, backup_path: Path) -> Path:
     )
 
 
+def _pending_marker_path(db_path: Path, backup_dir: Path) -> Path:
+    return backup_dir / f"{db_path.stem}.backup-pending.json"
+
+
+def _load_pending_marker(path: Path) -> tuple[Path, Path] | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    temp = payload.get("temp")
+    final = payload.get("final")
+    if not isinstance(temp, str) or not isinstance(final, str):
+        return None
+    return Path(temp), Path(final)
+
+
+def _write_pending_marker(path: Path, temp_path: Path, final_path: Path) -> None:
+    payload = {"temp": str(temp_path), "final": str(final_path)}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
 def _quote_identifier(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
 
 
+def _execute_with_retry(
+    connection: sqlite3.Connection,
+    statement: str,
+    parameters: tuple | list | None = None,
+    *,
+    max_attempts: int = 5,
+    base_sleep_seconds: float = 0.1,
+) -> None:
+    for attempt in range(1, max_attempts + 1):
+        try:
+            connection.execute(statement, parameters or ())
+            return
+        except sqlite3.OperationalError as exc:
+            if "database is locked" not in str(exc).lower() or attempt == max_attempts:
+                raise
+            delay = base_sleep_seconds * (2 ** (attempt - 1))
+            logger.warning(
+                "SQLite database locked while executing %s; retrying in %.2fs",
+                statement,
+                delay,
+            )
+            time.sleep(delay)
+
+
 def _cleanup_sqlite_database(connection: sqlite3.Connection) -> None:
     foreign_keys_enabled = connection.execute("PRAGMA foreign_keys").fetchone()[0]
+    connection.execute("PRAGMA busy_timeout = 5000")
     connection.execute("PRAGMA foreign_keys = OFF")
     try:
         rows = connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
         ).fetchall()
         for (table_name,) in rows:
-            connection.execute(f"DELETE FROM {_quote_identifier(table_name)}")
+            _execute_with_retry(
+                connection,
+                f"DELETE FROM {_quote_identifier(table_name)}",
+            )
         sequence_present = connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sqlite_sequence'"
         ).fetchone()
         if sequence_present:
-            connection.execute("DELETE FROM sqlite_sequence")
+            _execute_with_retry(connection, "DELETE FROM sqlite_sequence")
     finally:
         if foreign_keys_enabled:
             connection.execute("PRAGMA foreign_keys = ON")
@@ -151,16 +209,84 @@ def perform_sqlite_backup(
 
     if not db_path.exists():
         raise FileNotFoundError(f"SQLite database not found at {db_path}")
+    backup_dir, _, _ = _resolve_backup_target_parts(db_path, backup_path)
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    pending_marker = _pending_marker_path(db_path, backup_dir)
+    pending_info = _load_pending_marker(pending_marker) if pending_marker.exists() else None
+
+    def _cleanup_with_retry(connection: sqlite3.Connection) -> None:
+        if not cleanup_after_backup:
+            return
+        for cleanup_attempt in range(1, 6):
+            try:
+                _cleanup_sqlite_database(connection)
+                connection.commit()
+                return
+            except sqlite3.OperationalError as exc:
+                if "database is locked" not in str(exc).lower():
+                    raise
+                if cleanup_attempt >= 5:
+                    raise
+                delay = 0.2 * cleanup_attempt
+                logger.warning(
+                    "SQLite cleanup locked; retrying in %.1fs",
+                    delay,
+                )
+                time.sleep(delay)
+
+    def _finalize_pending(temp_path: Path, final_path: Path) -> None:
+        for lock_attempt in range(1, 11):
+            try:
+                with sqlite_write_lock(db_path):
+                    connection = sqlite3.connect(db_path, timeout=30)
+                    try:
+                        _cleanup_with_retry(connection)
+                    finally:
+                        connection.close()
+                temp_path.replace(final_path)
+                pending_marker.unlink(missing_ok=True)
+                return
+            except DatabaseLockedError:
+                if lock_attempt >= 10:
+                    raise
+                delay = 0.5 * lock_attempt
+                logger.warning(
+                    "SQLite write lock busy while finalizing backup; retrying in %.1fs",
+                    delay,
+                )
+                time.sleep(delay)
+
+    if pending_info:
+        temp_path, final_path = pending_info
+        if temp_path.exists():
+            _finalize_pending(temp_path, final_path)
+            return
+        pending_marker.unlink(missing_ok=True)
+
     backup_file = _resolve_backup_path(db_path, backup_path)
-    backup_file.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(db_path, timeout=30)
-    try:
-        connection.execute("VACUUM INTO ?", (str(backup_file),))
-        if cleanup_after_backup:
-            _cleanup_sqlite_database(connection)
-            connection.commit()
-    finally:
-        connection.close()
+    temp_file = backup_file.with_suffix(backup_file.suffix + ".partial")
+    for attempt in range(1, 11):
+        try:
+            with sqlite_write_lock(db_path):
+                connection = sqlite3.connect(db_path, timeout=30)
+                try:
+                    connection.execute("VACUUM INTO ?", (str(temp_file),))
+                    _write_pending_marker(pending_marker, temp_file, backup_file)
+                    _cleanup_with_retry(connection)
+                finally:
+                    connection.close()
+            temp_file.replace(backup_file)
+            pending_marker.unlink(missing_ok=True)
+            return
+        except DatabaseLockedError:
+            if attempt >= 10:
+                raise
+            delay = 0.5 * attempt
+            logger.warning(
+                "SQLite write lock busy while backing up; retrying in %.1fs",
+                delay,
+            )
+            time.sleep(delay)
 
 
 class BackupScheduler:

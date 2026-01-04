@@ -42,7 +42,11 @@ from evaluations.players import (
     Player,
     RandomPlayer,
 )
-from evaluations.sqlite3_connector import DatabaseLockedError, SQLiteConnector
+from evaluations.sqlite3_connector import (
+    DatabaseLockedError,
+    SQLiteConnector,
+    is_sqlite_write_locked,
+)
 from rpg.assessment_agent import AssessmentAgent
 from rpg.config import load_game_config
 
@@ -397,6 +401,12 @@ def create_app(log_dir: str | None = None) -> Flask:
                         _state, _player_instance, selected_key, game_number
                     ):
                         notes = f"{selected_key}-{scenario_key}-game-{game_number}"
+                        if is_sqlite_write_locked():
+                            logger.warning(
+                                "SQLite backup lock active; skipping DB logging for %s",
+                                notes,
+                            )
+                            return None
                         try:
                             connector = SQLiteConnector()
                         except DatabaseLockedError:

@@ -10,6 +10,7 @@ import os
 import re
 import sqlite3
 import threading
+import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, is_dataclass
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 _DDL_PATH = Path(__file__).with_name("sqlite3_db.ddl")
 _DB_PATH_ENV = "EVALUATION_SQLITE_PATH"
 _DEFAULT_DB_PATH = Path("/var/lib/sqlite/main.db")
+_WRITE_LOCK_HELD = threading.Event()
 
 
 def _default_db_path_from_env() -> Path:
@@ -80,6 +82,10 @@ class SQLiteConnector:
     def _acquire_interprocess_lock(self) -> None:
         if not self.require_lock:
             return
+        if _WRITE_LOCK_HELD.is_set():
+            raise DatabaseLockedError(
+                f"Database locked via {self.lock_path}; backup write lock active"
+            )
         if self._blocked_by_lock:
             raise DatabaseLockedError(
                 f"Database locked via {self.lock_path}; another container is writing"
@@ -341,4 +347,73 @@ def sqlite_connector(db_path: Path | str | None = None) -> Iterator[SQLiteConnec
         connector.close()
 
 
-__all__ = ["DatabaseLockedError", "SQLiteConnector", "sqlite_connector", "sanitize_identifier"]
+@contextmanager
+def sqlite_write_lock(
+    db_path: Path | str | None = None,
+    lock_path: Path | str | None = None,
+    *,
+    timeout_seconds: float = 10.0,
+    poll_interval_seconds: float = 0.1,
+) -> Iterator[None]:
+    resolved_db_path = Path(db_path) if db_path else _default_db_path_from_env()
+    resolved_lock_path = Path(
+        lock_path
+        or (resolved_db_path.with_suffix(resolved_db_path.suffix + ".lock"))
+    )
+    _ensure_directory(resolved_lock_path)
+    logger.info("Attempting to acquire SQLite write lock at %s", resolved_lock_path)
+    fd = os.open(resolved_lock_path, os.O_RDWR | os.O_CREAT)
+    file_handle = os.fdopen(fd, "r+")
+    try:
+        start = time.monotonic()
+        while True:
+            try:
+                if fcntl is not None:
+                    fcntl.flock(file_handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                file_handle.seek(0)
+                file_handle.truncate()
+                file_handle.write("1")
+                file_handle.flush()
+                os.fsync(file_handle.fileno())
+                break
+            except OSError as exc:  # pragma: no cover - depends on runtime
+                if fcntl is None:
+                    raise
+                if time.monotonic() - start >= timeout_seconds:
+                    raise DatabaseLockedError(
+                        f"Database locked via {resolved_lock_path}; another writer is active"
+                    ) from exc
+                time.sleep(poll_interval_seconds)
+        _WRITE_LOCK_HELD.set()
+        logger.info("Acquired SQLite write lock at %s", resolved_lock_path)
+        yield
+    finally:
+        try:
+            file_handle.seek(0)
+            file_handle.truncate()
+            file_handle.write("0")
+            file_handle.flush()
+            os.fsync(file_handle.fileno())
+            if fcntl is not None:
+                try:
+                    fcntl.flock(file_handle, fcntl.LOCK_UN)
+                except OSError:  # pragma: no cover - depends on runtime
+                    pass
+        finally:
+            file_handle.close()
+            _WRITE_LOCK_HELD.clear()
+            logger.info("Released SQLite write lock at %s", resolved_lock_path)
+
+
+def is_sqlite_write_locked() -> bool:
+    return _WRITE_LOCK_HELD.is_set()
+
+
+__all__ = [
+    "DatabaseLockedError",
+    "SQLiteConnector",
+    "is_sqlite_write_locked",
+    "sqlite_connector",
+    "sqlite_write_lock",
+    "sanitize_identifier",
+]
