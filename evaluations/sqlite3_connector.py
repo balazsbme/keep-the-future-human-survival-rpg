@@ -77,20 +77,18 @@ class SQLiteConnector:
         self._initialised = False
         self._lock = threading.RLock()
         self._lock_file = None
-        self._blocked_by_lock = False
 
-    def _acquire_interprocess_lock(self) -> None:
+    @contextmanager
+    def _interprocess_lock(self) -> Iterator[None]:
         if not self.require_lock:
+            yield
             return
         if _WRITE_LOCK_HELD.is_set():
             raise DatabaseLockedError(
                 f"Database locked via {self.lock_path}; backup write lock active"
             )
-        if self._blocked_by_lock:
-            raise DatabaseLockedError(
-                f"Database locked via {self.lock_path}; another container is writing"
-            )
         if self._lock_file is not None:
+            yield
             return
         _ensure_directory(self.lock_path)
         logger.info("Attempting to acquire SQLite interprocess lock at %s", self.lock_path)
@@ -102,7 +100,6 @@ class SQLiteConnector:
                     fcntl.flock(file_handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except OSError as exc:  # pragma: no cover - depends on runtime
                     file_handle.close()
-                    self._blocked_by_lock = True
                     logger.info(
                         "SQLite lock at %s is held by another process", self.lock_path
                     )
@@ -114,11 +111,12 @@ class SQLiteConnector:
             file_handle.write("1")
             file_handle.flush()
             os.fsync(file_handle.fileno())
-        except Exception:
-            file_handle.close()
-            raise
-        self._lock_file = file_handle
-        logger.info("Acquired SQLite interprocess lock at %s", self.lock_path)
+            self._lock_file = file_handle
+            logger.info("Acquired SQLite interprocess lock at %s", self.lock_path)
+            yield
+        finally:
+            if self._lock_file is file_handle:
+                self._release_interprocess_lock()
 
     def _release_interprocess_lock(self) -> None:
         if self._lock_file is None:
@@ -137,13 +135,11 @@ class SQLiteConnector:
         finally:
             self._lock_file.close()
             self._lock_file = None
-            self._blocked_by_lock = False
             logger.info("Released SQLite interprocess lock at %s", self.lock_path)
 
     @property
     def connection(self) -> sqlite3.Connection:
         with self._lock:
-            self._acquire_interprocess_lock()
             if self._connection is None:
                 self._connection = sqlite3.connect(
                     self.db_path, check_same_thread=False
@@ -162,11 +158,14 @@ class SQLiteConnector:
     @contextmanager
     def cursor(self) -> Iterator[sqlite3.Cursor]:
         self._lock.acquire()
-        cur = self.connection.cursor()
         try:
-            yield cur
+            with self._interprocess_lock():
+                cur = self.connection.cursor()
+                try:
+                    yield cur
+                finally:
+                    cur.close()
         finally:
-            cur.close()
             self._lock.release()
 
     def initialise(self) -> None:
@@ -176,12 +175,14 @@ class SQLiteConnector:
             if self._initialised:
                 return
             script = self.ddl_path.read_text(encoding="utf-8")
-            self.connection.executescript(script)
-            self._initialised = True
+            with self._interprocess_lock():
+                self.connection.executescript(script)
+                self._initialised = True
 
     def commit(self) -> None:
         with self._lock:
-            self.connection.commit()
+            with self._interprocess_lock():
+                self.connection.commit()
 
     # Column helpers -----------------------------------------------------
     def _table_columns(self, table: str) -> Dict[str, str]:

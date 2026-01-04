@@ -3,6 +3,7 @@
 import os
 import sqlite3
 import sys
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -156,9 +157,27 @@ def test_perform_sqlite_backup_respects_write_lock(tmp_path):
     backup_dir = tmp_path / "backups"
     sqlite3.connect(db_path).close()
 
-    with sqlite_write_lock(db_path):
+    @contextmanager
+    def _locked(*_args, **_kwargs):
+        raise DatabaseLockedError("locked")
+        yield  # pragma: no cover - defensive
+
+    with patch("evaluations.backup_scheduler.sqlite_write_lock", _locked):
         with pytest.raises(DatabaseLockedError):
             perform_sqlite_backup(db_path, backup_dir)
+
+
+def test_perform_sqlite_backup_succeeds_with_idle_connector(tmp_path):
+    db_path = tmp_path / "game.sqlite"
+    backup_dir = tmp_path / "backups"
+    connector = SQLiteConnector(db_path=db_path)
+    connector.initialise()
+
+    perform_sqlite_backup(db_path, backup_dir)
+
+    backup_files = list(backup_dir.glob("game-*.db"))
+    assert len(backup_files) == 1
+    connector.close()
 
 
 def test_backup_scheduler_skips_when_active_sessions(tmp_path):
@@ -182,3 +201,55 @@ def test_backup_scheduler_skips_when_active_sessions(tmp_path):
     with patch("evaluations.backup_scheduler.perform_sqlite_backup") as backup_mock:
         assert scheduler.run_once() is False
         backup_mock.assert_not_called()
+
+
+def test_backup_scheduler_recovers_after_failed_backup(tmp_path):
+    db_path = tmp_path / "game.sqlite"
+    backup_dir = tmp_path / "backups"
+    sqlite3.connect(db_path).close()
+    monitor = SessionActivityMonitor()
+    monitor.register_session("session-one")
+    monitor.mark_closed("session-one")
+    scheduler = BackupScheduler(
+        db_path=db_path,
+        backup_path=backup_dir,
+        trigger=ClosedSessionsThresholdCondition(1),
+        session_monitor=monitor,
+        session_inactive_seconds=9999,
+        poll_interval_seconds=0.1,
+        cleanup_after_backup=True,
+    )
+
+    with patch(
+        "evaluations.backup_scheduler.perform_sqlite_backup",
+        side_effect=[RuntimeError("backup failed"), None],
+    ) as backup_mock:
+        with pytest.raises(RuntimeError):
+            scheduler.run_once()
+        assert scheduler.run_once() is True
+        assert backup_mock.call_count == 2
+
+
+def test_backup_scheduler_allows_new_backups_after_success(tmp_path):
+    db_path = tmp_path / "game.sqlite"
+    backup_dir = tmp_path / "backups"
+    sqlite3.connect(db_path).close()
+    monitor = SessionActivityMonitor()
+    monitor.register_session("session-one")
+    monitor.mark_closed("session-one")
+    scheduler = BackupScheduler(
+        db_path=db_path,
+        backup_path=backup_dir,
+        trigger=ClosedSessionsThresholdCondition(1),
+        session_monitor=monitor,
+        session_inactive_seconds=9999,
+        poll_interval_seconds=0.1,
+        cleanup_after_backup=True,
+    )
+
+    with patch("evaluations.backup_scheduler.perform_sqlite_backup") as backup_mock:
+        assert scheduler.run_once() is True
+        monitor.register_session("session-two")
+        monitor.mark_closed("session-two")
+        assert scheduler.run_once() is True
+        assert backup_mock.call_count == 2
