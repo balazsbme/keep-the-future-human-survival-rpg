@@ -79,7 +79,26 @@ def test_dynamic_schema_and_inserts(tmp_path: Path) -> None:
             "option_json": {"text": "Do something"},
         }
     )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        connector.insert_action(
+            {
+                "execution_id": execution_id,
+                "conversation_id": str(uuid.uuid4()),
+                "session_id": "abc",
+                "actor": "NPC",
+                "title": "Action",
+                "option_text": "Do something",
+                "option_type": "action",
+                "success": 1,
+                "round_number": 1,
+                "option_json": {"text": "Do something"},
+            }
+        )
     uuid.UUID(action_id)
+
+    action_columns = _get_columns(connector.connection, "actions")
+    assert "conversation_id" in action_columns
 
     assessment_id = connector.insert_assessment(
         {
@@ -108,6 +127,53 @@ def test_dynamic_schema_and_inserts(tmp_path: Path) -> None:
         }
     )
     uuid.UUID(credibility_id)
+
+    conversation_id = connector.insert_conversation(
+        {
+            "execution_id": execution_id,
+            "session_id": "abc",
+            "player_character": "Player",
+            "npc_character": "NPC",
+            "metadata_json": {"scenario": "complete"},
+        }
+    )
+    uuid.UUID(conversation_id)
+
+    choice_id = connector.insert_player_conversation_choice(
+        {
+            "conversation_id": conversation_id,
+            "order_index": 0,
+            "generated_options_json": [{"text": "Hello"}],
+            "selected_option_json": {"text": "Hello"},
+        }
+    )
+    uuid.UUID(choice_id)
+
+    npc_response_id = connector.insert_npc_response(
+        {
+            "conversation_id": conversation_id,
+            "execution_id": execution_id,
+            "session_id": "abc",
+            "npc_character": "NPC",
+            "response_json": [{"text": "Hi"}],
+            "response_payload_json": {"text": "Hi", "type": "chat"},
+            "response_text": "Hi",
+            "response_type": "chat",
+            "related_triplet": None,
+            "related_attribute": "None",
+            "order_index": 1,
+        }
+    )
+    uuid.UUID(npc_response_id)
+
+    interaction_id = connector.insert_web_interaction(
+        {
+            "session_id": "abc",
+            "uri": "/start",
+            "status_code": 200,
+        }
+    )
+    uuid.UUID(interaction_id)
 
     connector.insert_result(
         {
