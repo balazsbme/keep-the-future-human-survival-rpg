@@ -78,6 +78,11 @@ class SQLiteConnector:
         self._lock = threading.RLock()
         self._lock_file = None
 
+    def _open_connection(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.db_path, check_same_thread=False)
+        connection.row_factory = sqlite3.Row
+        return connection
+
     @contextmanager
     def _interprocess_lock(self) -> Iterator[None]:
         if not self.require_lock:
@@ -141,10 +146,7 @@ class SQLiteConnector:
     def connection(self) -> sqlite3.Connection:
         with self._lock:
             if self._connection is None:
-                self._connection = sqlite3.connect(
-                    self.db_path, check_same_thread=False
-                )
-                self._connection.row_factory = sqlite3.Row
+                self._connection = self._open_connection()
             return self._connection
 
     def close(self) -> None:
@@ -160,11 +162,15 @@ class SQLiteConnector:
         self._lock.acquire()
         try:
             with self._interprocess_lock():
-                cur = self.connection.cursor()
+                connection = self.connection
+                cur = connection.cursor()
                 try:
                     yield cur
                 finally:
                     cur.close()
+                    connection.commit()
+                    connection.close()
+                    self._connection = None
         finally:
             self._lock.release()
 
@@ -176,13 +182,21 @@ class SQLiteConnector:
                 return
             script = self.ddl_path.read_text(encoding="utf-8")
             with self._interprocess_lock():
-                self.connection.executescript(script)
+                connection = self.connection
+                connection.executescript(script)
+                connection.commit()
+                connection.close()
+                self._connection = None
                 self._initialised = True
 
     def commit(self) -> None:
         with self._lock:
+            if self._connection is None:
+                return
             with self._interprocess_lock():
-                self.connection.commit()
+                self._connection.commit()
+                self._connection.close()
+                self._connection = None
 
     # Column helpers -----------------------------------------------------
     def _table_columns(self, table: str) -> Dict[str, str]:
