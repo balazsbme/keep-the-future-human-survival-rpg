@@ -15,6 +15,12 @@ if str(ROOT) not in sys.path:
 from evaluations.sqlite3_connector import DatabaseLockedError, SQLiteConnector
 
 
+def _open_connection(path: Path) -> sqlite3.Connection:
+    connection = sqlite3.connect(path)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
 def _get_columns(connection: sqlite3.Connection, table: str) -> dict[str, str]:
     cursor = connection.execute(f"PRAGMA table_info({table})")
     return {row[1]: row[2] for row in cursor.fetchall()}
@@ -27,25 +33,29 @@ def test_dynamic_schema_and_inserts(tmp_path: Path) -> None:
 
     connector.ensure_dynamic_schema({"Governments": 2, "CivilSociety": 1}, ["Governments", "CivilSociety"])
 
-    columns = _get_columns(connector.connection, "assessments")
+    with _open_connection(db_path) as connection:
+        columns = _get_columns(connection, "assessments")
     assert "governments_triplet_1" in columns
     assert "governments_triplet_2" in columns
     assert "civilsociety_triplet_1" in columns
     assert "session_id" in columns
 
-    credibility_columns = _get_columns(connector.connection, "credibility")
+    with _open_connection(db_path) as connection:
+        credibility_columns = _get_columns(connection, "credibility")
     assert "credibility_governments" in credibility_columns
     assert "credibility_civilsociety" in credibility_columns
     assert "session_id" in credibility_columns
 
-    execution_columns = _get_columns(connector.connection, "executions")
+    with _open_connection(db_path) as connection:
+        execution_columns = _get_columns(connection, "executions")
     assert "action_time_cost_years" in execution_columns
     assert "format_prompt_character_limit" in execution_columns
     assert "conversation_force_action_after" in execution_columns
     assert "log_filename" in execution_columns
     assert "session_id" in execution_columns
 
-    results_columns = _get_columns(connector.connection, "results")
+    with _open_connection(db_path) as connection:
+        results_columns = _get_columns(connection, "results")
     assert "log_warning_count" in results_columns
     assert "log_error_count" in results_columns
     assert "session_id" in results_columns
@@ -97,7 +107,8 @@ def test_dynamic_schema_and_inserts(tmp_path: Path) -> None:
         )
     uuid.UUID(action_id)
 
-    action_columns = _get_columns(connector.connection, "actions")
+    with _open_connection(db_path) as connection:
+        action_columns = _get_columns(connection, "actions")
     assert "conversation_id" in action_columns
 
     assessment_id = connector.insert_assessment(
@@ -185,33 +196,37 @@ def test_dynamic_schema_and_inserts(tmp_path: Path) -> None:
             "log_error_count": 1,
         }
     )
-    row = connector.connection.execute(
-        "SELECT result, successful_execution, log_warning_count, log_error_count, session_id FROM results WHERE execution_id = ?",
-        (execution_id,),
-    ).fetchone()
+    with _open_connection(db_path) as connection:
+        row = connection.execute(
+            "SELECT result, successful_execution, log_warning_count, log_error_count, session_id FROM results WHERE execution_id = ?",
+            (execution_id,),
+        ).fetchone()
     assert row["result"] == "Win"
     assert row["successful_execution"] == 1
     assert row["log_warning_count"] == 2
     assert row["log_error_count"] == 1
     assert row["session_id"] == "abc"
 
-    action_row = connector.connection.execute(
-        "SELECT execution_id FROM actions WHERE action_id = ?",
-        (action_id,),
-    ).fetchone()
+    with _open_connection(db_path) as connection:
+        action_row = connection.execute(
+            "SELECT execution_id FROM actions WHERE action_id = ?",
+            (action_id,),
+        ).fetchone()
     assert action_row["execution_id"] == execution_id
 
-    assessment_row = connector.connection.execute(
-        "SELECT execution_id, action_id FROM assessments WHERE assessment_id = ?",
-        (assessment_id,),
-    ).fetchone()
+    with _open_connection(db_path) as connection:
+        assessment_row = connection.execute(
+            "SELECT execution_id, action_id FROM assessments WHERE assessment_id = ?",
+            (assessment_id,),
+        ).fetchone()
     assert assessment_row["execution_id"] == execution_id
     assert assessment_row["action_id"] == action_id
 
-    credibility_row = connector.connection.execute(
-        "SELECT execution_id, action_id FROM credibility WHERE credibility_vector_id = ?",
-        (credibility_id,),
-    ).fetchone()
+    with _open_connection(db_path) as connection:
+        credibility_row = connection.execute(
+            "SELECT execution_id, action_id FROM credibility WHERE credibility_vector_id = ?",
+            (credibility_id,),
+        ).fetchone()
     assert credibility_row["execution_id"] == execution_id
     assert credibility_row["action_id"] == action_id
 
@@ -250,8 +265,9 @@ def test_concurrent_inserts(tmp_path: Path) -> None:
         thread.join()
 
     assert not errors
-    row = connector.connection.execute("SELECT COUNT(*) FROM executions").fetchone()
-    assert row[0] == 5
+    with _open_connection(db_path) as connection:
+        row = connection.execute("SELECT COUNT(*) FROM executions").fetchone()
+        assert row[0] == 5
 
 
 def test_foreign_key_enforcement_with_uuid_ids(tmp_path: Path) -> None:
@@ -365,3 +381,16 @@ def test_interprocess_lock_raises_when_held(tmp_path: Path, monkeypatch: pytest.
     with pytest.raises(DatabaseLockedError):
         with connector.cursor() as cur:
             cur.execute("SELECT 1")
+
+
+def test_cursor_closes_connection_after_use(tmp_path: Path) -> None:
+    db_path = tmp_path / "close.sqlite"
+    connector = SQLiteConnector(db_path=db_path)
+    connector.initialise()
+
+    with connector.cursor() as cur:
+        cur.execute("SELECT 1")
+        connection = cur.connection
+
+    with pytest.raises(sqlite3.ProgrammingError):
+        connection.execute("SELECT 1")
